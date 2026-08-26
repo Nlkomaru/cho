@@ -53,6 +53,14 @@ jobs:
             f1bf4fa4-0288-4a31-b28b-b499013acdce > CLOUDFLARE_API_KEY
 
 
+      - name: Get QR upload credentials from Bitwarden Secrets Manager
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          secrets: |
+            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
+            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
+
       - uses: pnpm/action-setup@v4
         name: Install pnpm
         with:
@@ -99,16 +107,32 @@ jobs:
 
           app_url="${url%/}"
           echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
-      - name: Build preview QR URLs
+      - name: Render and upload preview QR codes
         id: qr
         env:
           APP_PREVIEW_URL: ${{ steps.resolve-preview-url.outputs.app_url }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_EC2_METADATA_DISABLED: true
+          BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
+          S3_URL: ${{ secrets.S3_URL }}
         run: |
+          commit_short_sha="${COMMIT_SHA:0:7}"
           storybook_url="${APP_PREVIEW_URL}/storybook/"
-          app_qr_data=$(printf '%s' "$APP_PREVIEW_URL" | jq -sRr @uri)
-          storybook_qr_data=$(printf '%s' "$storybook_url" | jq -sRr @uri)
-          echo "app_qr_url=https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=$app_qr_data" >> "$GITHUB_OUTPUT"
-          echo "storybook_qr_url=https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=$storybook_qr_data" >> "$GITHUB_OUTPUT"
+          for target in app storybook; do
+            url="$APP_PREVIEW_URL"
+            if [ "$target" = storybook ]; then
+              url="$storybook_url"
+            fi
+            pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "$target.png" -- "$url"
+            aws s3 cp "$target.png" \
+              "s3://${BUCKET_NAME}/cho/${commit_short_sha}/qr/$target.png" \
+              --endpoint-url "$S3_URL" \
+              --content-type image/png \
+              --only-show-errors
+            echo "${target}_qr_url=${PREVIEW_BASE_URL}/${commit_short_sha}/qr/$target.png" >> "$GITHUB_OUTPUT"
+          done
       - name: Comment preview URLs
         env:
           APP_PREVIEW_URL: ${{ steps.resolve-preview-url.outputs.app_url }}
