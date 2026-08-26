@@ -12,6 +12,13 @@ concurrency:
   group: preview-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_EC2_METADATA_DISABLED: true
+  BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+  PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
+  S3_URL: ${{ secrets.S3_URL }}
+  WORKER_NAME: cho
 
 jobs:
   check:
@@ -37,29 +44,22 @@ jobs:
       - name: Check
         run: pnpm run check
 
-  deploy-preview:
+  deploy-app-preview:
     needs: check
     runs-on: ubuntu-latest
-    name: Deploy Preview
+    name: Deploy App Preview
+    outputs:
+      version_id: ${{ steps.resolve-app-preview-version.outputs.version_id }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get secrets from Bitwarden Secrets Manager
+      - name: Get Cloudflare credentials from Bitwarden Secrets Manager
         uses: bitwarden/sm-action@v2
         with:
           access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
           secrets: |
             2bad9e23-82af-4fba-b514-b49900e1632f > CLOUDFLARE_ACCOUNT_ID
             f1bf4fa4-0288-4a31-b28b-b499013acdce > CLOUDFLARE_API_KEY
-
-
-      - name: Get QR upload credentials from Bitwarden Secrets Manager
-        uses: bitwarden/sm-action@v2
-        with:
-          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
-          secrets: |
-            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
-            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
 
       - uses: pnpm/action-setup@v4
         name: Install pnpm
@@ -75,9 +75,10 @@ jobs:
       - name: Install
         run: pnpm install
 
-      - name: Build app and Storybook preview
-        run: pnpm run build-preview
-      - name: Upload preview version
+      - name: Build app
+        run: pnpm run build
+
+      - name: Deploy app preview
         id: deploy-preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -86,8 +87,8 @@ jobs:
           command: versions upload --message "Deployed preview by GitHub Actions branch ${{ github.ref_name }}"
           workingDirectory: app
 
-      - name: Resolve preview URL
-        id: resolve-preview-url
+      - name: Resolve app preview version
+        id: resolve-app-preview-version
         env:
           WRANGLER_DEPLOYMENT_URL: ${{ steps.deploy-preview.outputs.deployment-url }}
           WRANGLER_COMMAND_OUTPUT: ${{ steps.deploy-preview.outputs.command-output }}
@@ -100,65 +101,185 @@ jobs:
             url=$(echo "$output" | grep -Eo 'https://[^[:space:]]+' | head -n 1 || true)
           fi
 
-          if [ -z "$url" ]; then
-            echo "Failed to resolve preview URL from wrangler-action outputs."
+          version_id=$(printf '%s' "$url" | sed -nE "s#https://([0-9a-f-]+)-${WORKER_NAME}\\.nikomaru\\.workers\\.dev/?#\\1#p")
+          if [ -z "$version_id" ]; then
+            echo "Failed to resolve the app preview version ID."
             exit 1
           fi
 
-          app_url="${url%/}"
-          echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
-      - name: Render and upload preview QR codes
-        id: qr
-        env:
-          APP_PREVIEW_URL: ${{ steps.resolve-preview-url.outputs.app_url }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          AWS_EC2_METADATA_DISABLED: true
-          BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-          PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
-          S3_URL: ${{ secrets.S3_URL }}
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+
+  deploy-storybook-preview:
+    needs: check
+    runs-on: ubuntu-latest
+    name: Deploy Storybook Preview
+    outputs:
+      deployment_url: ${{ steps.resolve-storybook-preview-url.outputs.deployment_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set short commit SHA
+        id: vars
         run: |
-          commit_short_sha="${COMMIT_SHA:0:7}"
-          storybook_url="${APP_PREVIEW_URL}/storybook/"
-          for target in app storybook; do
-            url="$APP_PREVIEW_URL"
-            if [ "$target" = storybook ]; then
-              url="$storybook_url"
+          sha="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "commit_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: ./pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install
+
+      - name: Build Storybook
+        run: pnpm --filter ./storybook run build
+
+      - name: Get R2 credentials from Bitwarden Secrets Manager
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          secrets: |
+            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
+            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
+
+      - name: Upload Storybook to R2
+        env:
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+        run: |
+          aws configure set default.s3.max_concurrent_requests 50
+          s3_base="s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}"
+          s3_options="--endpoint-url ${S3_URL} --only-show-errors --recursive"
+          aws s3 cp ./storybook/storybook-static "$s3_base/storybook" $s3_options
+          aws s3api put-object \
+            --bucket "$BUCKET_NAME" \
+            --key "cho/${COMMIT_SHORT_SHA}/storybook/" \
+            --body ./storybook/storybook-static/index.html \
+            --content-type text/html \
+            --endpoint-url "$S3_URL" > /dev/null
+
+      - name: Resolve Storybook preview URL
+        id: resolve-storybook-preview-url
+        env:
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+        run: echo "deployment_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/" >> "$GITHUB_OUTPUT"
+
+  comment:
+    needs: [check, deploy-app-preview, deploy-storybook-preview]
+    if: always()
+    runs-on: ubuntu-latest
+    name: Comment Preview URLs
+    timeout-minutes: 10
+    steps:
+      - name: Set short commit SHA
+        id: vars
+        run: |
+          sha="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "commit_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Get R2 credentials from Bitwarden Secrets Manager
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          secrets: |
+            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
+            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 10.33.3
+          run_install: false
+
+      - name: Render and upload QR codes
+        id: qr
+        timeout-minutes: 5
+        env:
+          APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-storybook-preview.outputs.deployment_url }}
+        run: |
+          app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
+
+          upload_qr() {
+            name="$1"
+            url="$2"
+            [ -n "$url" ] || return 0
+
+            if ! pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "$name.png" -- "$url"; then
+              echo "::warning::failed to render the $name QR code"
+              return 0
             fi
-            pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "$target.png" -- "$url"
-            aws s3 cp "$target.png" \
-              "s3://${BUCKET_NAME}/cho/${commit_short_sha}/qr/$target.png" \
+            if ! aws s3 cp "$name.png" \
+              "s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}/qr/$name.png" \
               --endpoint-url "$S3_URL" \
               --content-type image/png \
-              --only-show-errors
-            echo "${target}_qr_url=${PREVIEW_BASE_URL}/${commit_short_sha}/qr/$target.png" >> "$GITHUB_OUTPUT"
-          done
-      - name: Comment preview URLs
+              --only-show-errors; then
+              echo "::warning::failed to upload the $name QR code"
+              return 0
+            fi
+
+            echo "${name}_qr_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/$name.png" >> "$GITHUB_OUTPUT"
+          }
+
+          upload_qr app "$app_preview_url"
+          upload_qr storybook "$STORYBOOK_PREVIEW_URL"
+
+      - name: Create preview comment
         env:
-          APP_PREVIEW_URL: ${{ steps.resolve-preview-url.outputs.app_url }}
+          APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
           APP_QR_URL: ${{ steps.qr.outputs.app_qr_url }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-storybook-preview.outputs.deployment_url }}
           STORYBOOK_QR_URL: ${{ steps.qr.outputs.storybook_qr_url }}
         run: |
-          storybook_url="${APP_PREVIEW_URL}/storybook/"
-          body=$(cat <<EOF
+          app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
+
+          row() {
+            label="$1"
+            url="$2"
+            qr="$3"
+            if [ -z "$url" ]; then
+              printf '| %s | Not available | — |\n' "$label" >> comment.md
+              return
+            fi
+            if [ -n "$qr" ]; then
+              printf '| %s | <%s> | <img src="%s" width="120" height="120" alt="%s preview QR code"> |\n' \
+                "$label" "$url" "$qr" "$label" >> comment.md
+            else
+              printf '| %s | <%s> | — |\n' "$label" "$url" >> comment.md
+            fi
+          }
+
+          cat << 'EOF' > comment.md
           ## Deploy preview
 
           | Target | URL | QR |
           | --- | --- | --- |
-          | App | <$APP_PREVIEW_URL> | <img src="$APP_QR_URL" width="120" height="120" alt="App preview QR code"> |
-          | Storybook | <$storybook_url> | <img src="$STORYBOOK_QR_URL" width="120" height="120" alt="Storybook preview QR code"> |
+          EOF
+          row App "$app_preview_url" "$APP_QR_URL"
+          row Storybook "$STORYBOOK_PREVIEW_URL" "$STORYBOOK_QR_URL"
+          cat << 'EOF' >> comment.md
 
           スマートフォンから開く場合は QR を読み取ってください。App プレビューは Cloudflare Access のサインインを求める場合があります。
           EOF
-          )
+
+      - name: Create PR comment
+        run: |
           for attempt in 1 2 3; do
             if gh pr comment "${{ github.event.number }}" \
-              --body "$body" --edit-last --create-if-none; then
+              --body-file comment.md --edit-last --create-if-none; then
               exit 0
             fi
             sleep $((attempt * 10))
           done
           echo "Failed to post the preview comment after 3 attempts."
           exit 1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
