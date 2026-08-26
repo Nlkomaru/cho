@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "pnpm --parallel --filter ./app --filter ./storybook run dev",
     "build": "pnpm --filter ./app run build",
+    "build-preview": "pnpm --filter ./app run build && pnpm --filter ./storybook run build && pnpm run bundle-storybook",
+    "bundle-storybook": "rm -rf app/dist/client/storybook && cp -R storybook/storybook-static app/dist/client/storybook",
     "check": "pnpm --filter ./app run check && pnpm --filter ./storybook run check",
     "deploy": "pnpm run build && pnpm --dir app exec wrangler deploy",
     "cf-typegen": "pnpm --filter ./app run cf-typegen"

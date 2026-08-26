@@ -52,6 +52,14 @@ jobs:
             2bad9e23-82af-4fba-b514-b49900e1632f > CLOUDFLARE_ACCOUNT_ID
             f1bf4fa4-0288-4a31-b28b-b499013acdce > CLOUDFLARE_API_KEY
 
+      - name: Get QR upload credentials from Bitwarden Secrets Manager
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          secrets: |
+            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
+            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
+
       - uses: pnpm/action-setup@v4
         name: Install pnpm
         with:
@@ -66,8 +74,8 @@ jobs:
       - name: Install
         run: pnpm install
 
-      - name: Build app
-        run: pnpm run build
+      - name: Build app and Storybook preview
+        run: pnpm run build-preview
       - name: Upload preview version
         id: deploy-preview
         uses: cloudflare/wrangler-action@v3
@@ -98,13 +106,53 @@ jobs:
 
           app_url="${url%/}"
           echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
-      - name: Comment preview URL
+      - name: Render and upload preview QR codes
+        id: qr
         env:
           APP_PREVIEW_URL: ${{ steps.resolve-preview-url.outputs.app_url }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_EC2_METADATA_DISABLED: true
+          BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
+          S3_URL: ${{ secrets.S3_URL }}
+        run: |
+          commit_short_sha="${COMMIT_SHA:0:7}"
+          storybook_url="${APP_PREVIEW_URL}/storybook/"
+          for target in app storybook; do
+            url="$APP_PREVIEW_URL"
+            if [ "$target" = storybook ]; then
+              url="$storybook_url"
+            fi
+            pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "$target.png" -- "$url"
+            aws s3 cp "$target.png" \
+              "s3://${BUCKET_NAME}/cho/${commit_short_sha}/qr/$target.png" \
+              --endpoint-url "$S3_URL" \
+              --content-type image/png \
+              --only-show-errors
+            echo "${target}_qr_url=${PREVIEW_BASE_URL}/${commit_short_sha}/qr/$target.png" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Comment preview URLs
+        env:
+          APP_PREVIEW_URL: ${{ steps.resolve-preview-url.outputs.app_url }}
+          APP_QR_URL: ${{ steps.qr.outputs.app_qr_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          STORYBOOK_QR_URL: ${{ steps.qr.outputs.storybook_qr_url }}
         run: |
-          body=$(printf '## Deploy preview\n\n<%s>\n\nApp プレビューは Cloudflare Access のサインインを求める場合があります。\n' "$APP_PREVIEW_URL")
+          storybook_url="${APP_PREVIEW_URL}/storybook/"
+          body=$(cat <<EOF
+          ## Deploy preview
+
+          | Target | URL | QR |
+          | --- | --- | --- |
+          | App | <$APP_PREVIEW_URL> | <img src="$APP_QR_URL" width="120" height="120" alt="App preview QR code"> |
+          | Storybook | <$storybook_url> | <img src="$STORYBOOK_QR_URL" width="120" height="120" alt="Storybook preview QR code"> |
+
+          スマートフォンから開く場合は QR を読み取ってください。App プレビューは Cloudflare Access のサインインを求める場合があります。
+          EOF
+          )
           for attempt in 1 2 3; do
             if gh pr comment "${{ github.event.number }}" \
               --body "$body" --edit-last --create-if-none; then
