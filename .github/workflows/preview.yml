@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: ./pnpm-lock.yaml
 
@@ -49,7 +49,6 @@ jobs:
     name: Deploy Preview
     outputs:
       app_url: ${{ steps.resolve-preview-url.outputs.app_url }}
-      storybook_url: ${{ steps.resolve-preview-url.outputs.storybook_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,17 +67,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: ./pnpm-lock.yaml
 
       - name: Install
         run: pnpm install
 
-      # 本番と同じく、Storybook を app の /storybook に同梱する。
-      - name: Build app and Storybook
+      - name: Build app
         run: pnpm run build
-
       - name: Upload preview version
         id: deploy-preview
         uses: cloudflare/wrangler-action@v3
@@ -88,7 +85,7 @@ jobs:
           command: versions upload --message "Deployed preview by GitHub Actions branch ${{ github.ref_name }}"
           workingDirectory: app
 
-      - name: Resolve preview URLs
+      - name: Resolve preview URL
         id: resolve-preview-url
         env:
           WRANGLER_DEPLOYMENT_URL: ${{ steps.deploy-preview.outputs.deployment-url }}
@@ -109,14 +106,12 @@ jobs:
 
           app_url="${url%/}"
           echo "app_url=$app_url" >> "$GITHUB_OUTPUT"
-          echo "storybook_url=$app_url/storybook/" >> "$GITHUB_OUTPUT"
 
   comment:
     needs: [check, deploy-preview]
     if: always()
     runs-on: ubuntu-latest
-    name: Comment Preview URLs
-    timeout-minutes: 10
+    name: Comment Preview URL
     steps:
       - name: Set short commit SHA
         id: vars
@@ -138,13 +133,12 @@ jobs:
           version: 10.33.3
           run_install: false
 
-      - name: Render and upload QR codes
+      - name: Render and upload QR code
         id: qr
         timeout-minutes: 5
         env:
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
           APP_PREVIEW_URL: ${{ needs.deploy-preview.outputs.app_url }}
-          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-preview.outputs.storybook_url }}
         run: |
           upload_qr() {
             name="$1"
@@ -173,14 +167,11 @@ jobs:
           }
 
           upload_qr app "$APP_PREVIEW_URL"
-          upload_qr storybook "$STORYBOOK_PREVIEW_URL"
 
       - name: Create comment file
         env:
           APP_PREVIEW_URL: ${{ needs.deploy-preview.outputs.app_url }}
-          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-preview.outputs.storybook_url }}
           APP_QR_URL: ${{ steps.qr.outputs.app_qr_url }}
-          STORYBOOK_QR_URL: ${{ steps.qr.outputs.storybook_qr_url }}
         run: |
           row() {
             label="$1"
@@ -206,7 +197,6 @@ jobs:
           EOF
 
           row App "$APP_PREVIEW_URL" "$APP_QR_URL"
-          row Storybook "$STORYBOOK_PREVIEW_URL" "$STORYBOOK_QR_URL"
 
           cat << 'EOF' >> comment.md
 

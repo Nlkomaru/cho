@@ -27,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: ./pnpm-lock.yaml
 
@@ -40,7 +40,7 @@ jobs:
   deploy:
     needs: check
     runs-on: ubuntu-latest
-    name: Deploy App and Storybook
+    name: Deploy App
     steps:
       - uses: actions/checkout@v4
 
@@ -59,15 +59,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
           cache-dependency-path: ./pnpm-lock.yaml
 
       - name: Install
         run: pnpm install
 
-      # ルート build が Storybook を app/dist/client/storybook へ同梱する。
-      - name: Build app and Storybook
+      # app だけをビルドしてデプロイする。
+      - name: Build app
         run: pnpm run build
 
       - name: Deploy
