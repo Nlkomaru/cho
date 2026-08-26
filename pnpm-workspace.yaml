@@ -1,3 +1,15 @@
+packages:
+  - app
+  - storybook
+
+# Storybook が app のコンポーネントを描画するときに Router の context を
+# 同じ実体で共有できるよう、ワークスペース全体でバージョンを固定する。
+catalog:
+  "@tanstack/react-router": 1.170.32
+
+overrides:
+  "@tanstack/react-router": 1.170.32
+
 allowBuilds:
   esbuild: true
   lightningcss: true
