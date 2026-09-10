@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@import "@fontsource/poppins/latin-400.css";
+@import "@fontsource/poppins/latin-500.css";
+@import "@fontsource/poppins/latin-700.css";
 @import "@fontsource/jua/korean-400.css";
 @import "@fontsource/m-plus-rounded-1c/japanese-400.css";
 @import "@fontsource/m-plus-rounded-1c/japanese-500.css";
@@ -39,8 +42,8 @@
   --sidebar-accent-foreground: oklch(0.4015 0.0436 37.9587);
   --sidebar-border: oklch(0.9366 0.0345 359.8126);
   --sidebar-ring: oklch(0.8502 0.0851 6.1876);
-  --font-sans: "M PLUS Rounded 1c", sans-serif;
-  --font-serif: Jua, sans-serif;
+  --font-sans: "Poppins", "M PLUS Rounded 1c", sans-serif;
+  --font-serif: "Poppins", Jua, "M PLUS Rounded 1c", sans-serif;
   --font-mono: monospace;
   --radius: 1.25rem;
   --shadow-x: 0px;
@@ -94,8 +97,8 @@
   --sidebar-accent-foreground: oklch(0.9678 0.0166 3.6461);
   --sidebar-border: oklch(0.3458 0.0388 356.0232);
   --sidebar-ring: oklch(0.7716 0.1387 9.6611);
-  --font-sans: "M PLUS Rounded 1c", sans-serif;
-  --font-serif: Jua, sans-serif;
+  --font-sans: "Poppins", "M PLUS Rounded 1c", sans-serif;
+  --font-serif: "Poppins", Jua, "M PLUS Rounded 1c", sans-serif;
   --font-mono: monospace;
   --radius: 1.25rem;
   --shadow-x: 0px;
