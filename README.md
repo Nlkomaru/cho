@@ -51,3 +51,7 @@ pnpm deploy
 `main` への push と手動実行は `.github/workflows/deploy.yml`、Pull Request の
 プレビューは `.github/workflows/preview.yml` が担当します。Actions では
 `BWS_ACCESS_TOKEN`、`AWS_REGION`、`S3_URL`、`BUCKET_NAME` をリポジトリ secrets に設定します。
+
+## Theme
+
+https://tweakcn.com/themes/cmr5kll1g000004jxcs7c0gl5?p=marketing
