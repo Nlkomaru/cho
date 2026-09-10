@@ -19,10 +19,10 @@ importers:
       '@fontsource-variable/geist':
         specifier: ^5.3.0
         version: 5.3.0
-      '@fontsource/m-plus-rounded-1c':
+      '@fontsource/jua':
         specifier: ^5.3.0
         version: 5.3.0
-      '@fontsource/poppins':
+      '@fontsource/m-plus-rounded-1c':
         specifier: ^5.3.0
         version: 5.3.0
       '@tailwindcss/vite':
@@ -636,11 +636,11 @@ packages:
   '@fontsource-variable/geist@5.3.0':
     resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
 
+  '@fontsource/jua@5.3.0':
+    resolution: {integrity: sha512-k9ZTVYVqY4WxiDl55Udf2mLHca+voxTeIZ7qvLZUmR3VaUqM+RCZDYigEj1iKgV0Gx90NvzJy4CQpEPjDHBisA==}
+
   '@fontsource/m-plus-rounded-1c@5.3.0':
     resolution: {integrity: sha512-eB/JxJBRXLdfTsBDElsAZDMtHXM58Hf1tKkHoDVZAaUN7a+qYfwNKh4Q2f7Fk9YNg4xPFjTwooVlQyqbhi8CWQ==}
-
-  '@fontsource/poppins@5.3.0':
-    resolution: {integrity: sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -4183,9 +4183,9 @@ snapshots:
 
   '@fontsource-variable/geist@5.3.0': {}
 
-  '@fontsource/m-plus-rounded-1c@5.3.0': {}
+  '@fontsource/jua@5.3.0': {}
 
-  '@fontsource/poppins@5.3.0': {}
+  '@fontsource/m-plus-rounded-1c@5.3.0': {}
 
   '@hono/node-server@2.1.1(hono@4.13.5)':
     dependencies:
