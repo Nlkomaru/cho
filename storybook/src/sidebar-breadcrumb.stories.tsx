@@ -11,6 +11,7 @@ import {
 import {
 	Sidebar,
 	SidebarContent,
+	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
@@ -20,6 +21,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarProvider,
+	SidebarSeparator,
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
 
@@ -42,6 +44,7 @@ export const Expanded: Story = {
 						<SidebarMenuItem>
 							<SidebarMenuButton
 								size="lg"
+								className="pl-3"
 								render={<a aria-label="Cho ホーム" href="/" />}
 							>
 								Cho
@@ -57,6 +60,7 @@ export const Expanded: Story = {
 								<SidebarMenuItem>
 									<SidebarMenuButton
 										isActive
+										className="pl-3"
 										render={<a aria-label="記録一覧" href="/" />}
 									>
 										記録一覧
@@ -66,6 +70,53 @@ export const Expanded: Story = {
 						</SidebarGroupContent>
 					</SidebarGroup>
 				</SidebarContent>
+			<SidebarFooter className="mt-auto">
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							className="pl-3"
+							render={<a aria-label="OSS ライセンス" href="/license" />}
+						>
+							OSS ライセンス
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							className="pl-3"
+							render={
+								<a
+									aria-label="GitHub（新しいタブで開く）"
+									href="https://github.com/Nlkomaru/cho"
+									rel="noreferrer"
+									target="_blank"
+								/>
+							}
+						>
+							GitHub
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							className="pl-3"
+							render={
+								<a
+									aria-label="Storybook（新しいタブで開く）"
+									href="/storybook"
+									rel="noreferrer"
+									target="_blank"
+								/>
+							}
+						>
+							Storybook
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+				</SidebarMenu>
+				<SidebarSeparator />
+				<div className="px-2 pt-4 text-xs leading-5 text-sidebar-foreground/70">
+					<p>Deployed: 2026-09-10T12:00:00</p>
+					<p>No right reserved.</p>
+				</div>
+			</SidebarFooter>
 			</Sidebar>
 			<SidebarInset>
 				<header className="flex h-16 items-center gap-2 border-b px-4">
