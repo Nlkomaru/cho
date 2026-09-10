@@ -44,7 +44,7 @@ export const Expanded: Story = {
 						<SidebarMenuItem>
 							<SidebarMenuButton
 								size="lg"
-								className="pl-3"
+								className="pl-4"
 								render={<a aria-label="Cho ホーム" href="/" />}
 							>
 								Cho
@@ -60,7 +60,7 @@ export const Expanded: Story = {
 								<SidebarMenuItem>
 									<SidebarMenuButton
 										isActive
-										className="pl-3"
+										className="pl-4"
 										render={<a aria-label="記録一覧" href="/" />}
 									>
 										記録一覧
@@ -74,7 +74,7 @@ export const Expanded: Story = {
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							className="pl-3"
+							className="pl-4"
 							render={<a aria-label="OSS ライセンス" href="/license" />}
 						>
 							OSS ライセンス
@@ -82,7 +82,7 @@ export const Expanded: Story = {
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							className="pl-3"
+							className="pl-4"
 							render={
 								<a
 									aria-label="GitHub（新しいタブで開く）"
@@ -97,7 +97,7 @@ export const Expanded: Story = {
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							className="pl-3"
+							className="pl-4"
 							render={
 								<a
 									aria-label="Storybook（新しいタブで開く）"

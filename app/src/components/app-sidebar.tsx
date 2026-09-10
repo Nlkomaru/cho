@@ -34,7 +34,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							size="lg"
-							className="pl-3"
+							className="pl-4"
 							render={
 								// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
 								<a aria-label="Cho ホーム" href="/" />
@@ -61,7 +61,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 									<SidebarMenuItem key={item.title}>
 										<SidebarMenuButton
 											isActive={pathname === item.url}
-											className="pl-3"
+											className="pl-4"
 											render={
 												// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
 												<a aria-label={item.title} href={item.url} />
@@ -86,7 +86,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 							<SidebarMenuItem key={item.title}>
 								<SidebarMenuButton
 									isActive={pathname === item.url}
-									className="pl-3"
+									className="pl-4"
 									render={
 										// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
 										<a
