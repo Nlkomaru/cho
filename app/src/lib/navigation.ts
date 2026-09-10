@@ -3,6 +3,7 @@ import type { Breadcrumb } from "./breadcrumbs";
 export interface NavItem {
 	title: string;
 	url: string;
+	opensInNewTab?: boolean;
 }
 
 export type NavigationGroupTitle = "調理記録";
@@ -17,6 +18,16 @@ export const navigationGroups: readonly NavGroup[] = [
 		title: "調理記録",
 		items: [{ title: "記録一覧", url: "/" }],
 	},
+];
+
+export const navigationResources: readonly NavItem[] = [
+	{ title: "OSS ライセンス", url: "/license" },
+	{
+		title: "GitHub",
+		url: "https://github.com/Nlkomaru/cho",
+		opensInNewTab: true,
+	},
+	{ title: "Storybook", url: "/storybook", opensInNewTab: true },
 ];
 
 export const groupBreadcrumb = (title: NavigationGroupTitle): Breadcrumb => {

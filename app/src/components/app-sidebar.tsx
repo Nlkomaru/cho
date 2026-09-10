@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouterState } from "@tanstack/react-router";
-import { CookingPotIcon } from "lucide-react";
+import { CookingPotIcon, ExternalLinkIcon } from "lucide-react";
 import type * as React from "react";
 
 import {
 	Sidebar,
 	SidebarContent,
+	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
@@ -15,8 +16,11 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarRail,
+	SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { navigationGroups } from "@/lib/navigation";
+import { navigationGroups, navigationResources } from "@/lib/navigation";
+
+const deployedAt = import.meta.env.VITE_DEPLOYED_AT ?? "未デプロイ";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	const pathname = useRouterState({
@@ -30,6 +34,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							size="lg"
+							className="pl-3"
 							render={
 								// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
 								<a aria-label="Cho ホーム" href="/" />
@@ -56,6 +61,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 									<SidebarMenuItem key={item.title}>
 										<SidebarMenuButton
 											isActive={pathname === item.url}
+											className="pl-3"
 											render={
 												// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
 												<a aria-label={item.title} href={item.url} />
@@ -70,6 +76,44 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 					</SidebarGroup>
 				))}
 			</SidebarContent>
+			<SidebarFooter className="mt-auto">
+				<SidebarMenu>
+					{navigationResources.map((item) => {
+						const isExternal =
+							item.opensInNewTab ?? item.url.startsWith("https://");
+
+						return (
+							<SidebarMenuItem key={item.title}>
+								<SidebarMenuButton
+									isActive={pathname === item.url}
+									className="pl-3"
+									render={
+										// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
+										<a
+											aria-label={
+												isExternal
+													? `${item.title}（新しいタブで開く）`
+													: item.title
+											}
+											href={item.url}
+											rel={isExternal ? "noreferrer" : undefined}
+											target={isExternal ? "_blank" : undefined}
+										/>
+									}
+								>
+									{item.title}
+									{isExternal ? <ExternalLinkIcon /> : null}
+								</SidebarMenuButton>
+							</SidebarMenuItem>
+						);
+					})}
+				</SidebarMenu>
+				<SidebarSeparator />
+				<div className="px-2 pt-4 text-xs leading-5 text-sidebar-foreground/70">
+					<p>Deployed: {deployedAt.split(".")[0]}</p>
+					<p>No right reserved.</p>
+				</div>
+			</SidebarFooter>
 			<SidebarRail />
 		</Sidebar>
 	);
