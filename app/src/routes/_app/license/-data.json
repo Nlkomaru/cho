@@ -2374,6 +2374,12 @@
 				"versions": ["5.3.0"],
 				"author": "Google Inc.",
 				"homepage": "https://fontsource.org/fonts/m-plus-rounded-1c"
+			},
+			{
+				"name": "@fontsource/poppins",
+				"versions": ["5.3.0"],
+				"author": "Google Inc.",
+				"homepage": "https://fontsource.org/fonts/poppins"
 			}
 		]
 	},
