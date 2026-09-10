@@ -2364,16 +2364,16 @@
 				"homepage": "https://fontsource.org/fonts/geist"
 			},
 			{
-				"name": "@fontsource/jua",
-				"versions": ["5.3.0"],
-				"author": "Google Inc.",
-				"homepage": "https://fontsource.org/fonts/jua"
-			},
-			{
 				"name": "@fontsource/m-plus-rounded-1c",
 				"versions": ["5.3.0"],
 				"author": "Google Inc.",
 				"homepage": "https://fontsource.org/fonts/m-plus-rounded-1c"
+			},
+			{
+				"name": "@fontsource/nunito",
+				"versions": ["5.3.0"],
+				"author": "Google Inc.",
+				"homepage": "https://fontsource.org/fonts/nunito"
 			}
 		]
 	},
