@@ -1,0 +1,12 @@
+# ローカル開発用の秘密値。このファイルを .dev.vars へコピーして値を入れる（.dev.vars はコミットしない）。
+# 本番は wrangler secret put <NAME> で同じ名前を設定する。
+
+# openssl rand -base64 32 で生成する
+BETTER_AUTH_SECRET=
+# Discord Developer Portal の OAuth2 クライアント。Redirect URI は
+# http://localhost:3000/api/auth/callback/discord と
+# https://cho.nikomaru.dev/api/auth/callback/discord を登録する
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+# 登録を許可する Discord ユーザー id（カンマまたは空白区切り）。空なら誰も登録できない
+ALLOWED_DISCORD_USER_IDS=
