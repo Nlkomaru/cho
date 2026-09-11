@@ -14,5 +14,5 @@ export const recipeDocumentJsonSchema = {
 	$id: "https://cho.nikomaru.dev/schemas/recipe-v1.json",
 	title: "Cho recipe document v1",
 	description:
-		"Cho のレシピ JSON。単位は日本語表記（大さじ）でも slug（tbsp）でもよく、取り込み時に slug へ正規化する。",
+		"Cho のレシピ JSON。単位は日本語表記（大さじ）でも slug（tbsp）でもよく、取り込み時に slug へ正規化する。references の各要素は title か url のどちらかが必要（JSON Schema では表せない条件）。",
 } as const;

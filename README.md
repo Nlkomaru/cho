@@ -84,7 +84,9 @@ pnpm exec wrangler secret put ALLOWED_DISCORD_USER_IDS
     { "name": "グラニュー糖", "amount": { "value": 3, "unit": "大さじ" }, "note": null, "ingredientId": null }
   ],
   "steps": [{ "text": "りんごを 8 等分に切る。" }],
-  "source": { "type": "original", "title": null, "url": null },
+  "references": [
+    { "title": "定番のお菓子 p.42", "url": null, "note": "煮る時間だけ参考にした" }
+  ],
   "tags": ["作り置き"],
   "note": null
 }
@@ -93,6 +95,8 @@ pnpm exec wrangler secret put ALLOWED_DISCORD_USER_IDS
 - `categorySlug` は設定画面の「レシピの種類」の slug（`sweets`、`french` など）です。
 - 単位は日本語の表記（`大さじ`、`個`）でも slug（`tbsp`、`piece`）でもよく、取り込み時に slug へ正規化します。
   定義は `app/src/domain/units.ts` にあります。
+- `references` は参考にした本・サイト・動画などで、1 件ごとにタイトルか URL のどちらかが必要です。
+  空の配列なら自分のレシピとして扱います。
 - `ingredientId` は材料マスタの id です。省略しても、材料名が材料マスタと完全一致すれば
   取り込み時に自動で結び付きます（結び付くと単位換算と Inventia へのリンクが使えます）。
 - 画像はレシピ JSON には含めません。保存後の画面から追加します。

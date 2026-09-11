@@ -85,10 +85,6 @@ export const recipes = sqliteTable(
 		prepMinutes: integer("prep_minutes"),
 		cookMinutes: integer("cook_minutes"),
 		restMinutes: integer("rest_minutes"),
-		// 出典。"original" | "book" | "web" | "video" | "other"
-		sourceType: text("source_type"),
-		sourceTitle: text("source_title"),
-		sourceUrl: text("source_url"),
 		// 検索用のタグ。JSON 配列の文字列として持つ
 		tags: text("tags", { mode: "json" }).$type<string[]>().notNull(),
 		note: text("note"),
@@ -96,6 +92,28 @@ export const recipes = sqliteTable(
 		updatedAt: text("updated_at").notNull(),
 	},
 	(t) => [index("recipes_category_idx").on(t.categoryId)],
+);
+
+/**
+ * レシピの参考。参考にした本・サイト・動画などを複数持てる。
+ * 参考が 1 つも無いレシピは、自分のレシピとして扱う。
+ */
+export const recipeReferences = sqliteTable(
+	"recipe_references",
+	{
+		id: text("id").primaryKey(),
+		recipeId: text("recipe_id")
+			.notNull()
+			.references(() => recipes.id, { onDelete: "cascade" }),
+		position: integer("position").notNull(),
+		// 本のページや記事の見出し。URL だけの参考なら null
+		title: text("title"),
+		url: text("url"),
+		note: text("note"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [index("recipe_references_recipe_idx").on(t.recipeId, t.position)],
 );
 
 export const recipeIngredients = sqliteTable(

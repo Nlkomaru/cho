@@ -69,7 +69,13 @@ const exampleDocument = {
 		{ text: "りんごを 8 等分に切る。" },
 		{ text: "材料をすべて鍋に入れて弱火で 15 分煮る。" },
 	],
-	source: { type: "original", title: null, url: null },
+	references: [
+		{
+			title: "定番のお菓子",
+			url: null,
+			note: "煮る時間だけ参考にした",
+		},
+	],
 	tags: ["作り置き"],
 	note: null,
 };

@@ -378,24 +378,41 @@ function RecipeDetailView() {
 				</CardContent>
 			</Card>
 
-			{recipe.source ? (
+			{recipe.references.length > 0 ? (
 				<Card>
 					<CardHeader>
-						<CardTitle>出典</CardTitle>
+						<CardTitle>参考</CardTitle>
 					</CardHeader>
-					<CardContent className="text-sm">
-						{recipe.source.title ?? "出典の記録"}
-						{recipe.source.url ? (
-							<a
-								className="ml-2 inline-flex items-center gap-1 underline-offset-4 hover:underline"
-								href={recipe.source.url}
-								rel="noreferrer"
-								target="_blank"
-							>
-								{recipe.source.url}
-								<ExternalLinkIcon className="size-3" />
-							</a>
-						) : null}
+					<CardContent>
+						<ul className="flex flex-col gap-3">
+							{recipe.references.map((reference) => (
+								<li className="flex flex-col gap-1" key={reference.id}>
+									{reference.url ? (
+										<a
+											className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline"
+											href={reference.url}
+											rel="noreferrer"
+											target="_blank"
+										>
+											{reference.title ?? reference.url}
+											<ExternalLinkIcon className="size-3" />
+										</a>
+									) : (
+										<span className="font-medium">{reference.title}</span>
+									)}
+									{reference.url && reference.title ? (
+										<span className="text-xs break-all text-muted-foreground">
+											{reference.url}
+										</span>
+									) : null}
+									{reference.note ? (
+										<p className="text-sm text-muted-foreground">
+											{reference.note}
+										</p>
+									) : null}
+								</li>
+							))}
+						</ul>
 					</CardContent>
 				</Card>
 			) : null}

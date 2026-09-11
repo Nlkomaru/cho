@@ -10,6 +10,7 @@ import {
 	recipeCategories,
 	recipeImages,
 	recipeIngredients,
+	recipeReferences,
 	recipeSteps,
 	recipes,
 } from "@/db/schema";
@@ -20,7 +21,6 @@ import type {
 	RecipeImage,
 	RecipeInput,
 	RecipeListItem,
-	RecipeSource,
 } from "@/domain/recipe";
 import type { UnitSlug } from "@/domain/units";
 
@@ -70,19 +70,6 @@ export const listRecipes = async (
 		.groupBy(recipes.id)
 		.orderBy(desc(recipes.updatedAt));
 
-const sourceFromRow = (row: {
-	sourceType: string | null;
-	sourceTitle: string | null;
-	sourceUrl: string | null;
-}): RecipeSource | null =>
-	row.sourceType === null
-		? null
-		: {
-				type: row.sourceType as RecipeSource["type"],
-				title: row.sourceTitle,
-				url: row.sourceUrl,
-			};
-
 const imageFromRow = (row: {
 	id: string;
 	r2Key: string;
@@ -107,9 +94,6 @@ export const getRecipeDetail = async (
 			prepMinutes: recipes.prepMinutes,
 			cookMinutes: recipes.cookMinutes,
 			restMinutes: recipes.restMinutes,
-			sourceType: recipes.sourceType,
-			sourceTitle: recipes.sourceTitle,
-			sourceUrl: recipes.sourceUrl,
 			tags: recipes.tags,
 			note: recipes.note,
 			createdAt: recipes.createdAt,
@@ -124,50 +108,64 @@ export const getRecipeDetail = async (
 		return null;
 	}
 
-	const [ingredientRows, stepRows, imageRows, cookRows] = await Promise.all([
-		db
-			.select({
-				id: recipeIngredients.id,
-				name: recipeIngredients.name,
-				amountValue: recipeIngredients.amountValue,
-				amountUnit: recipeIngredients.amountUnit,
-				note: recipeIngredients.note,
-				ingredientId: recipeIngredients.ingredientId,
-				masterName: ingredients.name,
-				gramsPerMilliliter: ingredients.gramsPerMilliliter,
-				inventoryItemId: ingredients.inventoryItemId,
-			})
-			.from(recipeIngredients)
-			.leftJoin(ingredients, eq(recipeIngredients.ingredientId, ingredients.id))
-			.where(eq(recipeIngredients.recipeId, recipeId))
-			.orderBy(asc(recipeIngredients.position)),
-		db
-			.select({ id: recipeSteps.id, text: recipeSteps.text })
-			.from(recipeSteps)
-			.where(eq(recipeSteps.recipeId, recipeId))
-			.orderBy(asc(recipeSteps.position)),
-		db
-			.select({
-				id: recipeImages.id,
-				r2Key: recipeImages.r2Key,
-				alt: recipeImages.alt,
-				position: recipeImages.position,
-			})
-			.from(recipeImages)
-			.where(eq(recipeImages.recipeId, recipeId))
-			.orderBy(asc(recipeImages.position)),
-		db
-			.select({
-				id: cookRecords.id,
-				cookedAt: cookRecords.cookedAt,
-				rating: cookRecords.rating,
-				note: cookRecords.note,
-				instagramUrl: cookRecords.instagramUrl,
-			})
-			.from(cookRecords)
-			.where(eq(cookRecords.recipeId, recipeId))
-			.orderBy(desc(cookRecords.cookedAt)),
-	]);
+	const [ingredientRows, stepRows, referenceRows, imageRows, cookRows] =
+		await Promise.all([
+			db
+				.select({
+					id: recipeIngredients.id,
+					name: recipeIngredients.name,
+					amountValue: recipeIngredients.amountValue,
+					amountUnit: recipeIngredients.amountUnit,
+					note: recipeIngredients.note,
+					ingredientId: recipeIngredients.ingredientId,
+					masterName: ingredients.name,
+					gramsPerMilliliter: ingredients.gramsPerMilliliter,
+					inventoryItemId: ingredients.inventoryItemId,
+				})
+				.from(recipeIngredients)
+				.leftJoin(
+					ingredients,
+					eq(recipeIngredients.ingredientId, ingredients.id),
+				)
+				.where(eq(recipeIngredients.recipeId, recipeId))
+				.orderBy(asc(recipeIngredients.position)),
+			db
+				.select({ id: recipeSteps.id, text: recipeSteps.text })
+				.from(recipeSteps)
+				.where(eq(recipeSteps.recipeId, recipeId))
+				.orderBy(asc(recipeSteps.position)),
+			db
+				.select({
+					id: recipeReferences.id,
+					title: recipeReferences.title,
+					url: recipeReferences.url,
+					note: recipeReferences.note,
+				})
+				.from(recipeReferences)
+				.where(eq(recipeReferences.recipeId, recipeId))
+				.orderBy(asc(recipeReferences.position)),
+			db
+				.select({
+					id: recipeImages.id,
+					r2Key: recipeImages.r2Key,
+					alt: recipeImages.alt,
+					position: recipeImages.position,
+				})
+				.from(recipeImages)
+				.where(eq(recipeImages.recipeId, recipeId))
+				.orderBy(asc(recipeImages.position)),
+			db
+				.select({
+					id: cookRecords.id,
+					cookedAt: cookRecords.cookedAt,
+					rating: cookRecords.rating,
+					note: cookRecords.note,
+					instagramUrl: cookRecords.instagramUrl,
+				})
+				.from(cookRecords)
+				.where(eq(cookRecords.recipeId, recipeId))
+				.orderBy(desc(cookRecords.cookedAt)),
+		]);
 
 	const masterIngredientIds = [
 		...new Set(
@@ -227,7 +225,7 @@ export const getRecipeDetail = async (
 			restMinutes: row.restMinutes,
 		},
 		note: row.note,
-		source: sourceFromRow(row),
+		references: referenceRows,
 		ingredients: ingredientRows.map((ingredient) => {
 			const reference: IngredientReference | null =
 				ingredient.ingredientId === null || ingredient.masterName === null
@@ -317,9 +315,6 @@ export const saveRecipe = async (
 		prepMinutes: input.times.prepMinutes,
 		cookMinutes: input.times.cookMinutes,
 		restMinutes: input.times.restMinutes,
-		sourceType: input.source?.type ?? null,
-		sourceTitle: input.source?.title ?? null,
-		sourceUrl: input.source?.url ?? null,
 		tags: input.tags,
 		note: input.note,
 		updatedAt: now,
@@ -331,7 +326,24 @@ export const saveRecipe = async (
 			: db.update(recipes).set(values).where(eq(recipes.id, recipeId)),
 		db.delete(recipeIngredients).where(eq(recipeIngredients.recipeId, id)),
 		db.delete(recipeSteps).where(eq(recipeSteps.recipeId, id)),
+		db.delete(recipeReferences).where(eq(recipeReferences.recipeId, id)),
 	];
+	if (input.references.length > 0) {
+		statements.push(
+			db.insert(recipeReferences).values(
+				input.references.map((reference, index) => ({
+					id: newId(),
+					recipeId: id,
+					position: index,
+					title: reference.title,
+					url: reference.url,
+					note: reference.note,
+					createdAt: now,
+					updatedAt: now,
+				})),
+			),
+		);
+	}
 	if (input.ingredients.length > 0) {
 		statements.push(
 			db.insert(recipeIngredients).values(
@@ -396,6 +408,7 @@ export const deleteRecipe = async (
 			.delete(recipeIngredients)
 			.where(eq(recipeIngredients.recipeId, recipeId)),
 		db.delete(recipeSteps).where(eq(recipeSteps.recipeId, recipeId)),
+		db.delete(recipeReferences).where(eq(recipeReferences.recipeId, recipeId)),
 		db.delete(recipeImages).where(eq(recipeImages.recipeId, recipeId)),
 		...(cookRows.length === 0
 			? []

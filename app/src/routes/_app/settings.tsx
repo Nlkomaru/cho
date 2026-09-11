@@ -69,7 +69,13 @@ const exampleDocument = {
 		{ text: "バナナをつぶして、他の材料と混ぜます。" },
 		{ text: "170℃のオーブンで 40 分焼きます。" },
 	],
-	source: { type: "original", title: null, url: null },
+	references: [
+		{
+			title: "みんなのケーキ",
+			url: "https://example.com/banana-cake",
+			note: "砂糖の量だけ減らしています",
+		},
+	],
 	tags: ["おやつ"],
 	note: null,
 };

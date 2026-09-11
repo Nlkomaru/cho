@@ -51,9 +51,12 @@ export interface RecipeFormValues {
 		readonly ingredientId: string | null;
 	}[];
 	readonly steps: readonly { readonly key: string; readonly text: string }[];
-	readonly sourceType: "original" | "book" | "web" | "video" | "other";
-	readonly sourceTitle: string;
-	readonly sourceUrl: string;
+	readonly references: readonly {
+		readonly key: string;
+		readonly title: string;
+		readonly url: string;
+		readonly note: string;
+	}[];
 	readonly tags: string;
 	readonly note: string;
 }
@@ -80,9 +83,7 @@ export const emptyRecipeFormValues = (
 		},
 	],
 	steps: [{ key: crypto.randomUUID(), text: "" }],
-	sourceType: "original",
-	sourceTitle: "",
-	sourceUrl: "",
+	references: [],
 	tags: "",
 	note: "",
 });
@@ -123,20 +124,15 @@ export const recipeFormValuesFromDetail = (
 		ingredientId: ingredient.ingredient?.id ?? null,
 	})),
 	steps: detail.steps.map((step) => ({ key: step.id, text: step.text })),
-	sourceType: detail.source?.type ?? "original",
-	sourceTitle: detail.source?.title ?? "",
-	sourceUrl: detail.source?.url ?? "",
+	references: detail.references.map((reference) => ({
+		key: reference.id,
+		title: reference.title ?? "",
+		url: reference.url ?? "",
+		note: reference.note ?? "",
+	})),
 	tags: detail.tags.join(", "),
 	note: detail.note ?? "",
 });
-
-const sourceTypeLabels = {
-	original: "オリジナル",
-	book: "書籍",
-	web: "Web",
-	video: "動画",
-	other: "その他",
-} as const;
 
 const asNumber = (value: string): number | null => {
 	const trimmed = value.trim();
@@ -180,6 +176,17 @@ export function RecipeForm({
 			),
 		}));
 
+	const patchReference = (
+		index: number,
+		changes: Partial<RecipeFormValues["references"][number]>,
+	) =>
+		setValues((current) => ({
+			...current,
+			references: current.references.map((reference, position) =>
+				position === index ? { ...reference, ...changes } : reference,
+			),
+		}));
+
 	const save = async () => {
 		setError(null);
 		const parsed = recipeInputSchema.safeParse({
@@ -210,11 +217,19 @@ export function RecipeForm({
 			steps: values.steps
 				.filter((step) => step.text.trim().length > 0)
 				.map((step) => ({ text: step.text })),
-			source: {
-				type: values.sourceType,
-				title: asNullable(values.sourceTitle),
-				url: asNullable(values.sourceUrl),
-			},
+			references: values.references
+				.map((reference) => ({
+					title: asNullable(reference.title),
+					url: asNullable(reference.url),
+					note: asNullable(reference.note),
+				}))
+				// 何も書かれていない行は落とし、片方だけの行は schema に理由を出させる
+				.filter(
+					(reference) =>
+						reference.title !== null ||
+						reference.url !== null ||
+						reference.note !== null,
+				),
 			tags: values.tags
 				.split(/[,\u3001]/)
 				.map((tag) => tag.trim())
@@ -553,47 +568,85 @@ export function RecipeForm({
 
 			<Card>
 				<CardHeader>
-					<CardTitle>出典とメモ</CardTitle>
+					<CardTitle>参考</CardTitle>
+				</CardHeader>
+				<CardContent className="flex flex-col gap-3">
+					<p className="text-sm text-muted-foreground">
+						参考にした本やサイト、動画などを残せます。1
+						つも無ければ自分のレシピとして扱います。
+					</p>
+					{values.references.map((reference, index) => (
+						<div
+							className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+							key={reference.key}
+						>
+							<Input
+								aria-label="参考のタイトル"
+								onChange={(event) =>
+									patchReference(index, { title: event.target.value })
+								}
+								placeholder="タイトル（例: 定番のお菓子 p.42）"
+								value={reference.title}
+							/>
+							<Input
+								aria-label="参考の URL"
+								onChange={(event) =>
+									patchReference(index, { url: event.target.value })
+								}
+								placeholder="https://…"
+								value={reference.url}
+							/>
+							<Button
+								aria-label="この参考を削除"
+								onClick={() =>
+									patch({
+										references: values.references.filter(
+											(_, position) => position !== index,
+										),
+									})
+								}
+								size="icon"
+								type="button"
+								variant="ghost"
+							>
+								<TrashIcon />
+							</Button>
+							<Input
+								aria-label="参考のメモ"
+								className="sm:col-span-3"
+								onChange={(event) =>
+									patchReference(index, { note: event.target.value })
+								}
+								placeholder="メモ（例: 生地の配合だけ参考にした）"
+								value={reference.note}
+							/>
+						</div>
+					))}
+					<div>
+						<Button
+							onClick={() =>
+								patch({
+									references: [
+										...values.references,
+										{ key: crypto.randomUUID(), title: "", url: "", note: "" },
+									],
+								})
+							}
+							type="button"
+							variant="outline"
+						>
+							<PlusIcon />
+							参考を追加
+						</Button>
+					</div>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>タグとメモ</CardTitle>
 				</CardHeader>
 				<CardContent className="grid gap-4 sm:grid-cols-2">
-					<div className="grid gap-2">
-						<Label>出典の種類</Label>
-						<Select
-							items={sourceTypeLabels}
-							onValueChange={(value) =>
-								patch({ sourceType: value as RecipeFormValues["sourceType"] })
-							}
-							value={values.sourceType}
-						>
-							<SelectTrigger className="w-full">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{Object.entries(sourceTypeLabels).map(([value, label]) => (
-									<SelectItem key={value} value={value}>
-										{label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-					<div className="grid gap-2">
-						<Label htmlFor="recipe-source-title">書名・ページ・サイト名</Label>
-						<Input
-							id="recipe-source-title"
-							onChange={(event) => patch({ sourceTitle: event.target.value })}
-							value={values.sourceTitle}
-						/>
-					</div>
-					<div className="grid gap-2">
-						<Label htmlFor="recipe-source-url">出典の URL</Label>
-						<Input
-							id="recipe-source-url"
-							onChange={(event) => patch({ sourceUrl: event.target.value })}
-							placeholder="https://…"
-							value={values.sourceUrl}
-						/>
-					</div>
 					<div className="grid gap-2">
 						<Label htmlFor="recipe-tags">タグ</Label>
 						<Input

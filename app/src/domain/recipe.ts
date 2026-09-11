@@ -16,15 +16,24 @@ import { amountInputSchema } from "./units";
  */
 export const recipeDocumentVersion = 1;
 
-export const recipeSourceTypes = [
-	"original",
-	"book",
-	"web",
-	"video",
-	"other",
-] as const;
-
-export type RecipeSourceType = (typeof recipeSourceTypes)[number];
+/**
+ * 参考にした本・サイト・動画など。1 件につきタイトルか URL のどちらかが必要で、
+ * 参考が 1 つも無いレシピは自分のレシピとして扱う。
+ */
+export const recipeReferenceInputSchema = z
+	.object({
+		title: z.string().trim().max(200).nullable(),
+		url: z
+			.url({ error: "URL の形式が正しくありません（例: https://example.com）" })
+			.max(500)
+			.nullable(),
+		note: z.string().trim().max(500).nullable(),
+	})
+	.strict()
+	.refine((reference) => reference.title !== null || reference.url !== null, {
+		message: "参考にはタイトルか URL のどちらかを入れてください",
+		path: ["title"],
+	});
 
 /** レシピ 1 件分の入力。レシピ JSON（schemaVersion 1）の中身と同じ形にする */
 export const recipeInputSchema = z
@@ -53,13 +62,7 @@ export const recipeInputSchema = z
 			.array(z.object({ text: z.string().trim().min(1).max(2000) }))
 			.min(1)
 			.max(100),
-		source: z
-			.object({
-				type: z.enum(recipeSourceTypes),
-				title: z.string().trim().max(200).nullable(),
-				url: z.string().trim().max(500).nullable(),
-			})
-			.nullable(),
+		references: z.array(recipeReferenceInputSchema).max(20),
 		tags: z.array(z.string().trim().min(1).max(30)).max(20),
 		note: z.string().trim().max(2000).nullable(),
 	})
@@ -88,7 +91,7 @@ export const recipeInputFromDocument = (
 	times: document.times,
 	ingredients: document.ingredients,
 	steps: document.steps,
-	source: document.source,
+	references: document.references,
 	tags: document.tags,
 	note: document.note,
 });
@@ -128,10 +131,11 @@ export interface RecipeTimes {
 	readonly restMinutes: number | null;
 }
 
-export interface RecipeSource {
-	readonly type: RecipeSourceType;
+export interface RecipeReference {
+	readonly id: string;
 	readonly title: string | null;
 	readonly url: string | null;
+	readonly note: string | null;
 }
 
 export interface CookRecordSummary {
@@ -161,7 +165,7 @@ export interface RecipeDetail extends RecipeListItem {
 	readonly ingredients: readonly RecipeIngredient[];
 	readonly steps: readonly RecipeStep[];
 	readonly images: readonly RecipeImage[];
-	readonly source: RecipeSource | null;
+	readonly references: readonly RecipeReference[];
 	readonly note: string | null;
 	readonly createdAt: string;
 	readonly cooks: readonly CookRecordSummary[];
@@ -183,7 +187,11 @@ export function recipeDocumentFromDetail(detail: RecipeDetail) {
 			ingredientId: ingredient.ingredient?.id ?? null,
 		})),
 		steps: detail.steps.map((step) => ({ text: step.text })),
-		source: detail.source,
+		references: detail.references.map((reference) => ({
+			title: reference.title,
+			url: reference.url,
+			note: reference.note,
+		})),
 		tags: [...detail.tags],
 		note: detail.note,
 	});
