@@ -20,7 +20,35 @@
 			"pattern": "cho.nikomaru.dev",
 			"custom_domain": true
 		}
-	]
+	],
+	/**
+	 * 調理記録・レシピ・材料の保存先。dev と preview はローカル emulation を使うため
+	 * 本番データには触れない。適用は `wrangler d1 migrations apply cho [--local]`。
+	 */
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "cho",
+			"database_id": "b7256818-398b-4182-b022-f0b910578df6",
+			"migrations_dir": "migrations"
+		}
+	],
+	/**
+	 * 画像は D1 の行がキーだけを持ち、実体は binding 経由で /images/* から返す。
+	 */
+	"r2_buckets": [
+		{
+			"binding": "IMAGES",
+			"bucket_name": "cho-images"
+		}
+	],
+	/**
+	 * 材料を Inventia の品目へ結び付けるときの接続先。ローカルで別の
+	 * Inventia を指したいときは .dev.vars で上書きする。
+	 */
+	"vars": {
+		"INVENTIA_BASE_URL": "https://inventia.nikomaru.dev"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

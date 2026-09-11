@@ -14,6 +14,18 @@
 		"license": "Apache-2.0",
 		"packages": [
 			{
+				"name": "@drizzle-team/brocli",
+				"versions": ["0.10.2"],
+				"author": "Drizzle Team",
+				"homepage": "https://github.com/drizzle-team/brocli"
+			},
+			{
+				"name": "@opentelemetry/semantic-conventions",
+				"versions": ["1.43.0"],
+				"author": "OpenTelemetry Authors",
+				"homepage": "https://github.com/open-telemetry/opentelemetry-js/tree/main/semantic-conventions"
+			},
+			{
 				"name": "baseline-browser-mapping",
 				"versions": ["2.11.19"],
 				"author": null,
@@ -30,6 +42,12 @@
 				"versions": ["2.1.2"],
 				"author": "Lovell Fuller",
 				"homepage": "https://github.com/lovell/detect-libc#readme"
+			},
+			{
+				"name": "drizzle-orm",
+				"versions": ["0.45.2"],
+				"author": "Drizzle Team",
+				"homepage": "https://orm.drizzle.team/"
 			},
 			{
 				"name": "human-signals",
@@ -458,8 +476,74 @@
 				"homepage": "https://github.com/mui/base-ui#readme"
 			},
 			{
+				"name": "@better-auth/core",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/"
+			},
+			{
+				"name": "@better-auth/drizzle-adapter",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/docs/adapters/drizzle"
+			},
+			{
+				"name": "@better-auth/kysely-adapter",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/docs/adapters/kysely"
+			},
+			{
+				"name": "@better-auth/memory-adapter",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/"
+			},
+			{
+				"name": "@better-auth/mongo-adapter",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/docs/adapters/mongodb"
+			},
+			{
+				"name": "@better-auth/prisma-adapter",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/docs/adapters/prisma"
+			},
+			{
+				"name": "@better-auth/telemetry",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://www.better-auth.com/"
+			},
+			{
+				"name": "@better-auth/utils",
+				"versions": ["0.4.2", "0.5.0"],
+				"author": "Bereket Engida",
+				"homepage": "https://github.com/better-auth/utils#readme"
+			},
+			{
+				"name": "@better-fetch/fetch",
+				"versions": ["1.3.1"],
+				"author": null,
+				"homepage": "https://github.com/better-auth/better-fetch#readme"
+			},
+			{
+				"name": "@esbuild-kit/core-utils",
+				"versions": ["3.3.2"],
+				"author": "Hiroki Osame",
+				"homepage": "https://github.com/esbuild-kit/core-utils#readme"
+			},
+			{
+				"name": "@esbuild-kit/esm-loader",
+				"versions": ["2.6.5"],
+				"author": "Hiroki Osame",
+				"homepage": "https://github.com/esbuild-kit/esm-loader#readme"
+			},
+			{
 				"name": "@esbuild/linux-x64",
-				"versions": ["0.28.1"],
+				"versions": ["0.18.20", "0.25.12", "0.28.1"],
 				"author": null,
 				"homepage": "https://github.com/evanw/esbuild#readme"
 			},
@@ -540,6 +624,18 @@
 				"versions": ["3.0.0-next.11"],
 				"author": "Puru Vijay",
 				"homepage": "https://github.com/PuruVJ/neodrag/tree/main/packages/solid#readme"
+			},
+			{
+				"name": "@noble/ciphers",
+				"versions": ["2.4.0"],
+				"author": "Paul Miller",
+				"homepage": "https://paulmillr.com/noble/"
+			},
+			{
+				"name": "@noble/hashes",
+				"versions": ["2.4.0"],
+				"author": "Paul Miller",
+				"homepage": "https://paulmillr.com/noble/"
 			},
 			{
 				"name": "@nodelib/fs.scandir",
@@ -648,6 +744,12 @@
 				"versions": ["6.4.1"],
 				"author": "Damian Tarnawski @thetarnav",
 				"homepage": "https://github.com/solidjs-community/solid-primitives/tree/main/packages/utils#readme"
+			},
+			{
+				"name": "@standard-schema/spec",
+				"versions": ["1.1.0"],
+				"author": "Colin McDonnell",
+				"homepage": "https://standardschema.dev/"
 			},
 			{
 				"name": "@tailwindcss/node",
@@ -914,6 +1016,18 @@
 				"homepage": "https://github.com/juliangruber/balanced-match#readme"
 			},
 			{
+				"name": "better-auth",
+				"versions": ["1.7.4"],
+				"author": null,
+				"homepage": "https://better-auth.com/"
+			},
+			{
+				"name": "better-call",
+				"versions": ["1.4.0"],
+				"author": null,
+				"homepage": "https://github.com/better-auth/better-call#readme"
+			},
+			{
 				"name": "body-parser",
 				"versions": ["2.3.0"],
 				"author": null,
@@ -936,6 +1050,12 @@
 				"versions": ["4.28.8"],
 				"author": "Andrey Sitnik",
 				"homepage": "https://github.com/browserslist/browserslist#readme"
+			},
+			{
+				"name": "buffer-from",
+				"versions": ["1.1.2"],
+				"author": null,
+				"homepage": "https://github.com/LinusU/buffer-from#readme"
 			},
 			{
 				"name": "bundle-name",
@@ -1130,6 +1250,12 @@
 				"homepage": "https://github.com/sindresorhus/define-lazy-prop#readme"
 			},
 			{
+				"name": "defu",
+				"versions": ["6.1.7"],
+				"author": null,
+				"homepage": "https://github.com/unjs/defu#readme"
+			},
+			{
 				"name": "depd",
 				"versions": ["2.0.0"],
 				"author": "Douglas Christopher Wilson",
@@ -1140,6 +1266,12 @@
 				"versions": ["6.0.1"],
 				"author": "Sindre Sorhus",
 				"homepage": "https://github.com/sindresorhus/dot-prop#readme"
+			},
+			{
+				"name": "drizzle-kit",
+				"versions": ["0.31.10"],
+				"author": "Drizzle Team",
+				"homepage": "https://orm.drizzle.team/"
 			},
 			{
 				"name": "dunder-proto",
@@ -1209,7 +1341,7 @@
 			},
 			{
 				"name": "esbuild",
-				"versions": ["0.28.1"],
+				"versions": ["0.18.20", "0.25.12", "0.28.1"],
 				"author": null,
 				"homepage": "https://github.com/evanw/esbuild#readme"
 			},
@@ -1380,6 +1512,12 @@
 				"versions": ["6.0.1", "9.0.1"],
 				"author": "Sindre Sorhus",
 				"homepage": "https://github.com/sindresorhus/get-stream#readme"
+			},
+			{
+				"name": "get-tsconfig",
+				"versions": ["4.14.3"],
+				"author": "Hiroki Osame",
+				"homepage": "https://github.com/privatenumber/get-tsconfig#readme"
 			},
 			{
 				"name": "goober",
@@ -1604,6 +1742,12 @@
 				"homepage": "https://github.com/lukeed/kleur#readme"
 			},
 			{
+				"name": "kysely",
+				"versions": ["0.29.5"],
+				"author": "Sami Koskimäki",
+				"homepage": "https://kysely.dev/"
+			},
+			{
 				"name": "lines-and-columns",
 				"versions": ["1.2.4"],
 				"author": "Brian Donovan",
@@ -1704,6 +1848,12 @@
 				"versions": ["3.3.18"],
 				"author": "Andrey Sitnik",
 				"homepage": "https://github.com/ai/nanoid#readme"
+			},
+			{
+				"name": "nanostores",
+				"versions": ["1.5.3"],
+				"author": "Andrey Sitnik",
+				"homepage": "https://github.com/nanostores/nanostores#readme"
 			},
 			{
 				"name": "negotiator",
@@ -1958,6 +2108,12 @@
 				"homepage": "https://github.com/sindresorhus/resolve-from#readme"
 			},
 			{
+				"name": "resolve-pkg-maps",
+				"versions": ["1.0.0"],
+				"author": "Hiroki Osame",
+				"homepage": "https://github.com/privatenumber/resolve-pkg-maps#readme"
+			},
+			{
 				"name": "restore-cursor",
 				"versions": ["5.1.0"],
 				"author": "Sindre Sorhus",
@@ -1977,7 +2133,7 @@
 			},
 			{
 				"name": "rou3",
-				"versions": ["0.8.1"],
+				"versions": ["0.8.1", "0.9.2"],
 				"author": null,
 				"homepage": "https://github.com/h3js/rou3#readme"
 			},
@@ -2034,6 +2190,12 @@
 				"versions": ["2.2.1"],
 				"author": "Douglas Christopher Wilson",
 				"homepage": "https://github.com/expressjs/serve-static#readme"
+			},
+			{
+				"name": "set-cookie-parser",
+				"versions": ["3.1.2"],
+				"author": "Nathan Friedly",
+				"homepage": "https://github.com/nfriedly/set-cookie-parser"
 			},
 			{
 				"name": "shadcn",
@@ -2100,6 +2262,12 @@
 				"versions": ["1.9.15"],
 				"author": "Ryan Carniato",
 				"homepage": "https://solidjs.com/"
+			},
+			{
+				"name": "source-map-support",
+				"versions": ["0.5.21"],
+				"author": null,
+				"homepage": "https://github.com/evanw/node-source-map-support#readme"
 			},
 			{
 				"name": "srvx",
@@ -2204,6 +2372,12 @@
 				"homepage": "https://github.com/dividab/tsconfig-paths#readme"
 			},
 			{
+				"name": "tsx",
+				"versions": ["4.23.13"],
+				"author": "Hiroki Osame",
+				"homepage": "https://tsx.hirok.io/"
+			},
+			{
 				"name": "tw-animate-css",
 				"versions": ["1.4.0"],
 				"author": "Luca Bosin",
@@ -2276,6 +2450,12 @@
 				"homepage": "https://github.com/TooTallNate/util-deprecate"
 			},
 			{
+				"name": "uuid",
+				"versions": ["14.0.2"],
+				"author": null,
+				"homepage": "https://github.com/uuidjs/uuid#readme"
+			},
+			{
 				"name": "vary",
 				"versions": ["1.1.2"],
 				"author": "Douglas Christopher Wilson",
@@ -2331,7 +2511,7 @@
 			},
 			{
 				"name": "zod",
-				"versions": ["3.25.76", "4.4.3"],
+				"versions": ["3.25.76", "4.6.2"],
 				"author": "Colin McDonnell",
 				"homepage": "https://zod.dev/"
 			}

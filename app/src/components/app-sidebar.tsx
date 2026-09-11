@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouterState } from "@tanstack/react-router";
-import { CookingPotIcon, ExternalLinkIcon } from "lucide-react";
+import { CookingPotIcon, ExternalLinkIcon, LogOutIcon } from "lucide-react";
 import type * as React from "react";
 
 import {
@@ -22,11 +21,26 @@ import { navigationGroups, navigationResources } from "@/lib/navigation";
 
 const deployedAt = import.meta.env.VITE_DEPLOYED_AT ?? "未デプロイ";
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
-	});
+export interface AppSidebarUser {
+	readonly name: string;
+	readonly email: string;
+}
 
+export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
+	readonly user: AppSidebarUser;
+	/** 現在のパス。選択中の項目を強調する */
+	readonly pathname: string;
+	readonly onSignOut: () => void;
+	readonly isSigningOut?: boolean;
+}
+
+export function AppSidebar({
+	user,
+	pathname,
+	onSignOut,
+	isSigningOut = false,
+	...props
+}: AppSidebarProps) {
 	return (
 		<Sidebar {...props}>
 			<SidebarHeader>
@@ -78,6 +92,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 			</SidebarContent>
 			<SidebarFooter className="mt-auto">
 				<SidebarMenu>
+					<SidebarMenuItem>
+						<div className="flex items-center gap-2 px-4 py-2">
+							<div className="grid flex-1 text-left text-sm leading-tight">
+								<span className="truncate font-medium">{user.name}</span>
+								<span className="truncate text-xs text-sidebar-foreground/70">
+									{user.email}
+								</span>
+							</div>
+						</div>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							className="pl-4"
+							disabled={isSigningOut}
+							onClick={onSignOut}
+						>
+							<LogOutIcon />
+							{isSigningOut ? "ログアウトしています…" : "ログアウト"}
+						</SidebarMenuButton>
+					</SidebarMenuItem>
 					{navigationResources.map((item) => {
 						const isExternal =
 							item.opensInNewTab ?? item.url.startsWith("https://");

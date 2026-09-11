@@ -1,12 +1,10 @@
-import type { Breadcrumb } from "./breadcrumbs";
-
 export interface NavItem {
 	title: string;
 	url: string;
 	opensInNewTab?: boolean;
 }
 
-export type NavigationGroupTitle = "調理記録";
+export type NavigationGroupTitle = "調理記録" | "マスタ";
 
 export interface NavGroup {
 	title: NavigationGroupTitle;
@@ -16,7 +14,17 @@ export interface NavGroup {
 export const navigationGroups: readonly NavGroup[] = [
 	{
 		title: "調理記録",
-		items: [{ title: "記録一覧", url: "/" }],
+		items: [
+			{ title: "作った記録", url: "/" },
+			{ title: "レシピ", url: "/recipes" },
+		],
+	},
+	{
+		title: "マスタ",
+		items: [
+			{ title: "材料", url: "/ingredients" },
+			{ title: "設定", url: "/settings" },
+		],
 	},
 ];
 
@@ -29,9 +37,3 @@ export const navigationResources: readonly NavItem[] = [
 	},
 	{ title: "Storybook", url: "/storybook", opensInNewTab: true },
 ];
-
-export const groupBreadcrumb = (title: NavigationGroupTitle): Breadcrumb => {
-	const group = navigationGroups.find((entry) => entry.title === title);
-	const landing = group?.items[0];
-	return landing ? { label: title, to: landing.url } : { label: title };
-};

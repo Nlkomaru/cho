@@ -14,6 +14,13 @@ export interface BreadcrumbsLoaderData {
 	breadcrumbs: readonly Breadcrumb[];
 }
 
+declare module "@tanstack/react-router" {
+	interface StaticDataRouteOption {
+		/** その route が名乗るパンくず（lib/breadcrumbs.ts の Breadcrumb） */
+		breadcrumbs?: readonly Breadcrumb[];
+	}
+}
+
 const isBreadcrumb = (value: unknown): value is Breadcrumb => {
 	if (typeof value !== "object" || value === null || !("label" in value)) {
 		return false;
