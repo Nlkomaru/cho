@@ -10,3 +10,8 @@ DISCORD_CLIENT_ID=
 DISCORD_CLIENT_SECRET=
 # 登録を許可する Discord ユーザー id（カンマまたは空白区切り）。空なら誰も登録できない
 ALLOWED_DISCORD_USER_IDS=
+
+# Inventia の API トークン。Inventia の設定 →「API トークン」で発行する
+INVENTIA_API_TOKEN=
+# Inventia の接続先。既定は https://inventia.nikomaru.dev
+# INVENTIA_BASE_URL=http://127.0.0.1:8787

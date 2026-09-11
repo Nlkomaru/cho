@@ -3,7 +3,7 @@ import type { CookInput } from "@/domain/cook";
 import { cookInputSchema } from "@/domain/cook";
 import { deleteCook, getCook, listCooks, saveCook } from "./cooks.server";
 import { getDb } from "./db.server";
-import { ownerImageKeys, removeImageObjects } from "./images.server";
+import { removeImageObjects, targetImageKeys } from "./images.server";
 import { runAction } from "./result";
 import { requireSessionUser } from "./session.server";
 
@@ -12,25 +12,29 @@ import { requireSessionUser } from "./session.server";
 export const fetchCooks = createServerFn({ method: "GET" })
 	.inputValidator((data: { recipeId: string | null }) => data)
 	.handler(async ({ data }) => {
-		await requireSessionUser();
-		return listCooks(getDb(), data.recipeId);
+		const user = await requireSessionUser();
+		return listCooks(getDb(), user.id, data.recipeId);
 	});
 
 export const fetchCook = createServerFn({ method: "GET" })
 	.inputValidator((data: { cookId: string }) => data)
 	.handler(async ({ data }) => {
-		await requireSessionUser();
-		return getCook(getDb(), data.cookId);
+		const user = await requireSessionUser();
+		return getCook(getDb(), user.id, data.cookId);
 	});
 
 export const submitCook = createServerFn({ method: "POST" })
 	.inputValidator((data: { cookId: string | null; input: CookInput }) => data)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			const input = cookInputSchema.parse(data.input);
 			return {
-				cookId: await saveCook(getDb(), { cookId: data.cookId, input }),
+				cookId: await saveCook(getDb(), {
+					ownerId: user.id,
+					cookId: data.cookId,
+					input,
+				}),
 			};
 		}),
 	);
@@ -39,10 +43,10 @@ export const removeCook = createServerFn({ method: "POST" })
 	.inputValidator((data: { cookId: string }) => data)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			const db = getDb();
-			const keys = await ownerImageKeys(db, "cook", data.cookId);
-			await deleteCook(db, data.cookId);
+			const keys = await targetImageKeys(db, "cook", data.cookId);
+			await deleteCook(db, user.id, data.cookId);
 			await removeImageObjects(keys);
 			return { cookId: data.cookId };
 		}),

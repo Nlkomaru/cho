@@ -19,6 +19,11 @@ export interface AuthConfigInput {
 	};
 	/** 本番は独自ドメイン、開発は localhost と preview の URL を許可する */
 	readonly baseURL: BetterAuthOptions["baseURL"];
+	/**
+	 * 利用者が増えたときの後処理。利用者ごとの初期マスタを入れるために、
+	 * binding を持つ側（auth.server.ts）から渡す。
+	 */
+	readonly onUserCreated?: (userId: string) => Promise<void>;
 }
 
 const forbiddenMessage = "この Discord アカウントは登録を許可されていません。";
@@ -32,6 +37,7 @@ export const createAuthOptions = ({
 	database,
 	secrets,
 	baseURL,
+	onUserCreated,
 }: AuthConfigInput): BetterAuthOptions => {
 	const allowedDiscordUserIds = new Set(secrets.allowedDiscordUserIds);
 
@@ -73,6 +79,10 @@ export const createAuthOptions = ({
 								message: forbiddenMessage,
 							});
 						}
+					},
+					// 利用者ごとの初期マスタ（種類・材料・換算表）を入れる
+					after: async (user) => {
+						await onUserCreated?.(user.id);
 					},
 				},
 			},

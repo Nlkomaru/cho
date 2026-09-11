@@ -48,6 +48,10 @@ cp app/.dev.vars.example app/.dev.vars   # 値を入れる（.dev.vars はコミ
 アカウントだけで、それ以外のアカウントは登録できません**（既存ユーザーのログインは許可リストに依りません）。
 許可リストが空のときは誰も新規登録できません。
 
+データは利用者ごとに分かれます（レシピ、作った記録、材料マスタ、レシピの種類）。
+初回ログイン時に、その利用者のレシピ種類・材料・換算表が自動で入ります。
+他の利用者のレシピや写真は、URL を知っていても開けません。
+
 Discord Developer Portal の OAuth2 クライアントに、次の Redirect URI を登録します。
 
 - `http://localhost:3000/api/auth/callback/discord`
@@ -114,6 +118,9 @@ pnpm exec wrangler secret put ALLOWED_DISCORD_USER_IDS
 
 D1 のスキーマは `app/src/db/schema.ts` が正で、マイグレーションは `app/migrations/` に置きます。
 生成は drizzle-kit、適用は wrangler の migrations コマンドを使います。
+
+レシピ・材料マスタ・レシピの種類は `owner_id` を持ち、サーバー関数はログイン中の利用者の行だけを
+読み書きします（作った記録と写真はレシピ経由で持ち主が決まります）。
 
 ```bash
 pnpm --dir app exec drizzle-kit generate          # app/migrations/<番号>_<名前>.sql を生成

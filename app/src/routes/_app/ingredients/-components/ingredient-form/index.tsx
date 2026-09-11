@@ -1,7 +1,7 @@
 "use client";
 
 import { useServerFn } from "@tanstack/react-start";
-import { PlusIcon, TrashIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, TrashIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -37,6 +37,8 @@ import {
 } from "@/domain/units";
 
 import { submitIngredient } from "@/server/ingredients.functions";
+import { searchInventia as searchInventiaFn } from "@/server/inventia.functions";
+import type { InventiaItem } from "@/server/inventia.server";
 
 interface ConversionRow {
 	readonly key: string;
@@ -56,6 +58,8 @@ interface IngredientFormValues {
 export interface IngredientFormProps {
 	/** 編集時は既存の材料、新規は null */
 	readonly ingredient: IngredientListItem | null;
+	/** INVENTIA_API_TOKEN が設定されているか。品目検索の出し分けに使う */
+	readonly inventiaAvailable: boolean;
 	readonly onSaved: (ingredientId: string) => void;
 }
 
@@ -120,13 +124,49 @@ const formValuesFromItem = (
 const asNullable = (value: string): string | null =>
 	value.trim().length === 0 ? null : value.trim();
 
-export function IngredientForm({ ingredient, onSaved }: IngredientFormProps) {
+/** 「残り 1000 ml」のように、Inventia の在庫量を添える */
+const formatInventiaQuantity = (item: InventiaItem): string =>
+	`残り ${item.currentQuantity}${item.baseUnit}`;
+
+export function IngredientForm({
+	ingredient,
+	inventiaAvailable,
+	onSaved,
+}: IngredientFormProps) {
 	const [values, setValues] = useState<IngredientFormValues>(() =>
 		formValuesFromItem(ingredient),
 	);
 	const [error, setError] = useState<string | null>(null);
 	const [isSaving, setIsSaving] = useState(false);
 	const submit = useServerFn(submitIngredient);
+
+	const [inventiaQuery, setInventiaQuery] = useState("");
+	const [inventiaResults, setInventiaResults] = useState<
+		readonly InventiaItem[]
+	>([]);
+	const [inventiaError, setInventiaError] = useState<string | null>(null);
+	const [inventiaSearched, setInventiaSearched] = useState(false);
+	const [isSearchingInventia, setIsSearchingInventia] = useState(false);
+	const callSearchInventia = useServerFn(searchInventiaFn);
+
+	const runInventiaSearch = async () => {
+		setInventiaError(null);
+		setIsSearchingInventia(true);
+		try {
+			const result = await callSearchInventia({
+				data: { query: inventiaQuery.trim() },
+			});
+			if (!result.ok) {
+				setInventiaError(result.message);
+				setInventiaResults([]);
+				return;
+			}
+			setInventiaResults(result.data);
+			setInventiaSearched(true);
+		} finally {
+			setIsSearchingInventia(false);
+		}
+	};
 
 	const patch = (changes: Partial<IngredientFormValues>) =>
 		setValues((current) => ({ ...current, ...changes }));
@@ -308,6 +348,74 @@ export function IngredientForm({ ingredient, onSaved }: IngredientFormProps) {
 							Inventia の品目ページの URL の id
 							部分です。材料の行から在庫の品目へ飛べるようになります。
 						</p>
+						{inventiaAvailable ? (
+							<div className="flex flex-col gap-2 rounded-lg border p-3">
+								<Label htmlFor="ingredient-inventia-search">
+									Inventia から品目を探す
+								</Label>
+								<div className="flex gap-2">
+									<Input
+										id="ingredient-inventia-search"
+										onChange={(event) => setInventiaQuery(event.target.value)}
+										placeholder="品目名（例: 牛乳）"
+										value={inventiaQuery}
+									/>
+									<Button
+										disabled={
+											isSearchingInventia || inventiaQuery.trim().length === 0
+										}
+										onClick={() => void runInventiaSearch()}
+										type="button"
+										variant="outline"
+									>
+										<SearchIcon />
+										{isSearchingInventia ? "検索中…" : "検索"}
+									</Button>
+								</div>
+								{inventiaError ? (
+									<Alert variant="destructive">
+										<AlertDescription>{inventiaError}</AlertDescription>
+									</Alert>
+								) : null}
+								{inventiaResults.length > 0 ? (
+									<ul className="flex flex-col gap-1">
+										{inventiaResults.map((item) => (
+											<li
+												className="flex items-center justify-between gap-2 rounded-md border px-2 py-1"
+												key={item.id}
+											>
+												<span className="truncate text-sm">
+													{item.name}（{formatInventiaQuantity(item)}）
+												</span>
+												<Button
+													onClick={() => {
+														patch({ inventoryItemId: item.id });
+														setInventiaResults([]);
+													}}
+													size="sm"
+													type="button"
+													variant="outline"
+												>
+													使う
+												</Button>
+											</li>
+										))}
+									</ul>
+								) : null}
+								{inventiaSearched &&
+								inventiaResults.length === 0 &&
+								!isSearchingInventia ? (
+									<p className="text-sm text-muted-foreground">
+										一致する品目が見つかりませんでした。
+									</p>
+								) : null}
+							</div>
+						) : (
+							<p className="text-sm text-muted-foreground">
+								INVENTIA_API_TOKEN を設定すると、Inventia
+								から品目を検索して選べます。
+							</p>
+						)}
 					</div>
 				</CardContent>
 			</Card>

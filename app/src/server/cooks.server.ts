@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { ChoBatchItem, ChoDatabase } from "@/db/database";
 import { runBatch } from "@/db/database";
@@ -11,10 +11,14 @@ import {
 import type { CookDetail, CookInput, CookListItem } from "@/domain/cook";
 import { newId } from "@/domain/id";
 
-/** 作った記録の読み書き。写真は R2 のキーだけを持ち、行の追加・削除は images.server.ts が行う */
+/**
+ * 作った記録の読み書き。写真は R2 のキーだけを持ち、行の追加・削除は images.server.ts が行う。
+ * 記録の持ち主はレシピの owner_id で決まるため、すべての問い合わせでレシピを経由して絞る。
+ */
 
 export const listCooks = async (
 	db: ChoDatabase,
+	ownerId: string,
 	recipeId: string | null = null,
 ): Promise<readonly CookListItem[]> =>
 	db
@@ -32,11 +36,16 @@ export const listCooks = async (
 		.from(cookRecords)
 		.innerJoin(recipes, eq(cookRecords.recipeId, recipes.id))
 		.innerJoin(recipeCategories, eq(recipes.categoryId, recipeCategories.id))
-		.where(recipeId === null ? undefined : eq(cookRecords.recipeId, recipeId))
+		.where(
+			recipeId === null
+				? eq(recipes.ownerId, ownerId)
+				: and(eq(recipes.ownerId, ownerId), eq(cookRecords.recipeId, recipeId)),
+		)
 		.orderBy(desc(cookRecords.cookedAt));
 
 export const getCook = async (
 	db: ChoDatabase,
+	ownerId: string,
 	cookId: string,
 ): Promise<CookDetail | null> => {
 	const [row] = await db
@@ -53,7 +62,7 @@ export const getCook = async (
 		})
 		.from(cookRecords)
 		.innerJoin(recipes, eq(cookRecords.recipeId, recipes.id))
-		.where(eq(cookRecords.id, cookId));
+		.where(and(eq(cookRecords.id, cookId), eq(recipes.ownerId, ownerId)));
 	if (!row) {
 		return null;
 	}
@@ -74,12 +83,19 @@ export const getCook = async (
 
 export const saveCook = async (
 	db: ChoDatabase,
-	{ cookId, input }: { cookId: string | null; input: CookInput },
+	{
+		ownerId,
+		cookId,
+		input,
+	}: { ownerId: string; cookId: string | null; input: CookInput },
 ): Promise<string> => {
+	if (cookId !== null && (await getCook(db, ownerId, cookId)) === null) {
+		throw new Error("記録が見つかりません。");
+	}
 	const [recipe] = await db
 		.select({ id: recipes.id })
 		.from(recipes)
-		.where(eq(recipes.id, input.recipeId));
+		.where(and(eq(recipes.id, input.recipeId), eq(recipes.ownerId, ownerId)));
 	if (!recipe) {
 		throw new Error("レシピが見つかりません。");
 	}
@@ -104,8 +120,12 @@ export const saveCook = async (
 
 export const deleteCook = async (
 	db: ChoDatabase,
+	ownerId: string,
 	cookId: string,
 ): Promise<void> => {
+	if ((await getCook(db, ownerId, cookId)) === null) {
+		throw new Error("記録が見つかりません。");
+	}
 	await runBatch(db, [
 		db.delete(cookImages).where(eq(cookImages.cookRecordId, cookId)),
 		db.delete(cookRecords).where(eq(cookRecords.id, cookId)),

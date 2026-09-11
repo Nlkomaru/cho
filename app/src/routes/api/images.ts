@@ -52,8 +52,9 @@ export const Route = createFileRoute("/api/images")({
 				}
 				try {
 					const stored = await addImage(getDb(), {
+						ownerId: user.id,
 						scope: scope as ImageScope,
-						ownerId,
+						targetId: ownerId,
 						bytes: new Uint8Array(await file.arrayBuffer()),
 					});
 					return Response.json(stored);
@@ -80,7 +81,13 @@ export const Route = createFileRoute("/api/images")({
 						{ status: 400 },
 					);
 				}
-				await removeImage(getDb(), key);
+				const removed = await removeImage(getDb(), user.id, key);
+				if (!removed) {
+					return Response.json(
+						{ message: "画像が見つかりません。" },
+						{ status: 404 },
+					);
+				}
 				return Response.json({ key });
 			},
 		},

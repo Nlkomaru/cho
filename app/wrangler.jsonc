@@ -41,7 +41,14 @@
 			"binding": "IMAGES",
 			"bucket_name": "cho-images"
 		}
-	]
+	],
+	/**
+	 * 材料を Inventia の品目へ結び付けるときの接続先。ローカルで別の
+	 * Inventia を指したいときは .dev.vars で上書きする。
+	 */
+	"vars": {
+		"INVENTIA_BASE_URL": "https://inventia.nikomaru.dev"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

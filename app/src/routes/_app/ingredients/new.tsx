@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
+import { isInventiaLinkAvailable } from "@/server/inventia.functions";
 import { IngredientForm } from "./-components/ingredient-form";
 
 export const Route = createFileRoute("/_app/ingredients/new")({
@@ -9,11 +10,13 @@ export const Route = createFileRoute("/_app/ingredients/new")({
 			{ label: "新しい材料" },
 		],
 	},
+	loader: async () => ({ inventiaAvailable: await isInventiaLinkAvailable() }),
 	component: NewIngredient,
 });
 
 function NewIngredient() {
 	const navigate = Route.useNavigate();
+	const { inventiaAvailable } = Route.useLoaderData();
 
 	return (
 		<main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-8">
@@ -26,6 +29,7 @@ function NewIngredient() {
 
 			<IngredientForm
 				ingredient={null}
+				inventiaAvailable={inventiaAvailable}
 				onSaved={(ingredientId) =>
 					void navigate({
 						params: { ingredientId },

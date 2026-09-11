@@ -12,15 +12,26 @@ import {
 // 文字列で持ち、表示側で JST へ直す。drizzle の enum は TS の型付けだけで DDL には出ない
 
 /** レシピの種類。フランス料理・お菓子などを利用者が選ぶ */
-export const recipeCategories = sqliteTable("recipe_categories", {
-	id: text("id").primaryKey(),
-	slug: text("slug").notNull().unique(),
-	name: text("name").notNull(),
-	// 選択肢の表示順
-	sortOrder: integer("sort_order").notNull().default(0),
-	createdAt: text("created_at").notNull(),
-	updatedAt: text("updated_at").notNull(),
-});
+export const recipeCategories = sqliteTable(
+	"recipe_categories",
+	{
+		id: text("id").primaryKey(),
+		// 利用者ごとのマスタ。ログインした本人の行だけを読み書きする
+		ownerId: text("owner_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		slug: text("slug").notNull(),
+		name: text("name").notNull(),
+		// 選択肢の表示順
+		sortOrder: integer("sort_order").notNull().default(0),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("recipe_categories_owner_slug_unique").on(t.ownerId, t.slug),
+		index("recipe_categories_owner_idx").on(t.ownerId),
+	],
+);
 
 /**
  * 材料マスタ。レシピの材料行はこの行を参照でき、参照があると単位換算と
@@ -30,6 +41,10 @@ export const ingredients = sqliteTable(
 	"ingredients",
 	{
 		id: text("id").primaryKey(),
+		// 利用者ごとのマスタ。密度や Inventia のリンクも本人のもの
+		ownerId: text("owner_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
 		// 体積 1ml あたりの質量。大さじ・小さじ・カップ・ml を g へ換算する基準
 		gramsPerMilliliter: real("grams_per_milliliter"),
@@ -40,8 +55,9 @@ export const ingredients = sqliteTable(
 		updatedAt: text("updated_at").notNull(),
 	},
 	(t) => [
-		// 材料名は重複させない。レシピ JSON の取り込みは名前で材料マスタを引く
-		uniqueIndex("ingredients_name_unique").on(t.name),
+		// 同じ利用者の中で材料名は重複させない。レシピ JSON の取り込みは名前で材料マスタを引く
+		uniqueIndex("ingredients_owner_name_unique").on(t.ownerId, t.name),
+		index("ingredients_owner_idx").on(t.ownerId),
 	],
 );
 
@@ -74,6 +90,10 @@ export const recipes = sqliteTable(
 	"recipes",
 	{
 		id: text("id").primaryKey(),
+		// 作った記録もレシピ経由でこの利用者のものになる
+		ownerId: text("owner_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
 		title: text("title").notNull(),
 		categoryId: text("category_id")
 			.notNull()
@@ -91,7 +111,10 @@ export const recipes = sqliteTable(
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at").notNull(),
 	},
-	(t) => [index("recipes_category_idx").on(t.categoryId)],
+	(t) => [
+		index("recipes_owner_idx").on(t.ownerId),
+		index("recipes_category_idx").on(t.categoryId),
+	],
 );
 
 /**

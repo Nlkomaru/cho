@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { ChoDatabase } from "@/db/database";
 import { cookImages, cookRecords, recipeImages, recipes } from "@/db/schema";
@@ -62,32 +62,42 @@ export interface StoredImage {
 	readonly contentType: string;
 }
 
-/** 対象（レシピ・作った記録）が存在するか確かめてから保存する */
-const ownerExists = async (
+/** 対象（レシピ・作った記録）がその利用者のものか確かめる */
+const targetBelongsToOwner = async (
 	db: ChoDatabase,
-	scope: ImageScope,
 	ownerId: string,
+	scope: ImageScope,
+	targetId: string,
 ): Promise<boolean> => {
 	const [row] =
 		scope === "recipe"
 			? await db
 					.select({ id: recipes.id })
 					.from(recipes)
-					.where(eq(recipes.id, ownerId))
+					.where(and(eq(recipes.id, targetId), eq(recipes.ownerId, ownerId)))
 			: await db
 					.select({ id: cookRecords.id })
 					.from(cookRecords)
-					.where(eq(cookRecords.id, ownerId));
+					.innerJoin(recipes, eq(cookRecords.recipeId, recipes.id))
+					.where(
+						and(eq(cookRecords.id, targetId), eq(recipes.ownerId, ownerId)),
+					);
 	return row !== undefined;
 };
 
 export const addImage = async (
 	db: ChoDatabase,
 	{
-		scope,
 		ownerId,
+		scope,
+		targetId,
 		bytes,
-	}: { scope: ImageScope; ownerId: string; bytes: Uint8Array },
+	}: {
+		ownerId: string;
+		scope: ImageScope;
+		targetId: string;
+		bytes: Uint8Array;
+	},
 ): Promise<StoredImage> => {
 	if (bytes.byteLength === 0) {
 		throw new Error("画像が空です。");
@@ -101,14 +111,14 @@ export const addImage = async (
 	if (!contentType) {
 		throw new Error("JPEG・PNG・WebP・GIF・AVIF の画像を選んでください。");
 	}
-	if (!(await ownerExists(db, scope, ownerId))) {
+	if (!(await targetBelongsToOwner(db, ownerId, scope, targetId))) {
 		throw new Error(
 			"保存先が見つかりません。先にレシピや記録を保存してください。",
 		);
 	}
 
 	const id = newId();
-	const key = `${scope === "recipe" ? "recipes" : "cooks"}/${ownerId}/${id}.${extensionByContentType[contentType]}`;
+	const key = `${scope === "recipe" ? "recipes" : "cooks"}/${targetId}/${id}.${extensionByContentType[contentType]}`;
 	await env.IMAGES.put(key, bytes, { httpMetadata: { contentType } });
 
 	const now = new Date().toISOString();
@@ -118,10 +128,10 @@ export const addImage = async (
 				position: sql<number>`coalesce(max(${recipeImages.position}), -1)`,
 			})
 			.from(recipeImages)
-			.where(eq(recipeImages.recipeId, ownerId));
+			.where(eq(recipeImages.recipeId, targetId));
 		await db.insert(recipeImages).values({
 			id,
-			recipeId: ownerId,
+			recipeId: targetId,
 			position: (last?.position ?? -1) + 1,
 			r2Key: key,
 			contentType,
@@ -134,10 +144,10 @@ export const addImage = async (
 				position: sql<number>`coalesce(max(${cookImages.position}), -1)`,
 			})
 			.from(cookImages)
-			.where(eq(cookImages.cookRecordId, ownerId));
+			.where(eq(cookImages.cookRecordId, targetId));
 		await db.insert(cookImages).values({
 			id,
-			cookRecordId: ownerId,
+			cookRecordId: targetId,
 			position: (last?.position ?? -1) + 1,
 			r2Key: key,
 			contentType,
@@ -148,44 +158,52 @@ export const addImage = async (
 	return { id, key, contentType };
 };
 
-/** 添付を外して R2 の実体も消す。行が無いキーは何もしない */
+/** 添付を外して R2 の実体も消す。他の利用者の画像と、行が無いキーには何もせず false を返す */
 export const removeImage = async (
 	db: ChoDatabase,
+	ownerId: string,
 	key: string,
-): Promise<void> => {
+): Promise<boolean> => {
 	const [recipeRow] = await db
 		.select({ id: recipeImages.id })
 		.from(recipeImages)
-		.where(eq(recipeImages.r2Key, key));
+		.innerJoin(recipes, eq(recipeImages.recipeId, recipes.id))
+		.where(and(eq(recipeImages.r2Key, key), eq(recipes.ownerId, ownerId)));
 	if (recipeRow) {
 		await db.delete(recipeImages).where(eq(recipeImages.id, recipeRow.id));
+		await env.IMAGES.delete(key);
+		return true;
 	}
 	const [cookRow] = await db
 		.select({ id: cookImages.id })
 		.from(cookImages)
-		.where(eq(cookImages.r2Key, key));
+		.innerJoin(cookRecords, eq(cookImages.cookRecordId, cookRecords.id))
+		.innerJoin(recipes, eq(cookRecords.recipeId, recipes.id))
+		.where(and(eq(cookImages.r2Key, key), eq(recipes.ownerId, ownerId)));
 	if (cookRow) {
 		await db.delete(cookImages).where(eq(cookImages.id, cookRow.id));
+		await env.IMAGES.delete(key);
+		return true;
 	}
-	await env.IMAGES.delete(key);
+	return false;
 };
 
 /** レシピと作った記録に紐付くキーを全部集める。まとめて消すときの対象になる */
-export const ownerImageKeys = async (
+export const targetImageKeys = async (
 	db: ChoDatabase,
 	scope: ImageScope,
-	ownerId: string,
+	targetId: string,
 ): Promise<readonly string[]> => {
 	const rows =
 		scope === "recipe"
 			? await db
 					.select({ r2Key: recipeImages.r2Key })
 					.from(recipeImages)
-					.where(eq(recipeImages.recipeId, ownerId))
+					.where(eq(recipeImages.recipeId, targetId))
 			: await db
 					.select({ r2Key: cookImages.r2Key })
 					.from(cookImages)
-					.where(eq(cookImages.cookRecordId, ownerId));
+					.where(eq(cookImages.cookRecordId, targetId));
 	return rows.map((row) => row.r2Key);
 };
 
@@ -193,6 +211,28 @@ export const removeImageObjects = async (
 	keys: readonly string[],
 ): Promise<void> => {
 	await Promise.all(keys.map((key) => env.IMAGES.delete(key)));
+};
+
+/** 画像の持ち主。レシピの owner_id、作った記録ならそのレシピの owner_id を返す */
+export const imageOwnerId = async (
+	db: ChoDatabase,
+	key: string,
+): Promise<string | null> => {
+	const [recipeRow] = await db
+		.select({ ownerId: recipes.ownerId })
+		.from(recipeImages)
+		.innerJoin(recipes, eq(recipeImages.recipeId, recipes.id))
+		.where(eq(recipeImages.r2Key, key));
+	if (recipeRow) {
+		return recipeRow.ownerId;
+	}
+	const [cookRow] = await db
+		.select({ ownerId: recipes.ownerId })
+		.from(cookImages)
+		.innerJoin(cookRecords, eq(cookImages.cookRecordId, cookRecords.id))
+		.innerJoin(recipes, eq(cookRecords.recipeId, recipes.id))
+		.where(eq(cookImages.r2Key, key));
+	return cookRow?.ownerId ?? null;
 };
 
 /** キーが Cho の作った形かどうか。他人が組み立てたキーを読みに行かせない */

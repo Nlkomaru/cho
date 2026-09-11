@@ -21,6 +21,7 @@ import {
 	fetchIngredient,
 	removeIngredient,
 } from "@/server/ingredients.functions";
+import { isInventiaLinkAvailable } from "@/server/inventia.functions";
 import { IngredientForm } from "./-components/ingredient-form";
 
 export const Route = createFileRoute("/_app/ingredients/$ingredientId/edit")({
@@ -31,14 +32,16 @@ export const Route = createFileRoute("/_app/ingredients/$ingredientId/edit")({
 		],
 	},
 	loader: async ({ params }) => {
-		const result = await fetchIngredient({
-			data: { ingredientId: params.ingredientId },
-		});
+		const [result, inventiaAvailable] = await Promise.all([
+			fetchIngredient({ data: { ingredientId: params.ingredientId } }),
+			isInventiaLinkAvailable(),
+		]);
 		if (result === null) {
 			return null;
 		}
 		return {
 			...result,
+			inventiaAvailable,
 			breadcrumbs: [
 				{ label: "材料", to: "/ingredients" },
 				{ label: result.ingredient.name },
@@ -77,7 +80,7 @@ function EditIngredient() {
 		);
 	}
 
-	const { ingredient, usageCount } = data;
+	const { ingredient, usageCount, inventiaAvailable } = data;
 
 	const removeCurrent = async () => {
 		if (
@@ -113,6 +116,7 @@ function EditIngredient() {
 
 			<IngredientForm
 				ingredient={ingredient}
+				inventiaAvailable={inventiaAvailable}
 				onSaved={() => void router.invalidate()}
 			/>
 

@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { isChoImageKey, readImageObject } from "@/server/images.server";
+import { getDb } from "@/server/db.server";
+import {
+	imageOwnerId,
+	isChoImageKey,
+	readImageObject,
+} from "@/server/images.server";
 import { sessionUserFromHeaders } from "@/server/session.server";
 
 /**
@@ -17,6 +22,10 @@ export const Route = createFileRoute("/images/$")({
 				}
 				const key = params._splat;
 				if (!key || !isChoImageKey(key)) {
+					return new Response("見つかりません。", { status: 404 });
+				}
+				// 他の利用者の画像は存在しないものとして返す
+				if ((await imageOwnerId(getDb(), key)) !== user.id) {
 					return new Response("見つかりません。", { status: 404 });
 				}
 				const object = await readImageObject(key);

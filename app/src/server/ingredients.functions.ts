@@ -16,23 +16,23 @@ import { requireSessionUser } from "./session.server";
 
 export const fetchIngredients = createServerFn({ method: "GET" }).handler(
 	async () => {
-		await requireSessionUser();
-		return listIngredients(getDb());
+		const user = await requireSessionUser();
+		return listIngredients(getDb(), user.id);
 	},
 );
 
 export const fetchIngredient = createServerFn({ method: "GET" })
 	.inputValidator((data: { ingredientId: string }) => data)
 	.handler(async ({ data }) => {
-		await requireSessionUser();
+		const user = await requireSessionUser();
 		const db = getDb();
-		const ingredient = await getIngredient(db, data.ingredientId);
+		const ingredient = await getIngredient(db, user.id, data.ingredientId);
 		if (!ingredient) {
 			return null;
 		}
 		return {
 			ingredient,
-			usageCount: await countIngredientUsages(db, data.ingredientId),
+			usageCount: await countIngredientUsages(db, user.id, data.ingredientId),
 		};
 	});
 
@@ -42,10 +42,11 @@ export const submitIngredient = createServerFn({ method: "POST" })
 	)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			const input = ingredientInputSchema.parse(data.input);
 			return {
 				ingredientId: await saveIngredient(getDb(), {
+					ownerId: user.id,
 					ingredientId: data.ingredientId,
 					input,
 				}),
@@ -57,8 +58,8 @@ export const removeIngredient = createServerFn({ method: "POST" })
 	.inputValidator((data: { ingredientId: string }) => data)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
-			await deleteIngredient(getDb(), data.ingredientId);
+			const user = await requireSessionUser();
+			await deleteIngredient(getDb(), user.id, data.ingredientId);
 			return { ingredientId: data.ingredientId };
 		}),
 	);

@@ -1,7 +1,7 @@
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { ChoBatchItem, ChoDatabase } from "@/db/database";
-import { runBatch } from "@/db/database";
+import { chunkRows, runBatch } from "@/db/database";
 import {
 	cookImages,
 	cookRecords,
@@ -38,6 +38,7 @@ export interface RecipeCategory {
 
 export const listCategories = async (
 	db: ChoDatabase,
+	ownerId: string,
 ): Promise<readonly RecipeCategory[]> =>
 	db
 		.select({
@@ -47,10 +48,12 @@ export const listCategories = async (
 			sortOrder: recipeCategories.sortOrder,
 		})
 		.from(recipeCategories)
+		.where(eq(recipeCategories.ownerId, ownerId))
 		.orderBy(asc(recipeCategories.sortOrder), asc(recipeCategories.name));
 
 export const listRecipes = async (
 	db: ChoDatabase,
+	ownerId: string,
 ): Promise<readonly RecipeListItem[]> =>
 	db
 		.select({
@@ -67,6 +70,7 @@ export const listRecipes = async (
 		.from(recipes)
 		.innerJoin(recipeCategories, eq(recipes.categoryId, recipeCategories.id))
 		.leftJoin(cookRecords, eq(cookRecords.recipeId, recipes.id))
+		.where(eq(recipes.ownerId, ownerId))
 		.groupBy(recipes.id)
 		.orderBy(desc(recipes.updatedAt));
 
@@ -82,6 +86,7 @@ const imageFromRow = (row: {
 
 export const getRecipeDetail = async (
 	db: ChoDatabase,
+	ownerId: string,
 	recipeId: string,
 ): Promise<RecipeDetail | null> => {
 	const [row] = await db
@@ -103,7 +108,7 @@ export const getRecipeDetail = async (
 		})
 		.from(recipes)
 		.innerJoin(recipeCategories, eq(recipes.categoryId, recipeCategories.id))
-		.where(eq(recipes.id, recipeId));
+		.where(and(eq(recipes.id, recipeId), eq(recipes.ownerId, ownerId)));
 	if (!row) {
 		return null;
 	}
@@ -174,35 +179,48 @@ export const getRecipeDetail = async (
 				.filter((id) => id !== null),
 		),
 	];
-	const conversions =
-		masterIngredientIds.length === 0
-			? []
-			: await db
-					.select({
-						ingredientId: ingredientConversions.ingredientId,
-						unit: ingredientConversions.unit,
-						gramsPerUnit: ingredientConversions.gramsPerUnit,
-					})
-					.from(ingredientConversions)
-					.where(
-						inArray(ingredientConversions.ingredientId, masterIngredientIds),
-					);
+	const conversionRows: {
+		ingredientId: string;
+		unit: string;
+		gramsPerUnit: number;
+	}[] = [];
+	for (const chunk of chunkRows(masterIngredientIds, 1)) {
+		conversionRows.push(
+			...(await db
+				.select({
+					ingredientId: ingredientConversions.ingredientId,
+					unit: ingredientConversions.unit,
+					gramsPerUnit: ingredientConversions.gramsPerUnit,
+				})
+				.from(ingredientConversions)
+				.where(inArray(ingredientConversions.ingredientId, chunk))),
+		);
+	}
+	const conversions = conversionRows;
 
 	const cookIds = cookRows.map((cook) => cook.id);
-	const cookImageRows =
-		cookIds.length === 0
-			? []
-			: await db
-					.select({
-						id: cookImages.id,
-						cookRecordId: cookImages.cookRecordId,
-						r2Key: cookImages.r2Key,
-						alt: cookImages.alt,
-						position: cookImages.position,
-					})
-					.from(cookImages)
-					.where(inArray(cookImages.cookRecordId, cookIds))
-					.orderBy(asc(cookImages.position));
+	const cookImageRows: {
+		id: string;
+		cookRecordId: string;
+		r2Key: string;
+		alt: string | null;
+		position: number;
+	}[] = [];
+	for (const chunk of chunkRows(cookIds, 1)) {
+		cookImageRows.push(
+			...(await db
+				.select({
+					id: cookImages.id,
+					cookRecordId: cookImages.cookRecordId,
+					r2Key: cookImages.r2Key,
+					alt: cookImages.alt,
+					position: cookImages.position,
+				})
+				.from(cookImages)
+				.where(inArray(cookImages.cookRecordId, chunk))
+				.orderBy(asc(cookImages.position))),
+		);
+	}
 
 	return {
 		id: row.id,
@@ -274,27 +292,54 @@ export const getRecipeDetail = async (
 /** 材料名から材料マスタを引く。レシピ JSON の取り込みで名前だけの材料を結び付ける */
 const ingredientIdsByName = async (
 	db: ChoDatabase,
+	ownerId: string,
 	names: readonly string[],
 ): Promise<Map<string, string>> => {
 	const unique = [...new Set(names)];
 	if (unique.length === 0) {
 		return new Map();
 	}
-	const rows = await db
-		.select({ id: ingredients.id, name: ingredients.name })
-		.from(ingredients)
-		.where(inArray(ingredients.name, unique));
+	// IN の値も 1 文へ束縛できる数に収める（材料は最大 100 件ある）
+	const rows: { id: string; name: string }[] = [];
+	for (const chunk of chunkRows(unique, 1)) {
+		rows.push(
+			...(await db
+				.select({ id: ingredients.id, name: ingredients.name })
+				.from(ingredients)
+				.where(
+					and(
+						eq(ingredients.ownerId, ownerId),
+						inArray(ingredients.name, chunk),
+					),
+				)),
+		);
+	}
 	return new Map(rows.map((row) => [row.name, row.id]));
 };
 
 export const saveRecipe = async (
 	db: ChoDatabase,
-	{ recipeId, input }: { recipeId: string | null; input: RecipeInput },
+	{
+		ownerId,
+		recipeId,
+		input,
+	}: { ownerId: string; recipeId: string | null; input: RecipeInput },
 ): Promise<string> => {
+	if (
+		recipeId !== null &&
+		(await getRecipeDetail(db, ownerId, recipeId)) === null
+	) {
+		throw new Error("レシピが見つかりません。");
+	}
 	const [category] = await db
 		.select({ id: recipeCategories.id })
 		.from(recipeCategories)
-		.where(eq(recipeCategories.slug, input.categorySlug));
+		.where(
+			and(
+				eq(recipeCategories.ownerId, ownerId),
+				eq(recipeCategories.slug, input.categorySlug),
+			),
+		);
 	if (!category) {
 		throw new Error(`レシピの種類「${input.categorySlug}」が見つかりません。`);
 	}
@@ -303,6 +348,7 @@ export const saveRecipe = async (
 	const now = new Date().toISOString();
 	const masterIds = await ingredientIdsByName(
 		db,
+		ownerId,
 		input.ingredients.map((ingredient) => ingredient.name),
 	);
 
@@ -322,82 +368,80 @@ export const saveRecipe = async (
 
 	const statements: ChoBatchItem[] = [
 		recipeId === null
-			? db.insert(recipes).values({ id, createdAt: now, ...values })
-			: db.update(recipes).set(values).where(eq(recipes.id, recipeId)),
+			? db.insert(recipes).values({ id, ownerId, createdAt: now, ...values })
+			: db
+					.update(recipes)
+					.set(values)
+					.where(and(eq(recipes.id, recipeId), eq(recipes.ownerId, ownerId))),
 		db.delete(recipeIngredients).where(eq(recipeIngredients.recipeId, id)),
 		db.delete(recipeSteps).where(eq(recipeSteps.recipeId, id)),
 		db.delete(recipeReferences).where(eq(recipeReferences.recipeId, id)),
 	];
 	if (input.references.length > 0) {
-		statements.push(
-			db.insert(recipeReferences).values(
-				input.references.map((reference, index) => ({
-					id: newId(),
-					recipeId: id,
-					position: index,
-					title: reference.title,
-					url: reference.url,
-					note: reference.note,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			),
-		);
+		for (const chunk of chunkRows(
+			input.references.map((reference, index) => ({
+				id: newId(),
+				recipeId: id,
+				position: index,
+				title: reference.title,
+				url: reference.url,
+				note: reference.note,
+				createdAt: now,
+				updatedAt: now,
+			})),
+			8,
+		)) {
+			statements.push(db.insert(recipeReferences).values(chunk));
+		}
 	}
 	if (input.ingredients.length > 0) {
-		statements.push(
-			db.insert(recipeIngredients).values(
-				input.ingredients.map((ingredient, index) => ({
-					id: newId(),
-					recipeId: id,
-					position: index,
-					name: ingredient.name,
-					amountValue: ingredient.amount.value,
-					amountUnit: ingredient.amount.unit,
-					note: ingredient.note,
-					// 明示された参照を優先し、無ければ名前が一致する材料マスタへ結び付ける
-					ingredientId:
-						ingredient.ingredientId ?? masterIds.get(ingredient.name) ?? null,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			),
-		);
+		for (const chunk of chunkRows(
+			input.ingredients.map((ingredient, index) => ({
+				id: newId(),
+				recipeId: id,
+				position: index,
+				name: ingredient.name,
+				amountValue: ingredient.amount.value,
+				amountUnit: ingredient.amount.unit,
+				note: ingredient.note,
+				// 明示された参照を優先し、無ければ名前が一致する材料マスタへ結び付ける
+				ingredientId:
+					ingredient.ingredientId ?? masterIds.get(ingredient.name) ?? null,
+				createdAt: now,
+				updatedAt: now,
+			})),
+			9,
+		)) {
+			statements.push(db.insert(recipeIngredients).values(chunk));
+		}
 	}
 	if (input.steps.length > 0) {
-		statements.push(
-			db.insert(recipeSteps).values(
-				input.steps.map((step, index) => ({
-					id: newId(),
-					recipeId: id,
-					position: index,
-					text: step.text,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			),
-		);
+		for (const chunk of chunkRows(
+			input.steps.map((step, index) => ({
+				id: newId(),
+				recipeId: id,
+				position: index,
+				text: step.text,
+				createdAt: now,
+				updatedAt: now,
+			})),
+			6,
+		)) {
+			statements.push(db.insert(recipeSteps).values(chunk));
+		}
 	}
 	await runBatch(db, statements);
 	return id;
 };
 
-/** レシピに紐付く画像のキー。R2 の後始末に使う */
-export const recipeImageKeys = async (
-	db: ChoDatabase,
-	recipeId: string,
-): Promise<readonly string[]> => {
-	const rows = await db
-		.select({ r2Key: recipeImages.r2Key })
-		.from(recipeImages)
-		.where(eq(recipeImages.recipeId, recipeId));
-	return rows.map((row) => row.r2Key);
-};
-
 export const deleteRecipe = async (
 	db: ChoDatabase,
+	ownerId: string,
 	recipeId: string,
 ): Promise<void> => {
+	if ((await getRecipeDetail(db, ownerId, recipeId)) === null) {
+		throw new Error("レシピが見つかりません。");
+	}
 	// 子テーブルは ON DELETE CASCADE だが、D1 の外部キー設定に依存しないよう明示的に消す
 	const cookRows = await db
 		.select({ id: cookRecords.id })
@@ -410,39 +454,54 @@ export const deleteRecipe = async (
 		db.delete(recipeSteps).where(eq(recipeSteps.recipeId, recipeId)),
 		db.delete(recipeReferences).where(eq(recipeReferences.recipeId, recipeId)),
 		db.delete(recipeImages).where(eq(recipeImages.recipeId, recipeId)),
-		...(cookRows.length === 0
-			? []
-			: [
-					db.delete(cookImages).where(
-						inArray(
-							cookImages.cookRecordId,
-							cookRows.map((cook) => cook.id),
-						),
-					),
-				]),
+		...chunkRows(
+			cookRows.map((cook) => cook.id),
+			1,
+		).map((chunk) =>
+			db.delete(cookImages).where(inArray(cookImages.cookRecordId, chunk)),
+		),
 		db.delete(cookRecords).where(eq(cookRecords.recipeId, recipeId)),
-		db.delete(recipes).where(eq(recipes.id, recipeId)),
+		db
+			.delete(recipes)
+			.where(and(eq(recipes.id, recipeId), eq(recipes.ownerId, ownerId))),
 	]);
 };
 
 export const saveCategory = async (
 	db: ChoDatabase,
 	{
+		ownerId,
 		categoryId,
 		slug,
 		name,
-	}: { categoryId: string | null; slug: string; name: string },
+	}: { ownerId: string; categoryId: string | null; slug: string; name: string },
 ): Promise<string> => {
+	if (categoryId !== null) {
+		const [existing] = await db
+			.select({ id: recipeCategories.id })
+			.from(recipeCategories)
+			.where(
+				and(
+					eq(recipeCategories.id, categoryId),
+					eq(recipeCategories.ownerId, ownerId),
+				),
+			);
+		if (!existing) {
+			throw new Error("レシピの種類が見つかりません。");
+		}
+	}
 	const now = new Date().toISOString();
 	if (categoryId === null) {
 		const [last] = await db
 			.select({ sortOrder: recipeCategories.sortOrder })
 			.from(recipeCategories)
+			.where(eq(recipeCategories.ownerId, ownerId))
 			.orderBy(desc(recipeCategories.sortOrder))
 			.limit(1);
 		const id = newId();
 		await db.insert(recipeCategories).values({
 			id,
+			ownerId,
 			slug,
 			name,
 			sortOrder: (last?.sortOrder ?? -1) + 1,
@@ -454,20 +513,35 @@ export const saveCategory = async (
 	await db
 		.update(recipeCategories)
 		.set({ slug, name, updatedAt: now })
-		.where(eq(recipeCategories.id, categoryId));
+		.where(
+			and(
+				eq(recipeCategories.id, categoryId),
+				eq(recipeCategories.ownerId, ownerId),
+			),
+		);
 	return categoryId;
 };
 
 export const deleteCategory = async (
 	db: ChoDatabase,
+	ownerId: string,
 	categoryId: string,
 ): Promise<void> => {
 	const [used] = await db
 		.select({ count: sql<number>`count(*)` })
 		.from(recipes)
-		.where(eq(recipes.categoryId, categoryId));
+		.where(
+			and(eq(recipes.categoryId, categoryId), eq(recipes.ownerId, ownerId)),
+		);
 	if (used && used.count > 0) {
 		throw new Error("この種類を使っているレシピがあるため削除できません。");
 	}
-	await db.delete(recipeCategories).where(eq(recipeCategories.id, categoryId));
+	await db
+		.delete(recipeCategories)
+		.where(
+			and(
+				eq(recipeCategories.id, categoryId),
+				eq(recipeCategories.ownerId, ownerId),
+			),
+		);
 };

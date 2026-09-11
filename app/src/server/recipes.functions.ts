@@ -10,7 +10,7 @@ import {
 	recipeInputSchema,
 } from "@/domain/recipe";
 import { getDb } from "./db.server";
-import { ownerImageKeys, removeImageObjects } from "./images.server";
+import { removeImageObjects, targetImageKeys } from "./images.server";
 import {
 	deleteCategory,
 	deleteRecipe,
@@ -44,23 +44,23 @@ export type CategoryInput = z.output<typeof categoryInputSchema>;
 
 export const fetchCategories = createServerFn({ method: "GET" }).handler(
 	async () => {
-		await requireSessionUser();
-		return listCategories(getDb());
+		const user = await requireSessionUser();
+		return listCategories(getDb(), user.id);
 	},
 );
 
 export const fetchRecipes = createServerFn({ method: "GET" }).handler(
 	async () => {
-		await requireSessionUser();
-		return listRecipes(getDb());
+		const user = await requireSessionUser();
+		return listRecipes(getDb(), user.id);
 	},
 );
 
 export const fetchRecipe = createServerFn({ method: "GET" })
 	.inputValidator((data: { recipeId: string }) => data)
 	.handler(async ({ data }) => {
-		await requireSessionUser();
-		return getRecipeDetail(getDb(), data.recipeId);
+		const user = await requireSessionUser();
+		return getRecipeDetail(getDb(), user.id, data.recipeId);
 	});
 
 export const submitRecipe = createServerFn({ method: "POST" })
@@ -69,10 +69,14 @@ export const submitRecipe = createServerFn({ method: "POST" })
 	)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			const input = recipeInputSchema.parse(data.input);
 			return {
-				recipeId: await saveRecipe(getDb(), { recipeId: data.recipeId, input }),
+				recipeId: await saveRecipe(getDb(), {
+					ownerId: user.id,
+					recipeId: data.recipeId,
+					input,
+				}),
 			};
 		}),
 	);
@@ -82,7 +86,7 @@ export const importRecipeDocument = createServerFn({ method: "POST" })
 	.inputValidator((data: { json: string }) => data)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			let raw: unknown;
 			try {
 				raw = JSON.parse(data.json);
@@ -93,6 +97,7 @@ export const importRecipeDocument = createServerFn({ method: "POST" })
 			}
 			const document = recipeDocumentSchema.parse(raw);
 			const recipeId = await saveRecipe(getDb(), {
+				ownerId: user.id,
 				recipeId: null,
 				input: recipeInputFromDocument(document),
 			});
@@ -104,19 +109,19 @@ export const removeRecipe = createServerFn({ method: "POST" })
 	.inputValidator((data: { recipeId: string }) => data)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			const db = getDb();
-			const keys = await ownerImageKeys(db, "recipe", data.recipeId);
+			const keys = await targetImageKeys(db, "recipe", data.recipeId);
 			const cookIds = await db
 				.select({ id: cookRecords.id })
 				.from(cookRecords)
 				.where(eq(cookRecords.recipeId, data.recipeId));
 			const cookKeys = (
 				await Promise.all(
-					cookIds.map((cook) => ownerImageKeys(db, "cook", cook.id)),
+					cookIds.map((cook) => targetImageKeys(db, "cook", cook.id)),
 				)
 			).flat();
-			await deleteRecipe(db, data.recipeId);
+			await deleteRecipe(db, user.id, data.recipeId);
 			await removeImageObjects([...keys, ...cookKeys]);
 			return { recipeId: data.recipeId };
 		}),
@@ -128,10 +133,11 @@ export const submitCategory = createServerFn({ method: "POST" })
 	)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
+			const user = await requireSessionUser();
 			const input = categoryInputSchema.parse(data.input);
 			return {
 				categoryId: await saveCategory(getDb(), {
+					ownerId: user.id,
 					categoryId: data.categoryId,
 					...input,
 				}),
@@ -143,8 +149,8 @@ export const removeCategory = createServerFn({ method: "POST" })
 	.inputValidator((data: { categoryId: string }) => data)
 	.handler(async ({ data }) =>
 		runAction(async () => {
-			await requireSessionUser();
-			await deleteCategory(getDb(), data.categoryId);
+			const user = await requireSessionUser();
+			await deleteCategory(getDb(), user.id, data.categoryId);
 			return { categoryId: data.categoryId };
 		}),
 	);
