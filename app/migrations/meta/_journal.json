@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789106133971,
+      "tag": "0000_great_loners",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789106134000,
+      "tag": "0001_seed_master_data",
+      "breakpoints": true
+    }
+  ]
+}
