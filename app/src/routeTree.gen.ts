@@ -10,11 +10,32 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as ApiImagesRouteImport } from './routes/api/images'
+import { Route as ImagesSplatRouteImport } from './routes/images/$'
+import { Route as SchemasFileRouteImport } from './routes/schemas.$file'
+import { Route as AppCooksCookIdRouteImport } from './routes/_app/cooks/$cookId'
+import { Route as AppCooksNewRouteImport } from './routes/_app/cooks/new'
+import { Route as AppIngredientsIndexRouteImport } from './routes/_app/ingredients/index'
+import { Route as AppIngredientsNewRouteImport } from './routes/_app/ingredients/new'
 import { Route as AppLicenseIndexRouteImport } from './routes/_app/license/index'
+import { Route as AppRecipesIndexRouteImport } from './routes/_app/recipes/index'
+import { Route as AppRecipesRecipeIdRouteImport } from './routes/_app/recipes/$recipeId'
+import { Route as AppRecipesNewRouteImport } from './routes/_app/recipes/new'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppCooksCookIdEditRouteImport } from './routes/_app/cooks/$cookId.edit'
+import { Route as AppIngredientsIngredientIdEditRouteImport } from './routes/_app/ingredients/$ingredientId.edit'
+import { Route as AppRecipesRecipeIdEditRouteImport } from './routes/_app/recipes/$recipeId.edit'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -22,36 +43,221 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const ApiImagesRoute = ApiImagesRouteImport.update({
+  id: '/api/images',
+  path: '/api/images',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ImagesSplatRoute = ImagesSplatRouteImport.update({
+  id: '/images/$',
+  path: '/images/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchemasFileRoute = SchemasFileRouteImport.update({
+  id: '/schemas/$file',
+  path: '/schemas/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppCooksCookIdRoute = AppCooksCookIdRouteImport.update({
+  id: '/cooks/$cookId',
+  path: '/cooks/$cookId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCooksNewRoute = AppCooksNewRouteImport.update({
+  id: '/cooks/new',
+  path: '/cooks/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIngredientsIndexRoute = AppIngredientsIndexRouteImport.update({
+  id: '/ingredients/',
+  path: '/ingredients/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIngredientsNewRoute = AppIngredientsNewRouteImport.update({
+  id: '/ingredients/new',
+  path: '/ingredients/new',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppLicenseIndexRoute = AppLicenseIndexRouteImport.update({
   id: '/license/',
   path: '/license/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRecipesIndexRoute = AppRecipesIndexRouteImport.update({
+  id: '/recipes/',
+  path: '/recipes/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecipesRecipeIdRoute = AppRecipesRecipeIdRouteImport.update({
+  id: '/recipes/$recipeId',
+  path: '/recipes/$recipeId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecipesNewRoute = AppRecipesNewRouteImport.update({
+  id: '/recipes/new',
+  path: '/recipes/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppCooksCookIdEditRoute = AppCooksCookIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => AppCooksCookIdRoute,
+} as any)
+const AppIngredientsIngredientIdEditRoute =
+  AppIngredientsIngredientIdEditRouteImport.update({
+    id: '/ingredients/$ingredientId/edit',
+    path: '/ingredients/$ingredientId/edit',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppRecipesRecipeIdEditRoute = AppRecipesRecipeIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => AppRecipesRecipeIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/login': typeof LoginRoute
+  '/settings': typeof AppSettingsRoute
+  '/api/images': typeof ApiImagesRoute
+  '/images/$': typeof ImagesSplatRoute
+  '/schemas/$file': typeof SchemasFileRoute
+  '/cooks/$cookId': typeof AppCooksCookIdRouteWithChildren
+  '/cooks/new': typeof AppCooksNewRoute
+  '/ingredients/new': typeof AppIngredientsNewRoute
+  '/recipes/$recipeId': typeof AppRecipesRecipeIdRouteWithChildren
+  '/recipes/new': typeof AppRecipesNewRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/ingredients/': typeof AppIngredientsIndexRoute
   '/license/': typeof AppLicenseIndexRoute
+  '/recipes/': typeof AppRecipesIndexRoute
+  '/cooks/$cookId/edit': typeof AppCooksCookIdEditRoute
+  '/ingredients/$ingredientId/edit': typeof AppIngredientsIngredientIdEditRoute
+  '/recipes/$recipeId/edit': typeof AppRecipesRecipeIdEditRoute
 }
 export interface FileRoutesByTo {
+  '/login': typeof LoginRoute
+  '/settings': typeof AppSettingsRoute
+  '/api/images': typeof ApiImagesRoute
+  '/images/$': typeof ImagesSplatRoute
+  '/schemas/$file': typeof SchemasFileRoute
   '/': typeof AppIndexRoute
+  '/cooks/$cookId': typeof AppCooksCookIdRouteWithChildren
+  '/cooks/new': typeof AppCooksNewRoute
+  '/ingredients/new': typeof AppIngredientsNewRoute
+  '/recipes/$recipeId': typeof AppRecipesRecipeIdRouteWithChildren
+  '/recipes/new': typeof AppRecipesNewRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/ingredients': typeof AppIngredientsIndexRoute
   '/license': typeof AppLicenseIndexRoute
+  '/recipes': typeof AppRecipesIndexRoute
+  '/cooks/$cookId/edit': typeof AppCooksCookIdEditRoute
+  '/ingredients/$ingredientId/edit': typeof AppIngredientsIngredientIdEditRoute
+  '/recipes/$recipeId/edit': typeof AppRecipesRecipeIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/login': typeof LoginRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/api/images': typeof ApiImagesRoute
+  '/images/$': typeof ImagesSplatRoute
+  '/schemas/$file': typeof SchemasFileRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/cooks/$cookId': typeof AppCooksCookIdRouteWithChildren
+  '/_app/cooks/new': typeof AppCooksNewRoute
+  '/_app/ingredients/new': typeof AppIngredientsNewRoute
+  '/_app/recipes/$recipeId': typeof AppRecipesRecipeIdRouteWithChildren
+  '/_app/recipes/new': typeof AppRecipesNewRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_app/ingredients/': typeof AppIngredientsIndexRoute
   '/_app/license/': typeof AppLicenseIndexRoute
+  '/_app/recipes/': typeof AppRecipesIndexRoute
+  '/_app/cooks/$cookId/edit': typeof AppCooksCookIdEditRoute
+  '/_app/ingredients/$ingredientId/edit': typeof AppIngredientsIngredientIdEditRoute
+  '/_app/recipes/$recipeId/edit': typeof AppRecipesRecipeIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/license/'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/settings'
+    | '/api/images'
+    | '/images/$'
+    | '/schemas/$file'
+    | '/cooks/$cookId'
+    | '/cooks/new'
+    | '/ingredients/new'
+    | '/recipes/$recipeId'
+    | '/recipes/new'
+    | '/api/auth/$'
+    | '/ingredients/'
+    | '/license/'
+    | '/recipes/'
+    | '/cooks/$cookId/edit'
+    | '/ingredients/$ingredientId/edit'
+    | '/recipes/$recipeId/edit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/license'
-  id: '__root__' | '/_app' | '/_app/' | '/_app/license/'
+  to:
+    | '/login'
+    | '/settings'
+    | '/api/images'
+    | '/images/$'
+    | '/schemas/$file'
+    | '/'
+    | '/cooks/$cookId'
+    | '/cooks/new'
+    | '/ingredients/new'
+    | '/recipes/$recipeId'
+    | '/recipes/new'
+    | '/api/auth/$'
+    | '/ingredients'
+    | '/license'
+    | '/recipes'
+    | '/cooks/$cookId/edit'
+    | '/ingredients/$ingredientId/edit'
+    | '/recipes/$recipeId/edit'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/login'
+    | '/_app/settings'
+    | '/api/images'
+    | '/images/$'
+    | '/schemas/$file'
+    | '/_app/'
+    | '/_app/cooks/$cookId'
+    | '/_app/cooks/new'
+    | '/_app/ingredients/new'
+    | '/_app/recipes/$recipeId'
+    | '/_app/recipes/new'
+    | '/api/auth/$'
+    | '/_app/ingredients/'
+    | '/_app/license/'
+    | '/_app/recipes/'
+    | '/_app/cooks/$cookId/edit'
+    | '/_app/ingredients/$ingredientId/edit'
+    | '/_app/recipes/$recipeId/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  ApiImagesRoute: typeof ApiImagesRoute
+  ImagesSplatRoute: typeof ImagesSplatRoute
+  SchemasFileRoute: typeof SchemasFileRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -63,11 +269,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/': {
       id: '/_app/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/api/images': {
+      id: '/api/images'
+      path: '/api/images'
+      fullPath: '/api/images'
+      preLoaderRoute: typeof ApiImagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/images/$': {
+      id: '/images/$'
+      path: '/images/$'
+      fullPath: '/images/$'
+      preLoaderRoute: typeof ImagesSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schemas/$file': {
+      id: '/schemas/$file'
+      path: '/schemas/$file'
+      fullPath: '/schemas/$file'
+      preLoaderRoute: typeof SchemasFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/cooks/$cookId': {
+      id: '/_app/cooks/$cookId'
+      path: '/cooks/$cookId'
+      fullPath: '/cooks/$cookId'
+      preLoaderRoute: typeof AppCooksCookIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/cooks/new': {
+      id: '/_app/cooks/new'
+      path: '/cooks/new'
+      fullPath: '/cooks/new'
+      preLoaderRoute: typeof AppCooksNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ingredients/': {
+      id: '/_app/ingredients/'
+      path: '/ingredients'
+      fullPath: '/ingredients/'
+      preLoaderRoute: typeof AppIngredientsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/ingredients/new': {
+      id: '/_app/ingredients/new'
+      path: '/ingredients/new'
+      fullPath: '/ingredients/new'
+      preLoaderRoute: typeof AppIngredientsNewRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/license/': {
@@ -77,23 +346,118 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLicenseIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/recipes/': {
+      id: '/_app/recipes/'
+      path: '/recipes'
+      fullPath: '/recipes/'
+      preLoaderRoute: typeof AppRecipesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recipes/$recipeId': {
+      id: '/_app/recipes/$recipeId'
+      path: '/recipes/$recipeId'
+      fullPath: '/recipes/$recipeId'
+      preLoaderRoute: typeof AppRecipesRecipeIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recipes/new': {
+      id: '/_app/recipes/new'
+      path: '/recipes/new'
+      fullPath: '/recipes/new'
+      preLoaderRoute: typeof AppRecipesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/cooks/$cookId/edit': {
+      id: '/_app/cooks/$cookId/edit'
+      path: '/edit'
+      fullPath: '/cooks/$cookId/edit'
+      preLoaderRoute: typeof AppCooksCookIdEditRouteImport
+      parentRoute: typeof AppCooksCookIdRoute
+    }
+    '/_app/ingredients/$ingredientId/edit': {
+      id: '/_app/ingredients/$ingredientId/edit'
+      path: '/ingredients/$ingredientId/edit'
+      fullPath: '/ingredients/$ingredientId/edit'
+      preLoaderRoute: typeof AppIngredientsIngredientIdEditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recipes/$recipeId/edit': {
+      id: '/_app/recipes/$recipeId/edit'
+      path: '/edit'
+      fullPath: '/recipes/$recipeId/edit'
+      preLoaderRoute: typeof AppRecipesRecipeIdEditRouteImport
+      parentRoute: typeof AppRecipesRecipeIdRoute
+    }
   }
 }
 
+interface AppCooksCookIdRouteChildren {
+  AppCooksCookIdEditRoute: typeof AppCooksCookIdEditRoute
+}
+
+const AppCooksCookIdRouteChildren: AppCooksCookIdRouteChildren = {
+  AppCooksCookIdEditRoute: AppCooksCookIdEditRoute,
+}
+
+const AppCooksCookIdRouteWithChildren = AppCooksCookIdRoute._addFileChildren(
+  AppCooksCookIdRouteChildren,
+)
+
+interface AppRecipesRecipeIdRouteChildren {
+  AppRecipesRecipeIdEditRoute: typeof AppRecipesRecipeIdEditRoute
+}
+
+const AppRecipesRecipeIdRouteChildren: AppRecipesRecipeIdRouteChildren = {
+  AppRecipesRecipeIdEditRoute: AppRecipesRecipeIdEditRoute,
+}
+
+const AppRecipesRecipeIdRouteWithChildren =
+  AppRecipesRecipeIdRoute._addFileChildren(AppRecipesRecipeIdRouteChildren)
+
 interface AppRouteChildren {
+  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppCooksCookIdRoute: typeof AppCooksCookIdRouteWithChildren
+  AppCooksNewRoute: typeof AppCooksNewRoute
+  AppIngredientsNewRoute: typeof AppIngredientsNewRoute
+  AppRecipesRecipeIdRoute: typeof AppRecipesRecipeIdRouteWithChildren
+  AppRecipesNewRoute: typeof AppRecipesNewRoute
+  AppIngredientsIndexRoute: typeof AppIngredientsIndexRoute
   AppLicenseIndexRoute: typeof AppLicenseIndexRoute
+  AppRecipesIndexRoute: typeof AppRecipesIndexRoute
+  AppIngredientsIngredientIdEditRoute: typeof AppIngredientsIngredientIdEditRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppCooksCookIdRoute: AppCooksCookIdRouteWithChildren,
+  AppCooksNewRoute: AppCooksNewRoute,
+  AppIngredientsNewRoute: AppIngredientsNewRoute,
+  AppRecipesRecipeIdRoute: AppRecipesRecipeIdRouteWithChildren,
+  AppRecipesNewRoute: AppRecipesNewRoute,
+  AppIngredientsIndexRoute: AppIngredientsIndexRoute,
   AppLicenseIndexRoute: AppLicenseIndexRoute,
+  AppRecipesIndexRoute: AppRecipesIndexRoute,
+  AppIngredientsIngredientIdEditRoute: AppIngredientsIngredientIdEditRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  LoginRoute: LoginRoute,
+  ApiImagesRoute: ApiImagesRoute,
+  ImagesSplatRoute: ImagesSplatRoute,
+  SchemasFileRoute: SchemasFileRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
