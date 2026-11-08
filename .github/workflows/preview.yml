@@ -119,24 +119,24 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --preview-alias preview --message "PR #${{ github.event.number }} preview alias"
-          workingDirectory: app/dist/server
+          command: versions upload --config dist/server/wrangler.json --preview-alias preview --message "PR #${{ github.event.number }} preview alias"
+          workingDirectory: app
 
       - name: Upload pull request preview alias
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --preview-alias pr${{ github.event.number }} --message "PR #${{ github.event.number }} preview alias"
-          workingDirectory: app/dist/server
+          command: versions upload --config dist/server/wrangler.json --preview-alias pr${{ github.event.number }} --message "PR #${{ github.event.number }} preview alias"
+          workingDirectory: app
 
       - name: Upload commit preview alias
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --preview-alias ${{ steps.vars.outputs.commit_sha }} --message "PR #${{ github.event.number }} commit preview alias"
-          workingDirectory: app/dist/server
+          command: versions upload --config dist/server/wrangler.json --preview-alias ${{ steps.vars.outputs.commit_sha }} --message "PR #${{ github.event.number }} commit preview alias"
+          workingDirectory: app
 
       - name: Verify preview aliases and Storybook
         env:
