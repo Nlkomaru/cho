@@ -62,6 +62,8 @@ pnpm deploy
 
 Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)、D1 (`DB`)、R2 (`IMAGES_BUCKET`) を使用します。`<D1_DATABASE_ID>` はデプロイ環境で `CLOUDFLARE_DATABASE_ID` から解決し、実 ID をリポジトリに保存しません。Production workflow は deploy 前に `wrangler d1 migrations apply DB --remote` を実行します。PR Check は一時 UUID を設定したローカル Wrangler SQLite DB に `--local` で migrations を適用し、production DB には接続しません。
 
+Production workflow は lockfile で固定した Wrangler CLI を使い、Worker のデプロイ後に `SETTINGS_ENCRYPTION_KEY` を stdin 経由でアップロードします。この secret が未設定の場合はアップロードを省略し、既存の Worker secret を保持します。
+
 ### D1 データベースの初期化
 
 このアプリはまだ本番運用しておらず、production D1 (`cho`) のアプリケーションデータは破棄可能と判断しました。production D1 は廃止したレシピ/調理記録スキーマを引き継ぎ、`ingredients` も旧形状だったため、データ移行は行わずにアプリテーブルを削除して `app/migrations/0000_initial.sql` から作り直します。2026-11-08 にこのリセットを実行し、production のアプリテーブルは空です（[run 42484824836](https://github.com/Nlkomaru/cho/actions/runs/42484824836)、commit `4783f05`）。旧スキーマの `user` / `recipes` などの残骸テーブルは削除対象外で残りますが、アプリは参照しません。
