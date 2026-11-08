@@ -1,88 +1,71 @@
+import { Box, Flex, Link, Text } from "@chakra-ui/react";
 import { createFileRoute, Outlet, useMatches } from "@tanstack/react-router";
-import { Fragment } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import {
-	Breadcrumb,
-	BreadcrumbItem,
-	BreadcrumbLink,
-	BreadcrumbList,
-	BreadcrumbPage,
-	BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { Separator } from "@/components/ui/separator";
-import {
-	SidebarInset,
-	SidebarProvider,
-	SidebarTrigger,
-} from "@/components/ui/sidebar";
 import { breadcrumbsFromLoaderData } from "@/lib/breadcrumbs";
-import { groupBreadcrumb } from "@/lib/navigation";
 
 export const Route = createFileRoute("/_app")({
-	staticData: {
-		breadcrumbs: [groupBreadcrumb("調理記録")],
-	},
-	component: AppLayout,
+  staticData: {
+    breadcrumbs: [{ label: "食事記録", to: "/" }],
+  },
+  component: AppLayout,
 });
 
 function AppLayout() {
-	return (
-		<SidebarProvider>
-			<AppSidebar />
-			<SidebarInset>
-				<header className="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b bg-background px-4">
-					<SidebarTrigger className="ml-1" />
-					<Separator
-						orientation="vertical"
-						className="my-auto ml-2 mr-4 h-8 py-[2px]"
-					/>
-					<AppBreadcrumb />
-				</header>
-				<Outlet />
-			</SidebarInset>
-		</SidebarProvider>
-	);
+  return (
+    <Flex minH="100vh" bg="bg.canvas">
+      <AppSidebar />
+      <Box as="section" flex="1" minW="0">
+        <Box
+          as="header"
+          position="sticky"
+          top="0"
+          zIndex="20"
+          display="flex"
+          minH="4rem"
+          alignItems="center"
+          borderBottomWidth="1px"
+          borderColor="border"
+          bg="bg.panel"
+          px="6"
+        >
+          <AppBreadcrumb />
+        </Box>
+        <Outlet />
+      </Box>
+    </Flex>
+  );
 }
 
 function AppBreadcrumb() {
-	const breadcrumbs = useMatches({
-		select: (matches) =>
-			matches.flatMap(
-				(match) =>
-					breadcrumbsFromLoaderData(match.loaderData) ??
-					match.staticData.breadcrumbs ??
-					[],
-			),
-	});
+  const breadcrumbs = useMatches({
+    select: (matches) =>
+      matches.flatMap(
+        (match) =>
+          breadcrumbsFromLoaderData(match.loaderData) ?? match.staticData.breadcrumbs ?? [],
+      ),
+  });
 
-	return (
-		<Breadcrumb>
-			<BreadcrumbList>
-				{breadcrumbs.map((breadcrumb, index) => {
-					const isCurrent = index === breadcrumbs.length - 1;
+  return (
+    <Box as="nav" aria-label="パンくずリスト" display="flex" gap="2">
+      {breadcrumbs.map((breadcrumb, index) => {
+        const isCurrent = index === breadcrumbs.length - 1;
 
-					return (
-						<Fragment key={`${breadcrumb.label}-${breadcrumb.to ?? "current"}`}>
-							{index > 0 ? <BreadcrumbSeparator /> : null}
-							<BreadcrumbItem>
-								{isCurrent || !breadcrumb.to ? (
-									<BreadcrumbPage>{breadcrumb.label}</BreadcrumbPage>
-								) : (
-									<BreadcrumbLink
-										render={
-											// biome-ignore lint/a11y/useAnchorContent: Base UI forwards BreadcrumbLink children to this anchor.
-											<a aria-label={breadcrumb.label} href={breadcrumb.to} />
-										}
-									>
-										{breadcrumb.label}
-									</BreadcrumbLink>
-								)}
-							</BreadcrumbItem>
-						</Fragment>
-					);
-				})}
-			</BreadcrumbList>
-		</Breadcrumb>
-	);
+        return (
+          <Box key={`${breadcrumb.label}-${breadcrumb.to ?? "current"}`} display="flex" gap="2">
+            {index > 0 ? <Text aria-hidden="true">/</Text> : null}
+            {isCurrent || !breadcrumb.to ? (
+              <Text aria-current="page" color="fg.subtle" fontWeight="600">
+                {breadcrumb.label}
+              </Text>
+            ) : (
+              <Link href={breadcrumb.to} color="fg">
+                {breadcrumb.label}
+              </Link>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
 }

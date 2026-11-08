@@ -1,12 +1,25 @@
 {
   "name": "cho-workspace",
   "private": true,
-  "packageManager": "pnpm@10.33.3",
   "scripts": {
     "dev": "pnpm --parallel --filter ./app --filter ./storybook run dev",
-    "build": "pnpm --filter ./app run build",
-    "check": "pnpm --filter ./app run check && pnpm --filter ./storybook run check",
+    "build": "pnpm run build:storybook && pnpm --filter ./app run build",
+    "build:storybook": "pnpm --filter ./storybook run build",
+    "check": "vp check",
+    "check:fix": "vp check --fix",
+    "test": "vp test",
+    "smoke:worker": "bash app/scripts/smoke-worker.sh",
     "deploy": "pnpm run build && pnpm --dir app exec wrangler deploy",
     "cf-typegen": "pnpm --filter ./app run cf-typegen"
+  },
+  "devDependencies": {
+    "vite-plus": "latest"
+  },
+  "packageManager": "pnpm@10.33.3",
+  "pnpm": {
+    "overrides": {
+      "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+      "@tanstack/react-router": "1.170.46"
+    }
   }
 }

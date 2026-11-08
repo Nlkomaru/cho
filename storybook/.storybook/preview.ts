@@ -1,5 +1,5 @@
-import type { Preview } from "@storybook/react-vite"
-import "../../app/src/styles.css"
+import type { Preview } from "@storybook/react-vite";
+import "../../app/src/styles.css";
 
 const preview: Preview = {
   parameters: {
@@ -15,6 +15,6 @@ const preview: Preview = {
     layout: "centered",
   },
   tags: ["autodocs"],
-}
+};
 
-export default preview
+export default preview;

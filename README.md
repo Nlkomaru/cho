@@ -4,8 +4,9 @@
 
 ## 構成
 
-- `app/`: TanStack Start、React、Tailwind CSS、Cloudflare Workers で動くアプリ本体
-- `storybook/`: `app/src/components/` の共有 UI を確認する Storybook
+- `app/`: TanStack Start / Router、React、Chakra UI v3、Panda CSS を使った Cloudflare Workers アプリ
+- `storybook/`: アプリ UI のカタログ。Storybook の静的出力を `app/dist/client/storybook/` に同梱
+- `spec/`: 技術・デザイン・機能仕様
 
 ## 開発
 
@@ -23,15 +24,27 @@ pnpm --filter ./app dev
 pnpm --filter ./storybook dev
 ```
 
-## 確認
+## 確認とビルド
+
+ルートの Vite+ コマンドでチェックとテストを実行します。
 
 ```bash
 pnpm check
-pnpm build
+pnpm test
 ```
 
-`pnpm build` はアプリと Storybook の両方をビルドし、Storybook を
-`app/dist/client/storybook/` へ同梱します。
+```bash
+pnpm build
+pnpm run build:storybook
+```
+
+`pnpm build` は Storybook を先にビルドし、続けてアプリをビルドします。アプリのクライアント出力 `app/dist/client/storybook/` に Storybook を同梱し、Worker Static Assets から `/storybook/` で配信します。
+
+ビルド後、Worker と画面/API をローカルでスモーク確認します。`pnpm smoke:worker` は一時設定とローカル D1 のみを使い、Cloudflare へ接続しません。
+
+```bash
+pnpm smoke:worker
+```
 
 ## Cloudflare Workers
 
@@ -40,18 +53,31 @@ pnpm build
 - App: `https://cho.nikomaru.dev/`
 - Storybook: `https://cho.nikomaru.dev/storybook/`
 
-Worker 型生成とデプロイはルートから実行します。`pnpm deploy` は両方をビルドしてから、
-`app/` の Worker だけをデプロイします。
+Worker 型生成とデプロイはルートから実行します。`pnpm deploy` は両方をビルドしてから、`app/` の Worker だけをデプロイします。
 
 ```bash
 pnpm cf-typegen
 pnpm deploy
 ```
 
-`main` への push と手動実行は `.github/workflows/deploy.yml`、Pull Request の
-プレビューは `.github/workflows/preview.yml` が担当します。Actions では
-`BWS_ACCESS_TOKEN`、`AWS_REGION`、`S3_URL`、`BUCKET_NAME` をリポジトリ secrets に設定します。
+Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)、D1 (`DB`)、R2 (`IMAGES_BUCKET`) を使用します。`<D1_DATABASE_ID>` はデプロイ環境で `CLOUDFLARE_DATABASE_ID` から解決し、実 ID をリポジトリに保存しません。Production workflow は deploy 前に `wrangler d1 migrations apply DB --remote` を実行します。PR Check は一時 UUID を設定したローカル Wrangler SQLite DB に `--local` で migrations を適用し、production DB には接続しません。
 
-## Theme
+`main` への push と手動実行は `.github/workflows/deploy.yml`、Pull Request のプレビューは `.github/workflows/preview.yml` が担当します。GitHub Actions repository secrets に次を設定してください:
 
-https://tweakcn.com/themes/cmr5kll1g000004jxcs7c0gl5?p=marketing
+- Cloudflare: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`
+- R2 preview assets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_S3_ENDPOINT`
+- アプリの暗号化: `SETTINGS_ENCRYPTION_KEY`
+
+`SETTINGS_ENCRYPTION_KEY` は32バイトの暗号化キーを標準 Base64 で表した値です。ローカル端末で生成して GitHub Secrets に直接登録します（値は表示・コミットされません）:
+
+```bash
+openssl rand -base64 32 | gh secret set SETTINGS_ENCRYPTION_KEY
+```
+
+未設定でもデプロイと PR チェックは成功しますが、integration settings の認証情報保存・利用、AI 連携、署名付き画像 URL は利用できません。GitHub Actions は未設定時に警告します。PR プレビューにこの secret は渡しません。
+
+Storybook の PR preview は R2 に配置します。アプリは Access 保護された `https://cho.nikomaru.dev/` のカスタムドメインだけで公開し、`workers.dev` および version preview URL は無効です。
+
+## Theme and styling
+
+テーマは `app/theme/` にあり、Light mode、Poppins / Noto Sans JP / JetBrains Mono と白・黒・グレー・赤の Chakra tokens を定義します。Panda CSS 設定は `app/panda.config.ts`、Vite+ 設定は `app/vite.config.ts` にあります。

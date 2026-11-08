@@ -1,120 +1,96 @@
-"use client";
-
+import { Box, Link, Stack, Text } from "@chakra-ui/react";
 import { useRouterState } from "@tanstack/react-router";
-import { CookingPotIcon, ExternalLinkIcon } from "lucide-react";
-import type * as React from "react";
+import { ExternalLinkIcon } from "lucide-react";
 
-import {
-	Sidebar,
-	SidebarContent,
-	SidebarFooter,
-	SidebarGroup,
-	SidebarGroupContent,
-	SidebarGroupLabel,
-	SidebarHeader,
-	SidebarMenu,
-	SidebarMenuButton,
-	SidebarMenuItem,
-	SidebarRail,
-	SidebarSeparator,
-} from "@/components/ui/sidebar";
-import { navigationGroups, navigationResources } from "@/lib/navigation";
+const navigation = [
+  { label: "食事記録", href: "/" },
+  { label: "レシピ", href: "/dishes" },
+  { label: "材料", href: "/ingredients" },
+  { label: "設定", href: "/settings" },
+] as const;
 
-const deployedAt = import.meta.env.VITE_DEPLOYED_AT ?? "未デプロイ";
+const resources = [
+  { label: "ライセンス", href: "/license" },
+  { label: "Storybook", href: "/storybook/" },
+  { label: "GitHub", href: "https://github.com/Nlkomaru/cho", external: true },
+] as const;
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
-	});
+export function AppSidebar() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
 
-	return (
-		<Sidebar {...props}>
-			<SidebarHeader>
-				<SidebarMenu>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							size="lg"
-							className="pl-4"
-							render={
-								// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
-								<a aria-label="Cho ホーム" href="/" />
-							}
-						>
-							<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-								<CookingPotIcon className="size-4" />
-							</div>
-							<div className="grid flex-1 text-left text-sm leading-tight">
-								<span className="truncate font-medium">Cho</span>
-								<span className="truncate text-xs">調理記録</span>
-							</div>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-				</SidebarMenu>
-			</SidebarHeader>
-			<SidebarContent>
-				{navigationGroups.map((group) => (
-					<SidebarGroup key={group.title}>
-						<SidebarGroupLabel>{group.title}</SidebarGroupLabel>
-						<SidebarGroupContent>
-							<SidebarMenu>
-								{group.items.map((item) => (
-									<SidebarMenuItem key={item.title}>
-										<SidebarMenuButton
-											isActive={pathname === item.url}
-											className="pl-4"
-											render={
-												// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
-												<a aria-label={item.title} href={item.url} />
-											}
-										>
-											{item.title}
-										</SidebarMenuButton>
-									</SidebarMenuItem>
-								))}
-							</SidebarMenu>
-						</SidebarGroupContent>
-					</SidebarGroup>
-				))}
-			</SidebarContent>
-			<SidebarFooter className="mt-auto">
-				<SidebarMenu>
-					{navigationResources.map((item) => {
-						const isExternal =
-							item.opensInNewTab ?? item.url.startsWith("https://");
-
-						return (
-							<SidebarMenuItem key={item.title}>
-								<SidebarMenuButton
-									isActive={pathname === item.url}
-									className="pl-4"
-									render={
-										// biome-ignore lint/a11y/useAnchorContent: Base UI forwards SidebarMenuButton children to this anchor.
-										<a
-											aria-label={
-												isExternal
-													? `${item.title}（新しいタブで開く）`
-													: item.title
-											}
-											href={item.url}
-											rel={isExternal ? "noreferrer" : undefined}
-											target={isExternal ? "_blank" : undefined}
-										/>
-									}
-								>
-									{item.title}
-									{isExternal ? <ExternalLinkIcon /> : null}
-								</SidebarMenuButton>
-							</SidebarMenuItem>
-						);
-					})}
-				</SidebarMenu>
-				<SidebarSeparator />
-				<div className="px-2 pt-4 text-xs leading-5 text-sidebar-foreground/70">
-					<p>Deployed: {deployedAt.split(".")[0]}</p>
-					<p>No right reserved.</p>
-				</div>
-			</SidebarFooter>
-			<SidebarRail />
-		</Sidebar>
-	);
+  return (
+    <Box
+      as="aside"
+      aria-label="メインナビゲーション"
+      w="16rem"
+      minH="100vh"
+      flexShrink="0"
+      borderRightWidth="1px"
+      borderColor="border"
+      bg="bg.panel"
+      px="4"
+      py="6"
+    >
+      <Stack minH="calc(100vh - 3rem)" gap="8">
+        <Link href="/" color="fg.subtle" fontSize="xl" fontWeight="600">
+          Cho
+        </Link>
+        <Box as="nav" aria-label="ページ">
+          <Stack as="ul" listStyle="none" gap="1" m="0" p="0">
+            {navigation.map(({ label, href }) => {
+              const isActive = pathname === href;
+              return (
+                <Box as="li" key={href}>
+                  <Link
+                    href={href}
+                    aria-current={isActive ? "page" : undefined}
+                    display="block"
+                    borderRadius="l3"
+                    bg={isActive ? "red.subtle" : "transparent"}
+                    color={isActive ? "red.fg" : "fg"}
+                    fontWeight={isActive ? "600" : "400"}
+                    px="3"
+                    py="2"
+                    _hover={{ bg: "bg.subtle", textDecoration: "none" }}
+                  >
+                    {label}
+                  </Link>
+                </Box>
+              );
+            })}
+          </Stack>
+        </Box>
+        <Box as="footer" mt="auto" borderTopWidth="1px" borderColor="border" pt="4">
+          <Stack as="ul" listStyle="none" gap="1" m="0" p="0">
+            {resources.map(({ label, href, external }) => (
+              <Box as="li" key={label}>
+                <Link
+                  href={href}
+                  target={external ? "_blank" : undefined}
+                  rel={external ? "noreferrer" : undefined}
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  borderRadius="l3"
+                  color="fg.muted"
+                  fontSize="sm"
+                  px="3"
+                  py="2"
+                  _hover={{ bg: "bg.subtle", textDecoration: "none" }}
+                >
+                  {label}
+                  {external ? <ExternalLinkIcon aria-hidden="true" size={14} /> : null}
+                </Link>
+              </Box>
+            ))}
+          </Stack>
+          <Text mt="3" px="3" color="fg.muted" fontSize="xs">
+            © Cho
+          </Text>
+        </Box>
+      </Stack>
+    </Box>
+  );
 }
