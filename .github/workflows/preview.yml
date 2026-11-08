@@ -140,58 +140,8 @@ jobs:
 
           echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
 
-  deploy-storybook-preview:
-    needs: check
-    runs-on: ubuntu-latest
-    name: Deploy Storybook Preview
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set short commit SHA
-        id: vars
-        run: |
-          sha="${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "commit_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
-
-      - uses: pnpm/action-setup@v6
-        name: Install pnpm
-        with:
-          run_install: false
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 26
-          cache: pnpm
-          cache-dependency-path: ./pnpm-lock.yaml
-
-      - name: Install
-        run: pnpm install
-
-      - name: Build Storybook
-        run: pnpm --filter ./storybook run build
-
-      - name: Upload Storybook to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_DEFAULT_REGION: auto
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
-          S3_URL: ${{ secrets.R2_S3_ENDPOINT }}
-        run: |
-          aws configure set default.s3.max_concurrent_requests 50
-          s3_base="s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}"
-          s3_options="--endpoint-url ${S3_URL} --only-show-errors --recursive"
-          aws s3 cp ./storybook/storybook-static "$s3_base/storybook" $s3_options
-          aws s3api put-object \
-            --bucket "$BUCKET_NAME" \
-            --key "cho/${COMMIT_SHORT_SHA}/storybook/" \
-            --body ./storybook/storybook-static/index.html \
-            --content-type text/html \
-            --endpoint-url "$S3_URL" > /dev/null
-
   comment:
-    needs: [check, deploy-app-preview, deploy-storybook-preview]
+    needs: [check, deploy-app-preview]
     if: always()
     runs-on: ubuntu-latest
     name: Comment Preview URLs
@@ -222,7 +172,7 @@ jobs:
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
         run: |
           app_preview_url=""
-          storybook_preview_url="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/"
+          storybook_preview_url=""
 
           upload_qr() {
             name="$1"
@@ -247,9 +197,10 @@ jobs:
 
           if [ -n "$APP_VERSION_ID" ]; then
             app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
+            storybook_preview_url="${app_preview_url}/storybook/"
             upload_qr app "$app_preview_url"
+            upload_qr storybook "$storybook_preview_url"
           fi
-          upload_qr storybook "$storybook_preview_url"
 
       - name: Create preview comment
         env:
@@ -259,9 +210,10 @@ jobs:
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
         run: |
           app_preview_url=""
-          storybook_preview_url="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/"
+          storybook_preview_url=""
           if [ -n "$APP_VERSION_ID" ]; then
             app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
+            storybook_preview_url="${app_preview_url}/storybook/"
           fi
 
           row() {
@@ -290,7 +242,7 @@ jobs:
           row Storybook "$storybook_preview_url" "$STORYBOOK_QR_URL"
           cat << 'EOF' >> comment.md
 
-          App preview can write to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized. Storybook preview is available.
+          App and Storybook share this preview Worker. App API writes to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized.
           EOF
 
       - name: Create PR comment

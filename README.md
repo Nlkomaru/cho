@@ -65,7 +65,7 @@ Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)�
 `main` への push と手動実行は `.github/workflows/deploy.yml`、Pull Request のプレビューは `.github/workflows/preview.yml` が担当します。GitHub Actions repository secrets に次を設定してください:
 
 - Cloudflare: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`
-- R2 preview assets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_S3_ENDPOINT`
+- R2 preview QR artifacts only: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_S3_ENDPOINT`
 - アプリの暗号化: `SETTINGS_ENCRYPTION_KEY`
 
 `SETTINGS_ENCRYPTION_KEY` は32バイトの暗号化キーを標準 Base64 で表した値です。ローカル端末で生成して GitHub Secrets に直接登録します（値は表示・コミットされません）:
@@ -76,7 +76,7 @@ openssl rand -base64 32 | gh secret set SETTINGS_ENCRYPTION_KEY
 
 未設定でもデプロイと PR チェックは成功しますが、integration settings の認証情報保存・利用、AI 連携、署名付き画像 URL は利用できません。GitHub Actions は未設定時に警告します。PR プレビューにこの secret は渡しません。
 
-Storybook の PR preview は R2 に配置します。App の PR preview は公開 `workers.dev` version URL で production D1 (`DB`) に直接接続します。D1 の API は認証なしで、`POST/PATCH/DELETE /api/meals`、`POST/PATCH/DELETE /api/dishes`、`POST/PATCH /api/ingredients` や `PUT /api/settings/integrations` などの production データを書き換えられます。production R2 (`IMAGES_BUCKET`) と Inventia (`INVENTIA_BASE_URL`) は App preview の Worker config から除き、画像ストレージおよび Inventia 連携・在庫操作は利用できません。`SETTINGS_ENCRYPTION_KEY` やアプリ資格情報も preview に渡しません。信頼できる利用者に限って共有し、production D1 の変更・削除に注意してください。PR comment は App/Storybook URL と QR を掲載します。
+Storybook は App のクライアント静的アセット `app/dist/client/storybook/` に同梱されます。PR preview では同じ version Worker の `/storybook/` で配信します。App preview は公開 `workers.dev` version URL で production D1 (`DB`) に直接接続します。D1 の API は認証なしで、`POST/PATCH/DELETE /api/meals`、`POST/PATCH/DELETE /api/dishes`、`POST/PATCH /api/ingredients` や `PUT /api/settings/integrations` などの production データを書き換えられます。production R2 (`IMAGES_BUCKET`) と Inventia (`INVENTIA_BASE_URL`) は App preview Worker config から除き、画像ストレージおよび Inventia 連携・在庫操作は利用できません。`SETTINGS_ENCRYPTION_KEY` やアプリ資格情報も preview に渡しません。信頼できる利用者に限って共有し、production D1 の変更・削除に注意してください。Preview comment は App と `/storybook/` URL および QR を掲載します。R2 credentials は QR 画像 artifact のみに使い、Storybook はアップロードしません。
 
 ## Theme and styling
 
