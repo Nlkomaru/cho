@@ -64,8 +64,6 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     name: Deploy Storybook Preview
-    outputs:
-      deployment_url: ${{ steps.resolve-storybook-preview-url.outputs.deployment_url }}
     steps:
       - uses: actions/checkout@v5
 
@@ -112,11 +110,6 @@ jobs:
             --content-type text/html \
             --endpoint-url "$S3_URL" > /dev/null
 
-      - name: Resolve Storybook preview URL
-        id: resolve-storybook-preview-url
-        env:
-          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
-        run: echo "deployment_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/" >> "$GITHUB_OUTPUT"
 
   comment:
     needs: [check, deploy-app-preview, deploy-storybook-preview]
@@ -148,9 +141,9 @@ jobs:
           S3_URL: ${{ secrets.R2_S3_ENDPOINT }}
           APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
-          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-storybook-preview.outputs.deployment_url }}
         run: |
           app_preview_url=""
+          storybook_preview_url="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/"
 
           upload_qr() {
             name="$1"
@@ -177,16 +170,17 @@ jobs:
             app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
             upload_qr app "$app_preview_url"
           fi
-          upload_qr storybook "$STORYBOOK_PREVIEW_URL"
+          upload_qr storybook "$storybook_preview_url"
 
       - name: Create preview comment
         env:
           APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
           APP_QR_URL: ${{ steps.qr.outputs.app_qr_url }}
-          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-storybook-preview.outputs.deployment_url }}
           STORYBOOK_QR_URL: ${{ steps.qr.outputs.storybook_qr_url }}
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
         run: |
           app_preview_url=""
+          storybook_preview_url="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/"
           if [ -n "$APP_VERSION_ID" ]; then
             app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
           fi
@@ -214,7 +208,7 @@ jobs:
           | --- | --- | --- |
           EOF
           row App "$app_preview_url" "$APP_QR_URL"
-          row Storybook "$STORYBOOK_PREVIEW_URL" "$STORYBOOK_QR_URL"
+          row Storybook "$storybook_preview_url" "$STORYBOOK_QR_URL"
           cat << 'EOF' >> comment.md
 
           App preview is disabled until a safe isolated D1/Access setup exists; Storybook preview is available.
