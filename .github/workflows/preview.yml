@@ -446,7 +446,7 @@ jobs:
 
           printf '\n' >> comment.md
           if [ "$DEPLOY_PREVIEW_RESULT" = "success" ]; then
-            printf 'All aliases serve the same preview build. App API writes to production D1; preview hostnames are gated by Cloudflare Access. Production R2 and Inventia integrations are omitted.\n' >> comment.md
+            printf 'All aliases serve the same preview build. App API writes to production D1; preview hostnames are gated by Cloudflare Access. Production R2 is omitted. Inventia read-only access remains configured; Inventia stock writes are disabled.\n' >> comment.md
           else
             printf 'The Deploy App Preview job ended with `%s`; targets may be missing or stale, and rows marked _Not available_ were unreachable when this comment was written.\n' "$DEPLOY_PREVIEW_RESULT" >> comment.md
           fi

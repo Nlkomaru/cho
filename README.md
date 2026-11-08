@@ -68,15 +68,26 @@ Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)�
 - R2 preview QR artifacts only: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_S3_ENDPOINT`
 - アプリの暗号化: `SETTINGS_ENCRYPTION_KEY`
 
-`SETTINGS_ENCRYPTION_KEY` は32バイトの暗号化キーを標準 Base64 で表した値です。ローカル端末で生成して GitHub Secrets に直接登録します（値は表示・コミットされません）:
+`SETTINGS_ENCRYPTION_KEY` は32バイトの暗号化キーを標準 Base64 で表した値です。既存の暗号化データがある場合は、そのデータを暗号化した元のキーを GitHub Secrets に登録して維持してください。既存データの有無や元のキーが不明な場合、新しいランダムキーで置き換えないでください。新しいキーの生成は、新規 DB または既存データの扱いを決定した運用担当者の明示的な判断に限ります。キーの値は表示・コミットしません。
 
-```bash
-openssl rand -base64 32 | gh secret set SETTINGS_ENCRYPTION_KEY
-```
-
-未設定でもデプロイと PR チェックは成功しますが、integration settings の認証情報保存・利用、AI 連携、署名付き画像 URL は利用できません。GitHub Actions は未設定時に警告します。PR プレビューには、この secret と Inventia 用 Access service token が設定されている場合のみ preview version に渡します。
+未設定でもデプロイと PR チェックは成功しますが、integration settings の認証情報保存・利用、AI 連携、署名付き画像 URL は利用できません。GitHub Actions は未設定時に警告します。PR プレビューには、この secret と任意の `CLOUDFLARE_ACCESS_CLIENT_ID` / `CLOUDFLARE_ACCESS_CLIENT_SECRET` が設定されている場合のみ preview version に渡します。Access service token は Inventia API が Access で保護されている場合にだけ必要です。現在の `/api/items` の `401 API_TOKEN_REQUIRED` は Inventia API トークンの要求を示し、Access service token が必須である証拠ではありません。
 
 Storybook は App のクライアント静的アセット `app/dist/client/storybook/` に同梱されます。PR preview では同じ Worker の `/storybook/` で配信します。App preview は workers.dev の alias URL（Cloudflare Access で保護されるため閲覧にはサインインが必要）で production D1 (`DB`) に直接接続します。D1 の API は認証なしで、`POST/PATCH/DELETE /api/meals`、`POST/PATCH/DELETE /api/dishes`、`POST/PATCH /api/ingredients` や `PUT /api/settings/integrations` などの production データを書き換えられます。production R2 (`IMAGES_BUCKET`) は App preview Worker config から除くため画像ストレージは利用できません。Inventia (`INVENTIA_BASE_URL`) は読み取り参照用に残し、`INVENTIA_STOCK_WRITES_ENABLED` を `false` にして在庫の外部書き込みを無効化します。`SETTINGS_ENCRYPTION_KEY`、`CLOUDFLARE_ACCESS_CLIENT_ID`、`CLOUDFLARE_ACCESS_CLIENT_SECRET` は repository secret が設定されている場合のみ preview version に追加し、未設定なら既存の Worker secret をそのまま継承します（暗号化キーがない既存の資格情報は復号できません）。信頼できる利用者に限って共有し、production D1 の変更・削除に注意してください。PR comment は `preview-cho.nikomaru.workers.dev`、`pr<PR_NUMBER>-cho.nikomaru.workers.dev`、`<8-char-SHA>-cho.nikomaru.workers.dev` の3つの同一ビルド用 alias と、それぞれの `/storybook/` URL を掲載します。URL は comment 作成時に実際に到達できたものだけを載せ、到達できなかった target は `Not available` と表示します。QR はまず R2 に upload した artifact を `PREVIEW_BASE_URL`（repository variable で上書き可能、既定は `https://ci.nikomaru.dev/cho`）から認証なしで取得できた場合にその URL を掲載します。取得できない場合は、対象 URL を query parameter として渡す公開 QR rendering service（`quickchart.io`、失敗時は `api.qrserver.com`）の画像 URL に fallback するため、private bucket を公開する必要はありません。どちらも失敗した場合のみ `—` にして warning を出します。R2 credentials は QR 画像 artifact のみに使い、Storybook はアップロードしません。`workers_dev` と `preview_urls` は preview 用の生成 config でのみ `true` にし、production `app/wrangler.jsonc` の `false` defaults は維持します。
+
+## Inventia 連携
+
+Cho の Cloudflare Access 認証は変更しません。Inventia 連携のための Discord ログインは不要です。Inventia の API は `inv_` API トークンで認証します。
+
+1. [Inventia の API トークン設定](https://inventia.nikomaru.dev/settings/tokens)を開き、Cho 用のトークンを発行します。トークン本体は発行時に一度だけ表示されます。
+2. Cho の設定画面でトークンを保存します。在庫消費を利用する場合は、Inventia の連携先マスタで取得した Provider ID も設定します。品目検索・在庫参照・価格取得には Provider ID は不要です。
+
+トークンの保存・復号には、Worker の `SETTINGS_ENCRYPTION_KEY` が必要です。32 バイトを標準 Base64 で表した値を設定し、既存の暗号化データと同じキーを維持してください。既存の暗号化データがある環境で、新しいランダムキーに置き換えないでください。
+
+`GET /api/settings/integrations` は暗号化キーがなくても公開設定と状態を返します。`configured` は暗号化済み認証情報が D1 に保存されていることを表します。`usable` と `capabilities.readItems` は、Worker 内で復号と設定検証ができることを表します。これらは Inventia への実通信成功を保証しません。利用できない理由は `issue` に返します。D1 のテーブル不足などの保存先エラーは、未設定状態に置き換えずエラーとして返します。
+
+本番は `INVENTIA_STOCK_WRITES_ENABLED: "true"` を明示し、有効な Provider ID がある場合に在庫消費を許可します。PR preview は同じ値を `"false"` にして在庫消費を禁止します。品目参照には `INVENTIA_BASE_URL`、有効な保存済みトークン、対応する `SETTINGS_ENCRYPTION_KEY` が必要です。preview にこれらを渡さない場合、画面に設定不足を表示し、Inventia のデータは参照できません。preview の read-only 制限は Inventia の在庫変更に対する制限です。Cho の production D1 に対する既存の書き込み権限は変更しません。
+
+Inventia API が Cloudflare Access の保護対象である環境では、許可された `CLOUDFLARE_ACCESS_CLIENT_ID` と `CLOUDFLARE_ACCESS_CLIENT_SECRET` も必要です。API トークンの代わりにはなりません。
 
 ## Theme and styling
 
