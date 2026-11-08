@@ -15,9 +15,10 @@ concurrency:
 env:
   AWS_DEFAULT_REGION: auto
   AWS_EC2_METADATA_DISABLED: true
-  AWS_REGION: auto
   PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
+  AWS_REGION: auto
   WORKER_NAME: cho
+  WORKER_SUBDOMAIN: nikomaru.workers.dev
 
 jobs:
   check:
@@ -56,8 +57,6 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     name: Deploy App Preview
-    outputs:
-      version_id: ${{ steps.resolve-app-preview-version.outputs.version_id }}
     steps:
       - uses: actions/checkout@v5
 
@@ -109,36 +108,53 @@ jobs:
           await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
           NODE
 
-      - name: Upload App preview version
-        id: deploy-preview
+      - name: Set preview alias SHA
+        id: vars
+        run: |
+          sha="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "commit_sha=${sha:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload stable preview alias
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --message "Deployed preview by GitHub Actions branch ${{ github.ref_name }}"
-          workingDirectory: app
+          command: versions upload --preview-alias preview --message "PR #${{ github.event.number }} preview alias"
+          workingDirectory: app/dist/server
 
-      - name: Resolve app preview version
-        id: resolve-app-preview-version
+      - name: Upload pull request preview alias
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: versions upload --preview-alias pr${{ github.event.number }} --message "PR #${{ github.event.number }} preview alias"
+          workingDirectory: app/dist/server
+
+      - name: Upload commit preview alias
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: versions upload --preview-alias ${{ steps.vars.outputs.commit_sha }} --message "PR #${{ github.event.number }} commit preview alias"
+          workingDirectory: app/dist/server
+
+      - name: Verify preview aliases and Storybook
         env:
-          WRANGLER_DEPLOYMENT_URL: ${{ steps.deploy-preview.outputs.deployment-url }}
-          WRANGLER_COMMAND_OUTPUT: ${{ steps.deploy-preview.outputs.command-output }}
-          WRANGLER_COMMAND_STDERR: ${{ steps.deploy-preview.outputs.command-stderr }}
-        shell: bash
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
-          url="$WRANGLER_DEPLOYMENT_URL"
-          if [ -z "$url" ]; then
-            output="$WRANGLER_COMMAND_OUTPUT"$'\n'"$WRANGLER_COMMAND_STDERR"
-            url=$(echo "$output" | grep -Eo 'https://[^[:space:]]+' | head -n 1 || true)
-          fi
-
-          version_id=$(printf '%s' "$url" | sed -nE "s#https://([0-9a-f-]+)-${WORKER_NAME}\\.nikomaru\\.workers\\.dev/?#\\1#p")
-          if [ -z "$version_id" ]; then
-            echo "Failed to resolve the app preview version ID."
-            exit 1
-          fi
-
-          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+          urls=(
+            "https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            "https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            "https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+          )
+          for url in "${urls[@]}"; do
+            for path in / /storybook/; do
+              target="${url}${path}"
+              curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --max-time 30 "$target" --output /dev/null
+              echo "Verified $target"
+            done
+          done
 
   comment:
     needs: [check, deploy-app-preview]
@@ -151,8 +167,7 @@ jobs:
         id: vars
         run: |
           sha="${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "commit_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
-
+          echo "commit_sha=${sha:0:8}" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v6
         name: Install pnpm
         with:
@@ -168,12 +183,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           S3_URL: ${{ secrets.R2_S3_ENDPOINT }}
-          APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
+          APP_PREVIEW_AVAILABLE: ${{ needs.deploy-app-preview.result == 'success' }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
-          app_preview_url=""
-          storybook_preview_url=""
-
           upload_qr() {
             name="$1"
             url="$2"
@@ -192,28 +205,40 @@ jobs:
               return 0
             fi
 
-            echo "${name}_qr_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/$name.png" >> "$GITHUB_OUTPUT"
+            echo "${name//-/_}_qr_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/$name.png" >> "$GITHUB_OUTPUT"
           }
 
-          if [ -n "$APP_VERSION_ID" ]; then
-            app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
-            storybook_preview_url="${app_preview_url}/storybook/"
-            upload_qr app "$app_preview_url"
-            upload_qr storybook "$storybook_preview_url"
+          if [ "$APP_PREVIEW_AVAILABLE" = "true" ]; then
+            preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            upload_qr app-preview "$preview_url"
+            upload_qr storybook-preview "${preview_url}/storybook/"
+            upload_qr app-pr "$pr_url"
+            upload_qr storybook-pr "${pr_url}/storybook/"
+            upload_qr app-commit "$sha_url"
+            upload_qr storybook-commit "${sha_url}/storybook/"
           fi
 
       - name: Create preview comment
         env:
-          APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
-          APP_QR_URL: ${{ steps.qr.outputs.app_qr_url }}
-          STORYBOOK_QR_URL: ${{ steps.qr.outputs.storybook_qr_url }}
+          APP_PREVIEW_AVAILABLE: ${{ needs.deploy-app-preview.result == 'success' }}
+          APP_PREVIEW_QR_URL: ${{ steps.qr.outputs.app_preview_qr_url }}
+          STORYBOOK_PREVIEW_QR_URL: ${{ steps.qr.outputs.storybook_preview_qr_url }}
+          APP_PR_QR_URL: ${{ steps.qr.outputs.app_pr_qr_url }}
+          STORYBOOK_PR_QR_URL: ${{ steps.qr.outputs.storybook_pr_qr_url }}
+          APP_COMMIT_QR_URL: ${{ steps.qr.outputs.app_commit_qr_url }}
+          STORYBOOK_COMMIT_QR_URL: ${{ steps.qr.outputs.storybook_commit_qr_url }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
-          app_preview_url=""
-          storybook_preview_url=""
-          if [ -n "$APP_VERSION_ID" ]; then
-            app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
-            storybook_preview_url="${app_preview_url}/storybook/"
+          preview_url=""
+          pr_url=""
+          sha_url=""
+          if [ "$APP_PREVIEW_AVAILABLE" = "true" ]; then
+            preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
           fi
 
           row() {
@@ -238,12 +263,16 @@ jobs:
           | Target | URL | QR |
           | --- | --- | --- |
           EOF
-          row App "$app_preview_url" "$APP_QR_URL"
-          row Storybook "$storybook_preview_url" "$STORYBOOK_QR_URL"
-          if [ -z "$APP_VERSION_ID" ]; then
+          row "App preview" "$preview_url" "$APP_PREVIEW_QR_URL"
+          row "Storybook preview" "${preview_url:+$preview_url/storybook/}" "$STORYBOOK_PREVIEW_QR_URL"
+          row "PR #${PR_NUMBER} App" "$pr_url" "$APP_PR_QR_URL"
+          row "PR #${PR_NUMBER} Storybook" "${pr_url:+$pr_url/storybook/}" "$STORYBOOK_PR_QR_URL"
+          row "Commit ${COMMIT_SHORT_SHA} App" "$sha_url" "$APP_COMMIT_QR_URL"
+          row "Commit ${COMMIT_SHORT_SHA} Storybook" "${sha_url:+$sha_url/storybook/}" "$STORYBOOK_COMMIT_QR_URL"
+          if [ "$APP_PREVIEW_AVAILABLE" != "true" ]; then
             echo "Preview URLs unavailable because App Worker deployment failed; see the Deploy App Preview job."
           else
-            echo "App and Storybook share this preview Worker. App API writes to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized."
+            echo "All aliases serve the same preview build. App API writes to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized."
           fi >> comment.md
 
       - name: Create PR comment
