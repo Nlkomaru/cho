@@ -64,7 +64,15 @@ Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)�
 
 ### D1 データベースの初期化
 
-このアプリはまだ本番運用しておらず、production D1 (`cho`) のアプリケーションデータは破棄可能と判断しました。production D1 は廃止したレシピ/調理記録スキーマを引き継ぎ、`ingredients` も旧形状だったため、データ移行は行わずにアプリテーブルを削除して `app/migrations/0000_initial.sql` から作り直します。2026-11-08 にこのリセットを実行し、production のアプリテーブルは空です。旧スキーマの `user` / `recipes` などの残骸テーブルは削除対象外で残りますが、アプリは参照しません。
+このアプリはまだ本番運用しておらず、production D1 (`cho`) のアプリケーションデータは破棄可能と判断しました。production D1 は廃止したレシピ/調理記録スキーマを引き継ぎ、`ingredients` も旧形状だったため、データ移行は行わずにアプリテーブルを削除して `app/migrations/0000_initial.sql` から作り直します。2026-11-08 にこのリセットを実行し、production のアプリテーブルは空です（[run 42484824836](https://github.com/Nlkomaru/cho/actions/runs/42484824836)、commit `4783f05`）。旧スキーマの `user` / `recipes` などの残骸テーブルは削除対象外で残りますが、アプリは参照しません。
+
+リセット前の production は、読み取り専用診断（[run 42481922172](https://github.com/Nlkomaru/cho/actions/runs/42481922172)、commit `3e887ea`）で次の状態でした。
+
+- `ingredients` は旧形状: `id` (TEXT, PK), `owner_id` (TEXT, NOT NULL), `name` (TEXT, NOT NULL), `grams_per_milliliter` (REAL), `inventory_item_id` (TEXT), `note` (TEXT), `created_at` / `updated_at` (TEXT, NOT NULL)。FK は `owner_id → user(id)`、index は `ingredients_owner_idx` と `ingredients_owner_name_unique`。
+- `media_images`, `dishes`, `dish_ingredients`, `meal_logs`, `meal_log_items`, `app_settings` は存在しない。
+- 旧スキーマの `user`, `session`, `account`, `verification`, `recipes`, `recipe_categories`, `recipe_images`, `recipe_ingredients`, `recipe_steps`, `recipe_references`, `cook_records`, `cook_images`, `ingredient_conversions`, `d1_migrations` が存在。
+
+リセット後のテーブル一覧（run の最終出力）: `_cf_KV`, `account`, `app_settings`, `cook_images`, `cook_records`, `d1_migrations`, `dish_ingredients`, `dishes`, `ingredient_conversions`, `ingredients`, `meal_log_items`, `meal_logs`, `media_images`, `recipe_categories`, `recipe_images`, `recipe_ingredients`, `recipe_references`, `recipe_steps`, `recipes`, `session`, `user`, `verification`。
 
 リセットは `.github/workflows/reset-database.yml` の手動実行だけで行います。
 
