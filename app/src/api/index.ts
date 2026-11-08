@@ -7,6 +7,8 @@ import { dishRoutes } from "./dish-routes";
 import { imageRoutes } from "./image-routes";
 import { ingredientRoutes } from "./ingredient-routes";
 import { mealRoutes } from "./meal-routes";
+import { mcpRoutes } from "./mcp-routes";
+import { mcpTokenRoutes } from "./mcp-token-routes";
 import { settingsRoutes } from "./settings-routes";
 
 import { mealLogSchema } from "../domain/ingredient";
@@ -21,6 +23,11 @@ export type ApiBindings = {
   CLOUDFLARE_ACCESS_CLIENT_ID?: string;
   CLOUDFLARE_ACCESS_CLIENT_SECRET?: string;
   INVENTIA_STOCK_WRITES_ENABLED?: string;
+  CLOUDFLARE_ACCESS_ISSUER?: string;
+  CLOUDFLARE_ACCESS_AUDIENCE?: string;
+  MCP_ADMIN_SUBJECTS?: string;
+  MCP_ADMIN_EMAILS?: string;
+  MCP_ALLOWED_ORIGINS?: string;
 };
 
 declare global {
@@ -38,6 +45,8 @@ api.route("/", ingredientRoutes);
 api.route("/", dishRoutes);
 api.route("/", imageRoutes);
 api.route("/", mealRoutes);
+api.route("/", mcpRoutes);
+api.route("/", mcpTokenRoutes);
 
 const healthRoute = createRoute({
   method: "get",

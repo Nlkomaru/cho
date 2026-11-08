@@ -5,6 +5,7 @@ import {
   integer,
   real,
   sqliteTable,
+  primaryKey,
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
@@ -171,6 +172,41 @@ export const appSettings = sqliteTable("app_settings", {
     .notNull()
     .default(sql`(CURRENT_TIMESTAMP)`),
 });
+export const mcpApiTokens = sqliteTable(
+  "mcp_api_tokens",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    ownerSubject: text("owner_subject").notNull(),
+    prefix: text("prefix").notNull(),
+    secretHash: text("secret_hash").notNull().unique(),
+    allowedTools: text("allowed_tools").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+    expiresAt: text("expires_at"),
+    revokedAt: text("revoked_at"),
+    lastUsedAt: text("last_used_at"),
+  },
+  (table) => [index("mcp_api_tokens_owner_idx").on(table.ownerSubject, table.createdAt)],
+);
+
+export const mcpToolUsageDaily = sqliteTable(
+  "mcp_tool_usage_daily",
+  {
+    tokenId: text("token_id")
+      .notNull()
+      .references(() => mcpApiTokens.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    utcDate: text("utc_date").notNull(),
+    callCount: integer("call_count").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.tokenId, table.toolName, table.utcDate] }),
+    index("mcp_tool_usage_date_idx").on(table.utcDate),
+    check("mcp_tool_usage_count_nonnegative", sql`${table.callCount} >= 0`),
+  ],
+);
 
 export const dishRelations = relations(dishes, ({ many }) => ({
   ingredients: many(dishIngredients),

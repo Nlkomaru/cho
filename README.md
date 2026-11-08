@@ -129,6 +129,45 @@ Cho の Cloudflare Access 認証は変更しません。Inventia 連携のため
 
 Inventia API が Cloudflare Access の保護対象である環境では、許可された `CLOUDFLARE_ACCESS_CLIENT_ID` と `CLOUDFLARE_ACCESS_CLIENT_SECRET` も必要です。API トークンの代わりにはなりません。
 
+## MCP サーバー
+
+`POST /api/mcp` は、ステートレスな Streamable HTTP MCP エンドポイントです。`list_ingredients`、`create_ingredient`、`list_recipes`、`create_recipe`、`record_meal` を提供します。API トークンには、明示したツールだけを許可できます。食事の記録は Cho に保存し、Inventia の在庫は変更しません。
+
+### Access を設定する
+
+トークンを発行する前に、Worker に次の変数を設定します。
+
+- `CLOUDFLARE_ACCESS_ISSUER` は Cloudflare Access の issuer URL です。例は `https://example.cloudflareaccess.com` です。
+- `CLOUDFLARE_ACCESS_AUDIENCE` は Access アプリケーションの audience tag です。
+- `MCP_ADMIN_SUBJECTS` は許可する Access JWT の `sub` を並べたカンマ区切りのリストです。
+- `MCP_ADMIN_EMAILS` は任意のメールアドレス許可リストです。`MCP_ADMIN_SUBJECTS` が空の場合にだけ使います。Cho は前後の空白を取り除き、小文字にそろえます。
+- `MCP_ALLOWED_ORIGINS` はブラウザーからの要求に許可する Origin の完全一致リストです。許可した Origin には `/api/mcp` の CORS 応答ヘッダーを返し、preflight に対応します。`Origin` ヘッダーがない MCP クライアントは許可します。ヘッダーがある場合、リストにない Origin は拒否します。
+
+Cho は issuer の JWKS を使って Cloudflare Access JWT の署名を検証し、issuer、audience、有効期限を確認します。トークン管理 API は許可リストの subject またはメールアドレスも確認します。`Cf-Access-Authenticated-User-Email` ヘッダーだけでは認証しません。
+
+### トークンを発行、失効する
+
+Cloudflare Access を通して `POST /api/mcp/tokens` に次のような JSON を送ります。
+
+```json
+{
+  "name": "Meal assistant",
+  "allowedTools": ["list_ingredients", "create_ingredient", "record_meal"],
+  "expiresAt": "2027-01-01T00:00:00.000Z"
+}
+```
+
+`expiresAt` は省略できます。応答には `cho_mcp_` Bearer トークンが一度だけ含まれます。Cho は秘密値ではなく SHA-256 ハッシュを保存します。`GET /api/mcp/tokens` は自分のトークンを秘密値なしで返します。`DELETE /api/mcp/tokens/{id}` はトークンを失効します。
+Cho は Better Auth の API キーのライフサイクルに合わせ、名前付きキー、一度だけ表示する秘密値、任意の有効期限、ツール権限、失効を実装します。Cho にはセッションやユーザー認証の仕組みがないため、Better Auth は導入しません。
+
+MCP 要求は `Authorization: Bearer <token>` を付けて `POST /api/mcp` に送ります。サーバーは許可されていないツールを一覧から隠し、そのツールへの呼び出しを拒否します。
+
+### 使用状況を確認する
+
+`GET /api/mcp/usage` は、自分のトークンごと、ツールごとの合計と UTC 日別の件数を返します。`tokenId`、`from`、`to` で絞り込めます。日付の範囲は両端を含みます。Cho は登録済みツールの呼び出しを実行前に数えます。入力検証や処理に失敗した呼び出しも含みます。件数を保存できない場合、ツールを実行しません。Cho は引数、応答、食事データ、エラー本文、トークン文字列を使用状況に保存しません。
+
+Cho の Bearer トークンは Cho 独自の事前設定方式です。Cho は OAuth 認可サーバーを提供しないため、この MCP エンドポイントは OAuth との相互運用を主張しません。
+
 ## Theme and styling
 
 テーマは `app/theme/` にあり、Light mode、Poppins / Noto Sans JP / JetBrains Mono と白・黒・グレー・赤の Chakra tokens を定義します。Panda CSS 設定は `app/panda.config.ts`、Vite+ 設定は `app/vite.config.ts` にあります。

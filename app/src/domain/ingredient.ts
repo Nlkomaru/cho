@@ -7,7 +7,7 @@ import {
 } from "./nutrition";
 import { recipeSchema } from "./recipe";
 
-export const ingredientSchema = z
+export const ingredientObjectSchema = z
   .object({
     id: z.string().trim().min(1).max(128),
     name: z.string().trim().min(1).max(120),
@@ -22,36 +22,37 @@ export const ingredientSchema = z
     latestPriceUpdatedAt: z.string().datetime().nullable().default(null),
     memo: z.string().max(2000).nullable().default(null),
   })
-  .strict()
-  .superRefine((ingredient, context) => {
-    if (
-      ingredient.baseDimension === "mass" &&
-      (ingredient.baseUnit !== "g" || ingredient.nutritionBasisAmount !== 100)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["baseUnit"],
-        message: "Mass ingredients must use g with a 100 g nutrition basis",
-      });
-    }
-    if (
-      ingredient.baseDimension === "volume" &&
-      (ingredient.baseUnit !== "mL" || ingredient.nutritionBasisAmount !== 100)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["baseUnit"],
-        message: "Volume ingredients must use mL with a 100 mL nutrition basis",
-      });
-    }
-    if (ingredient.baseDimension === "count" && ingredient.nutritionBasisAmount !== 1) {
-      context.addIssue({
-        code: "custom",
-        path: ["nutritionBasisAmount"],
-        message: "Count ingredients must use a one-unit nutrition basis",
-      });
-    }
-  });
+  .strict();
+
+export const ingredientSchema = ingredientObjectSchema.superRefine((ingredient, context) => {
+  if (
+    ingredient.baseDimension === "mass" &&
+    (ingredient.baseUnit !== "g" || ingredient.nutritionBasisAmount !== 100)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["baseUnit"],
+      message: "Mass ingredients must use g with a 100 g nutrition basis",
+    });
+  }
+  if (
+    ingredient.baseDimension === "volume" &&
+    (ingredient.baseUnit !== "mL" || ingredient.nutritionBasisAmount !== 100)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["baseUnit"],
+      message: "Volume ingredients must use mL with a 100 mL nutrition basis",
+    });
+  }
+  if (ingredient.baseDimension === "count" && ingredient.nutritionBasisAmount !== 1) {
+    context.addIssue({
+      code: "custom",
+      path: ["nutritionBasisAmount"],
+      message: "Count ingredients must use a one-unit nutrition basis",
+    });
+  }
+});
 export type Ingredient = z.infer<typeof ingredientSchema>;
 
 export function calculateIngredientNutrition(
