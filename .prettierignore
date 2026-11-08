@@ -1,0 +1,5 @@
+spec/**
+.cta.json
+app/src/routeTree.gen.ts
+app/src/routes/_app/license/-data.json
+app/worker-configuration.d.ts

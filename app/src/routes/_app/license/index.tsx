@@ -1,67 +1,60 @@
+import { Link, SimpleGrid, Text } from "@chakra-ui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
 
+import { Card } from "../../../components/ui/card";
+import { Page, PageHeader } from "../../../components/ui/page";
+import { Section } from "../../../components/ui/section";
 import licenseGroups from "./-data.json";
 
 export const Route = createFileRoute("/_app/license/")({
-	staticData: {
-		breadcrumbs: [{ label: "OSS ライセンス" }],
-	},
-	component: LicensePage,
+  staticData: {
+    breadcrumbs: [{ label: "OSS ライセンス" }],
+  },
+  component: LicensePage,
 });
 
 function LicensePage() {
-	return (
-		<main className="mx-auto w-full max-w-6xl space-y-8 p-4 sm:p-6 lg:p-8">
-			<header className="space-y-2">
-				<h1 className="text-3xl text-primary">OSS ライセンス</h1>
-				<p className="text-muted-foreground">
-					Cho で利用しているオープンソースソフトウェアの一覧です。
-				</p>
-			</header>
-			{licenseGroups.map((group) => (
-				<section className="space-y-3" key={group.license}>
-					<div>
-						<h2 className="text-xl">{group.license}</h2>
-						<p className="text-sm text-muted-foreground">
-							{group.packages.length} パッケージ
-						</p>
-					</div>
-					<ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-						{group.packages.map((packageInfo) => (
-							<li
-								className="rounded-xl border bg-card p-4 text-card-foreground shadow-sm"
-								key={`${packageInfo.name}-${packageInfo.versions.join("-")}`}
-							>
-								<div className="flex items-start justify-between gap-3">
-									<div className="min-w-0">
-										<h3 className="break-all text-base">{packageInfo.name}</h3>
-										<p className="text-sm text-muted-foreground">
-											{packageInfo.versions
-												.map((version) => `v${version}`)
-												.join(", ")}
-										</p>
-									</div>
-									{packageInfo.homepage ? (
-										<a
-											aria-label={`${packageInfo.name} のサイトを新しいタブで開く`}
-											className="shrink-0 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-											href={packageInfo.homepage}
-											rel="noreferrer"
-											target="_blank"
-										>
-											<ExternalLinkIcon aria-hidden="true" className="size-4" />
-										</a>
-									) : null}
-								</div>
-								<p className="mt-3 text-sm text-muted-foreground">
-									Author: {packageInfo.author ?? "Unknown"}
-								</p>
-							</li>
-						))}
-					</ul>
-				</section>
-			))}
-		</main>
-	);
+  return (
+    <Page>
+      <PageHeader title="OSS ライセンス" />
+      {licenseGroups.map((group) => (
+        <Section
+          key={group.license}
+          title={group.license}
+          divided={false}
+          actions={<Text textStyle="caption">{group.packages.length} パッケージ</Text>}
+        >
+          <SimpleGrid as="ul" columns={{ base: 1, md: 2, xl: 3 }} gap="3" listStyle="none">
+            {group.packages.map((packageInfo) => (
+              <Card
+                as="li"
+                key={`${packageInfo.name}-${packageInfo.versions.join("-")}`}
+                titleAs="h3"
+                title={packageInfo.name}
+                meta={packageInfo.versions.map((version) => `v${version}`).join(", ")}
+                footer={
+                  packageInfo.homepage ? (
+                    <Link
+                      aria-label={`${packageInfo.name} のサイトを新しいタブで開く`}
+                      href={packageInfo.homepage}
+                      rel="noreferrer"
+                      target="_blank"
+                      flexShrink="0"
+                    >
+                      <ExternalLinkIcon aria-hidden="true" size={16} />
+                    </Link>
+                  ) : undefined
+                }
+              >
+                <Text textStyle="caption" as="span">
+                  Author: {packageInfo.author ?? "Unknown"}
+                </Text>
+              </Card>
+            ))}
+          </SimpleGrid>
+        </Section>
+      ))}
+    </Page>
+  );
 }

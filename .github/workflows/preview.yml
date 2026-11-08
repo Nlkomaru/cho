@@ -13,12 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_DEFAULT_REGION: auto
   AWS_EC2_METADATA_DISABLED: true
-  BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
-  PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
-  S3_URL: ${{ secrets.S3_URL }}
+  # Public base URL serving the QR artifacts from R2. Override it with the
+  # PREVIEW_BASE_URL repository variable instead of editing the workflow.
+  PREVIEW_BASE_URL: ${{ vars.PREVIEW_BASE_URL || 'https://ci.nikomaru.dev/cho' }}
+  AWS_REGION: auto
   WORKER_NAME: cho
+  WORKER_SUBDOMAIN: nikomaru.workers.dev
 
 jobs:
   check:
@@ -44,22 +46,21 @@ jobs:
       - name: Check
         run: pnpm run check
 
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Smoke test built Worker locally
+        run: pnpm run smoke:worker
+
   deploy-app-preview:
     needs: check
     runs-on: ubuntu-latest
     name: Deploy App Preview
-    outputs:
-      version_id: ${{ steps.resolve-app-preview-version.outputs.version_id }}
     steps:
       - uses: actions/checkout@v5
-
-      - name: Get Cloudflare credentials from Bitwarden Secrets Manager
-        uses: bitwarden/sm-action@v3.0.1
-        with:
-          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
-          secrets: |
-            2bad9e23-82af-4fba-b514-b49900e1632f > CLOUDFLARE_ACCOUNT_ID
-            f1bf4fa4-0288-4a31-b28b-b499013acdce > CLOUDFLARE_API_KEY
 
       - uses: pnpm/action-setup@v6
         name: Install pnpm
@@ -72,8 +73,89 @@ jobs:
           cache: pnpm
           cache-dependency-path: ./pnpm-lock.yaml
 
+      - name: Resolve D1 database id
+        env:
+          CLOUDFLARE_DATABASE_ID: ${{ secrets.CLOUDFLARE_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CLOUDFLARE_DATABASE_ID" =~ ^[[:alnum:]-]+$ ]]; then
+            echo "CLOUDFLARE_DATABASE_ID is missing or invalid."
+            exit 1
+          fi
+          sed -i "s/<D1_DATABASE_ID>/${CLOUDFLARE_DATABASE_ID}/" app/wrangler.jsonc
+
       - name: Install
         run: pnpm install
+
+      # Preview shares production D1; schema changes require operator-approved deployment.
+      - name: Check production D1 schema (read-only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set."
+            exit 1
+          fi
+
+          query() {
+            pnpm --dir app exec wrangler d1 execute DB --remote --json \
+              --config wrangler.jsonc --command "$1"
+          }
+
+          migrate_hint() {
+            echo "::error::Do not apply migrations blindly: existing tables may conflict with 0000_initial.sql. Review the read-only metadata, prepare a data-preserving schema-version migration, and obtain explicit operator approval before any production writes."
+          }
+
+          tables_json="$(mktemp)"
+          if ! query "SELECT name FROM sqlite_master WHERE type = 'table';" >"$tables_json"; then
+            echo "::error::Read-only D1 schema query failed; refusing to upload a preview against an unverified database."
+            # With --json, wrangler prints API errors to stdout; surface them.
+            jq -c '.error? // .errors? // .' "$tables_json" 2>/dev/null || cat "$tables_json"
+            exit 1
+          fi
+
+          tables="$(jq -r '.[].results[]?.name' "$tables_json")"
+          missing_tables=()
+          for table in ingredients media_images dishes dish_ingredients meal_logs meal_log_items app_settings; do
+            if ! grep -qxF "$table" <<<"$tables"; then
+              missing_tables+=("$table")
+            fi
+          done
+          if (( ${#missing_tables[@]} > 0 )); then
+            echo "::error::Production D1 database is missing required table(s): ${missing_tables[*]}."
+            echo "Existing table/index schema (metadata only; no application rows):"
+            query "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY type, name;"
+            echo "Existing ingredients columns (metadata only):"
+            query "PRAGMA table_info(ingredients);"
+            migrate_hint
+            exit 1
+          fi
+
+          columns_json="$(mktemp)"
+          if ! query "PRAGMA table_info(app_settings);" >"$columns_json"; then
+            echo "::error::Read-only D1 column query failed for app_settings."
+            jq -c '.error? // .errors? // .' "$columns_json" 2>/dev/null || cat "$columns_json"
+            exit 1
+          fi
+
+          column_names="$(jq -r '.[].results[]?.name' "$columns_json")"
+          column_metadata="$(jq -r '[.[].results[]? | "\(.name):\(.type)"] | join(", ")' "$columns_json")"
+          missing_columns=()
+          for column in key encrypted_payload public_config_json updated_at; do
+            if ! grep -qxF "$column" <<<"$column_names"; then
+              missing_columns+=("$column")
+            fi
+          done
+          if (( ${#missing_columns[@]} > 0 )); then
+            echo "::error::app_settings is missing required column(s): ${missing_columns[*]}."
+            migrate_hint
+            exit 1
+          fi
+
+          echo "Production D1 schema OK: 7 required tables present."
+          echo "app_settings columns: ${column_metadata}"
 
       - name: Set deployment metadata
         run: echo "VITE_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_ENV"
@@ -81,100 +163,169 @@ jobs:
       - name: Build app
         run: pnpm run build
 
-      - name: Deploy app preview
-        id: deploy-preview
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CLOUDFLARE_API_KEY }}
-          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --message "Deployed preview by GitHub Actions branch ${{ github.ref_name }}"
-          workingDirectory: app
-
-      - name: Resolve app preview version
-        id: resolve-app-preview-version
-        env:
-          WRANGLER_DEPLOYMENT_URL: ${{ steps.deploy-preview.outputs.deployment-url }}
-          WRANGLER_COMMAND_OUTPUT: ${{ steps.deploy-preview.outputs.command-output }}
-          WRANGLER_COMMAND_STDERR: ${{ steps.deploy-preview.outputs.command-stderr }}
-        shell: bash
+      - name: Restrict preview Worker bindings
         run: |
-          url="$WRANGLER_DEPLOYMENT_URL"
-          if [ -z "$url" ]; then
-            output="$WRANGLER_COMMAND_OUTPUT"$'\n'"$WRANGLER_COMMAND_STDERR"
-            url=$(echo "$output" | grep -Eo 'https://[^[:space:]]+' | head -n 1 || true)
-          fi
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from "node:fs/promises";
 
-          version_id=$(printf '%s' "$url" | sed -nE "s#https://([0-9a-f-]+)-${WORKER_NAME}\\.nikomaru\\.workers\\.dev/?#\\1#p")
-          if [ -z "$version_id" ]; then
-            echo "Failed to resolve the app preview version ID."
-            exit 1
-          fi
+          const configPath = "app/dist/server/wrangler.json";
+          const config = JSON.parse(await readFile(configPath, "utf8"));
+          // Keep production R2 out of previews, but keep INVENTIA_BASE_URL so
+          // read-only Inventia lookups still work. Stock mutations stay off.
+          delete config.r2_buckets;
+          config.vars = {
+            ...(config.vars ?? {}),
+            INVENTIA_STOCK_WRITES_ENABLED: "false",
+          };
+          config.workers_dev = true;
+          config.preview_urls = true;
+          await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
 
-          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
-
-  deploy-storybook-preview:
-    needs: check
-    runs-on: ubuntu-latest
-    name: Deploy Storybook Preview
-    outputs:
-      deployment_url: ${{ steps.resolve-storybook-preview-url.outputs.deployment_url }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set short commit SHA
+      - name: Set preview alias SHA
         id: vars
         run: |
           sha="${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "commit_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${sha:0:8}" >> "$GITHUB_OUTPUT"
 
-      - uses: pnpm/action-setup@v6
-        name: Install pnpm
-        with:
-          run_install: false
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 26
-          cache: pnpm
-          cache-dependency-path: ./pnpm-lock.yaml
-
-      - name: Install
-        run: pnpm install
-
-      - name: Build Storybook
-        run: pnpm --filter ./storybook run build
-
-      - name: Get R2 credentials from Bitwarden Secrets Manager
-        uses: bitwarden/sm-action@v3.0.1
-        with:
-          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
-          secrets: |
-            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
-            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
-
-      - name: Upload Storybook to R2
+      - name: Check Cloudflare API access to the Worker
         env:
-          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          aws configure set default.s3.max_concurrent_requests 50
-          s3_base="s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}"
-          s3_options="--endpoint-url ${S3_URL} --only-show-errors --recursive"
-          aws s3 cp ./storybook/storybook-static "$s3_base/storybook" $s3_options
-          aws s3api put-object \
-            --bucket "$BUCKET_NAME" \
-            --key "cho/${COMMIT_SHORT_SHA}/storybook/" \
-            --body ./storybook/storybook-static/index.html \
-            --content-type text/html \
-            --endpoint-url "$S3_URL" > /dev/null
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set."
+            exit 1
+          fi
 
-      - name: Resolve Storybook preview URL
-        id: resolve-storybook-preview-url
+          # `wrangler versions upload` starts with this exact request; failing here
+          # keeps the diagnostic readable instead of an opaque wrangler error.
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/services/${WORKER_NAME}"
+          status=""
+          body="$(mktemp)"
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$url" || true)"
+            if [ "$status" = "200" ]; then
+              echo "Cloudflare API can read Worker ${WORKER_NAME}."
+              exit 0
+            fi
+            echo "::warning::GET /accounts/{account_id}/workers/services/${WORKER_NAME} returned HTTP ${status:-no response} (attempt ${attempt})."
+            sleep $((attempt * 10))
+          done
+
+          echo "Last Cloudflare API response:"
+          jq -c '.errors // .' "$body" || cat "$body"
+          echo "::error::Cloudflare API rejected the Worker lookup with HTTP ${status}. The token needs the 'Workers Scripts:Edit' permission for this account (dash.cloudflare.com/profile/api-tokens), and CLOUDFLARE_ACCOUNT_ID must be the account that owns ${WORKER_NAME}."
+          exit 1
+
+      - name: Upload preview aliases
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          PR_NUMBER: ${{ github.event.number }}
+          SETTINGS_ENCRYPTION_KEY: ${{ secrets.SETTINGS_ENCRYPTION_KEY }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          # Forward optional secrets as a version-scoped secrets file. wrangler
+          # applies them additively and never deletes inherited secrets, so a
+          # missing value leaves existing ciphertext/credentials untouched.
+          # Values are never printed.
+          secrets_file=""
+          if [[ -n "${SETTINGS_ENCRYPTION_KEY:-}${CLOUDFLARE_ACCESS_CLIENT_ID:-}${CLOUDFLARE_ACCESS_CLIENT_SECRET:-}" ]]; then
+            secrets_file="$(mktemp)"
+            chmod 600 "$secrets_file"
+            jq -n \
+              --arg settings "${SETTINGS_ENCRYPTION_KEY:-}" \
+              --arg accessId "${CLOUDFLARE_ACCESS_CLIENT_ID:-}" \
+              --arg accessSecret "${CLOUDFLARE_ACCESS_CLIENT_SECRET:-}" \
+              '{SETTINGS_ENCRYPTION_KEY: $settings, CLOUDFLARE_ACCESS_CLIENT_ID: $accessId, CLOUDFLARE_ACCESS_CLIENT_SECRET: $accessSecret}
+               | with_entries(select(.value != ""))' >"$secrets_file"
+            echo "Adding repository secrets to the preview version: $(jq -r 'keys | join(", ")' "$secrets_file")."
+            trap 'rm -f "$secrets_file"' EXIT
+          else
+            echo "No settings/Inventia Access secrets configured; preview versions inherit existing Worker secrets."
+          fi
+
+          upload() {
+            local alias="$1" message="$2" attempt log rc
+            local -a args=(--config dist/server/wrangler.json --preview-alias "$alias" --message "$message")
+            if [[ -n "$secrets_file" ]]; then
+              args+=(--secrets-file "$secrets_file")
+            fi
+            for attempt in 1 2 3 4; do
+              log="$(mktemp)"
+              set +e
+              pnpm --dir app exec wrangler versions upload "${args[@]}" >"$log" 2>&1
+              rc=$?
+              set -e
+              cat "$log"
+              if [ "$rc" -eq 0 ]; then
+                rm -f "$log"
+                echo "Uploaded preview alias ${alias}."
+                return 0
+              fi
+              # Cloudflare intermittently answers 403 "No access to the specified
+              # service." for this lookup even with a valid token; retry those.
+              if grep -qiE 'No access to the specified service|A request to the Cloudflare API|Internal Server Error|HTTP 5[0-9][0-9]' "$log"; then
+                echo "::warning::Cloudflare API refused the upload for alias ${alias} (attempt ${attempt}); retrying."
+                rm -f "$log"
+                sleep $((attempt * 15))
+                continue
+              fi
+              rm -f "$log"
+              echo "::error::wrangler versions upload failed for alias ${alias}."
+              return 1
+            done
+            echo "::error::wrangler versions upload failed for alias ${alias} after 4 attempts."
+            return 1
+          }
+
+          upload preview "PR #${PR_NUMBER} preview alias"
+          upload "pr${PR_NUMBER}" "PR #${PR_NUMBER} preview alias"
+          upload "$COMMIT_SHORT_SHA" "PR #${PR_NUMBER} commit preview alias"
+
+      - name: Verify preview aliases and Storybook
         env:
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
-        run: echo "deployment_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/storybook/" >> "$GITHUB_OUTPUT"
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          urls=(
+            "https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            "https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            "https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+          )
+          for url in "${urls[@]}"; do
+            for path in / /storybook/; do
+              target="${url}${path}"
+              status=""
+              for attempt in 1 2 3 4 5; do
+                status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$target" || true)"
+                # 2xx serves the Worker; 302 means Cloudflare Access guards the
+                # hostname. Anything else means the alias is not serving yet.
+                if [[ "$status" =~ ^[23] ]]; then break; fi
+                sleep $((attempt * 3))
+              done
+              if [[ ! "$status" =~ ^[23] ]]; then
+                echo "::error::${target} returned HTTP ${status:-no response}."
+                exit 1
+              fi
+              if [ "$status" = "302" ]; then
+                echo "Verified $target (HTTP 302; Cloudflare Access sign-in required)."
+              else
+                echo "Verified $target (HTTP $status)."
+              fi
+            done
+          done
 
   comment:
-    needs: [check, deploy-app-preview, deploy-storybook-preview]
+    needs: [check, deploy-app-preview]
     if: always()
     runs-on: ubuntu-latest
     name: Comment Preview URLs
@@ -184,74 +335,103 @@ jobs:
         id: vars
         run: |
           sha="${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "commit_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
-
-      - name: Get R2 credentials from Bitwarden Secrets Manager
-        uses: bitwarden/sm-action@v3.0.1
-        with:
-          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
-          secrets: |
-            7fca16ab-3904-4706-9849-b49900de563a > AWS_ACCESS_KEY_ID
-            769a462b-bf2d-466c-ae1f-b49900de56c8 > AWS_SECRET_ACCESS_KEY
-
+          echo "commit_sha=${sha:0:8}" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v6
         name: Install pnpm
         with:
           version: 10.33.3
           run_install: false
 
-      - name: Render and upload QR codes
-        id: qr
-        timeout-minutes: 5
+      - name: Render preview comment
+        timeout-minutes: 8
         env:
-          APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_DEFAULT_REGION: auto
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          S3_URL: ${{ secrets.R2_S3_ENDPOINT }}
+          DEPLOY_PREVIEW_RESULT: ${{ needs.deploy-app-preview.result }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
-          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-storybook-preview.outputs.deployment_url }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
-          app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
+          set -euo pipefail
+          preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+          pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+          sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
 
-          upload_qr() {
-            name="$1"
-            url="$2"
-            [ -n "$url" ] || return 0
-
-            if ! pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "$name.png" -- "$url"; then
-              echo "::warning::failed to render the $name QR code"
-              return 0
-            fi
-            if ! aws s3 cp "$name.png" \
-              "s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}/qr/$name.png" \
-              --endpoint-url "$S3_URL" \
-              --content-type image/png \
-              --only-show-errors; then
-              echo "::warning::failed to upload the $name QR code"
-              return 0
-            fi
-
-            echo "${name}_qr_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/$name.png" >> "$GITHUB_OUTPUT"
+          # Probe every advertised target so the comment never links a dead URL.
+          reachable() {
+            local url="$1" status=""
+            for attempt in 1 2 3; do
+              status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
+              if [[ "$status" =~ ^[23] ]]; then return 0; fi
+              sleep $((attempt * 3))
+            done
+            echo "${status:-no response}"
+            return 1
           }
 
-          upload_qr app "$app_preview_url"
-          upload_qr storybook "$STORYBOOK_PREVIEW_URL"
+          # GitHub renders <img> tags through an anonymous fetch, so a QR code is
+          # only usable when its public URL is readable without credentials.
+          # The R2 artifact is preferred; when it cannot be read anonymously the
+          # encoded URL is sent to a public QR rendering service, so the private
+          # image bucket never has to be made public.
+          public_qr_url() {
+            local url="$1" encoded candidate response status type
+            encoded="$(jq -rn --arg u "$url" '$u|@uri')"
+            for candidate in \
+              "https://quickchart.io/qr?text=${encoded}&size=240&margin=1&format=png" \
+              "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encoded}"; do
+              response="$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$candidate" || true)"
+              status="${response%% *}"
+              type="${response#* }"
+              if [[ "$status" =~ ^2 && "$type" == image/png* ]]; then
+                printf '%s' "$candidate"
+                return 0
+              fi
+              echo "::warning::QR service ${candidate%%\?*} returned HTTP ${status:-no response} (${type:-no content type})." >&2
+            done
+            return 1
+          }
 
-      - name: Create preview comment
-        env:
-          APP_VERSION_ID: ${{ needs.deploy-app-preview.outputs.version_id }}
-          APP_QR_URL: ${{ steps.qr.outputs.app_qr_url }}
-          STORYBOOK_PREVIEW_URL: ${{ needs.deploy-storybook-preview.outputs.deployment_url }}
-          STORYBOOK_QR_URL: ${{ steps.qr.outputs.storybook_qr_url }}
-        run: |
-          app_preview_url="https://${APP_VERSION_ID}-${WORKER_NAME}.nikomaru.workers.dev"
+          qr_url() {
+            local name="$1" url="$2" artifact status="" type="" response qr=""
+            artifact="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/${name}.png"
+            if pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "/tmp/${name}.png" -- "$url" >/dev/null &&
+              aws s3 cp "/tmp/${name}.png" \
+                "s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}/qr/${name}.png" \
+                --endpoint-url "$S3_URL" \
+                --content-type image/png \
+                --only-show-errors; then
+              for attempt in 1 2 3; do
+                response="$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$artifact" || true)"
+                status="${response%% *}"
+                type="${response#* }"
+                if [[ "$status" =~ ^2 && "$type" == image/png* ]]; then
+                  printf '%s' "$artifact"
+                  return 0
+                fi
+                sleep 5
+              done
+              echo "::warning::Uploaded ${artifact} but it returned HTTP ${status:-no response} (${type:-no content type}); the comment will use a public QR service. Fix the QR artifact host or set the PREVIEW_BASE_URL repository variable." >&2
+            else
+              echo "::warning::Failed to render or upload the ${name} QR artifact; the comment will use a public QR service." >&2
+            fi
+            if qr="$(public_qr_url "$url")"; then
+              printf '%s' "$qr"
+              return 0
+            fi
+            echo "::warning::No QR code could be rendered for the ${name} target." >&2
+            return 1
+          }
 
           row() {
-            label="$1"
-            url="$2"
-            qr="$3"
-            if [ -z "$url" ]; then
-              printf '| %s | Not available | — |\n' "$label" >> comment.md
+            local label="$1" url="$2" name="$3" status="" qr=""
+            if ! status="$(reachable "$url")"; then
+              printf '| %s | Not available (HTTP %s) | — |\n' "$label" "$status" >> comment.md
               return
             fi
-            if [ -n "$qr" ]; then
+            if qr="$(qr_url "$name" "$url")"; then
               printf '| %s | <%s> | <img src="%s" width="120" height="120" alt="%s preview QR code"> |\n' \
                 "$label" "$url" "$qr" "$label" >> comment.md
             else
@@ -259,18 +439,21 @@ jobs:
             fi
           }
 
-          cat << 'EOF' > comment.md
-          ## Deploy preview
+          printf '## Deploy preview\n\n| Target | URL | QR |\n| --- | --- | --- |\n' > comment.md
+          row "App preview" "$preview_url" app-preview
+          row "Storybook preview" "$preview_url/storybook/" storybook-preview
+          row "PR #${PR_NUMBER} App" "$pr_url" app-pr
+          row "PR #${PR_NUMBER} Storybook" "$pr_url/storybook/" storybook-pr
+          row "Commit ${COMMIT_SHORT_SHA} App" "$sha_url" app-commit
+          row "Commit ${COMMIT_SHORT_SHA} Storybook" "$sha_url/storybook/" storybook-commit
 
-          | Target | URL | QR |
-          | --- | --- | --- |
-          EOF
-          row App "$app_preview_url" "$APP_QR_URL"
-          row Storybook "$STORYBOOK_PREVIEW_URL" "$STORYBOOK_QR_URL"
-          cat << 'EOF' >> comment.md
-
-          スマートフォンから開く場合は QR を読み取ってください。App プレビューは Cloudflare Access のサインインを求める場合があります。
-          EOF
+          printf '\n' >> comment.md
+          if [ "$DEPLOY_PREVIEW_RESULT" = "success" ]; then
+            printf 'All aliases serve the same preview build. App API writes to production D1; preview hostnames are gated by Cloudflare Access. Production R2 is omitted. Inventia read-only access remains configured; Inventia stock writes are disabled.\n' >> comment.md
+          else
+            printf 'The Deploy App Preview job ended with `%s`; targets may be missing or stale, and rows marked _Not available_ were unreachable when this comment was written.\n' "$DEPLOY_PREVIEW_RESULT" >> comment.md
+          fi
+          printf 'Preview hostnames sit behind Cloudflare Access, so opening them requires a signed-in browser.\n' >> comment.md
 
       - name: Create PR comment
         run: |
