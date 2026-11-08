@@ -4,8 +4,9 @@
 -- 1. The legacy `ingredients` table (owned by the retired recipe schema) keeps
 --    its rows under `ingredients_legacy_v0`. Renaming preserves those rows and
 --    leaves `recipe_ingredients` / `ingredient_conversions` resolvable.
--- 2. `ingredients` is recreated with the target shape from `0000_great_loners`
---    era replacement, and every legacy row is copied with explicit defaults:
+-- 2. `ingredients` is recreated with the shape declared in
+--    `app/src/db/schema.ts`, and every legacy row is copied with explicit
+--    defaults:
 --      - density rows (`grams_per_milliliter > 0`) become `volume` / `mL`
 --        with a 100 mL nutrition basis and the density as `gram_per_unit`.
 --      - other rows become `count` / `個` with a one-unit nutrition basis.
@@ -19,9 +20,10 @@
 --        become NULL, and names / memos are capped at the 120-character /
 --        2000-character limits enforced by `app/src/domain/ingredient.ts`, so
 --        every imported row parses in the app.
--- The legacy table keeps the original notes, density and Inventia item id.
--- 3. The six missing Cho tables are created with the exact DDL of
---    `0000_initial.sql` in the previous revision of this repository.
+--    The archive keeps the original notes, density and Inventia item id.
+-- 3. The six missing Cho tables are created with the exact DDL of the
+--    seven-table `0000_initial.sql` from the previous revision of this
+--    repository.
 --
 -- Every statement is unconditional on purpose: a shape other than the one
 -- verified read-only stops the batch instead of being silently accepted.
