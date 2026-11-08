@@ -53,12 +53,75 @@ jobs:
         run: pnpm run smoke:worker
 
   deploy-app-preview:
-    if: ${{ false }} # App preview would expose the production D1 binding on a public workers.dev URL.
     needs: check
     runs-on: ubuntu-latest
-    name: Deploy App Preview (disabled)
+    name: Deploy App Preview
+    outputs:
+      version_id: ${{ steps.resolve-app-preview-version.outputs.version_id }}
     steps:
-      - run: echo "App preview disabled until its data bindings are isolated."
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v6
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: ./pnpm-lock.yaml
+
+      - name: Resolve D1 database id
+        env:
+          CLOUDFLARE_DATABASE_ID: ${{ secrets.CLOUDFLARE_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CLOUDFLARE_DATABASE_ID" =~ ^[[:alnum:]-]+$ ]]; then
+            echo "CLOUDFLARE_DATABASE_ID is missing or invalid."
+            exit 1
+          fi
+          sed -i "s/<D1_DATABASE_ID>/${CLOUDFLARE_DATABASE_ID}/" app/wrangler.jsonc
+
+      - name: Install
+        run: pnpm install
+
+      - name: Set deployment metadata
+        run: echo "VITE_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_ENV"
+
+      - name: Build app
+        run: pnpm run build
+
+      - name: Upload App preview version
+        id: deploy-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: versions upload --message "Deployed preview by GitHub Actions branch ${{ github.ref_name }}"
+          workingDirectory: app
+
+      - name: Resolve app preview version
+        id: resolve-app-preview-version
+        env:
+          WRANGLER_DEPLOYMENT_URL: ${{ steps.deploy-preview.outputs.deployment-url }}
+          WRANGLER_COMMAND_OUTPUT: ${{ steps.deploy-preview.outputs.command-output }}
+          WRANGLER_COMMAND_STDERR: ${{ steps.deploy-preview.outputs.command-stderr }}
+        shell: bash
+        run: |
+          url="$WRANGLER_DEPLOYMENT_URL"
+          if [ -z "$url" ]; then
+            output="$WRANGLER_COMMAND_OUTPUT"$'\n'"$WRANGLER_COMMAND_STDERR"
+            url=$(echo "$output" | grep -Eo 'https://[^[:space:]]+' | head -n 1 || true)
+          fi
+
+          version_id=$(printf '%s' "$url" | sed -nE "s#https://([0-9a-f-]+)-${WORKER_NAME}\\.nikomaru\\.workers\\.dev/?#\\1#p")
+          if [ -z "$version_id" ]; then
+            echo "Failed to resolve the app preview version ID."
+            exit 1
+          fi
+
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
 
   deploy-storybook-preview:
     needs: check
@@ -210,7 +273,7 @@ jobs:
           row Storybook "$storybook_preview_url" "$STORYBOOK_QR_URL"
           cat << 'EOF' >> comment.md
 
-          App preview is disabled until a safe isolated D1/Access setup exists; Storybook preview is available.
+          App preview is publicly accessible and writes directly to production D1; use only if authorized. Storybook preview is available.
           EOF
 
       - name: Create PR comment

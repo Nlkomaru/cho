@@ -76,7 +76,7 @@ openssl rand -base64 32 | gh secret set SETTINGS_ENCRYPTION_KEY
 
 未設定でもデプロイと PR チェックは成功しますが、integration settings の認証情報保存・利用、AI 連携、署名付き画像 URL は利用できません。GitHub Actions は未設定時に警告します。PR プレビューにこの secret は渡しません。
 
-Storybook の PR preview は R2 に配置します。アプリは Access 保護された `https://cho.nikomaru.dev/` のカスタムドメインだけで公開し、`workers.dev` および version preview URL は無効です。
+Storybook の PR preview は R2 に配置します。App の PR preview は `workers.dev` version URL で公開し、production D1 (`DB`) に直接接続します。プレビューには `SETTINGS_ENCRYPTION_KEY` やその他のアプリ資格情報を渡しません。API は認証なしで、production D1 に対する `POST/PATCH/DELETE /api/meals`、`POST/PATCH/DELETE /api/dishes`、`POST/PATCH /api/ingredients`、`POST /api/ingredients/sync-inventia` などの書き込みが可能です。`POST /api/images/upload` は production R2 へアップロードできます。信頼できる利用者に限って共有し、production データを変更・削除し得ることに注意してください。PR comment は App/Storybook URL と QR を掲載します。
 
 ## Theme and styling
 
