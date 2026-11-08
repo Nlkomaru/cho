@@ -11,6 +11,6 @@ export const fonts = defineTokens.fonts({
   },
   mono: {
     value:
-      '"JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      '"JetBrains Mono", "Noto Sans JP", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
   },
 });

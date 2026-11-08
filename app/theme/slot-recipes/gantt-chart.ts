@@ -1,0 +1,85 @@
+import { defineSlotRecipe } from "@chakra-ui/react";
+
+/**
+ * 並列調理ガントチャート。SVG の fill / stroke もここでトークンに結びつけ、
+ * 画面側に色の直書きを残さない。赤は並列ステップのハイライトにのみ使う。
+ */
+export const ganttChart = defineSlotRecipe({
+  className: "cho-gantt",
+  slots: [
+    "root",
+    "canvas",
+    "gridLine",
+    "rowLine",
+    "axisLabel",
+    "rowLabel",
+    "endLabel",
+    "bar",
+    "waitBar",
+    "arrow",
+    "arrowHead",
+    "legend",
+    "swatch",
+    "swatchOutline",
+  ],
+  base: {
+    root: {
+      display: "flex",
+      flexDirection: "column",
+      gap: "2",
+      overflowX: "auto",
+      borderWidth: "1px",
+      borderColor: "border",
+      borderRadius: "l3",
+      background: "bg.panel",
+      padding: "2",
+    },
+    canvas: {
+      display: "block",
+      fontFamily: "inherit",
+    },
+    gridLine: { stroke: "border" },
+    rowLine: { stroke: "border.muted" },
+    axisLabel: { fill: "fg.muted", fontSize: "11px" },
+    rowLabel: { fill: "fg.subtle", fontSize: "12px" },
+    endLabel: { fill: "fg.muted", fontSize: "10px" },
+    bar: { fill: "red.solid" },
+    waitBar: {
+      fill: "red.subtle",
+      stroke: "red.solid",
+      strokeDasharray: "4 3",
+    },
+    arrow: { fill: "none", stroke: "fg.muted", strokeWidth: "1.4" },
+    arrowHead: { fill: "fg.muted" },
+    legend: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: "4",
+      paddingInline: "2",
+      textStyle: "body.sm",
+      color: "fg.muted",
+    },
+    swatch: {
+      display: "inline-block",
+      width: "3",
+      height: "3",
+      marginInlineEnd: "1.5",
+      verticalAlign: "middle",
+      borderRadius: "xs",
+      background: "red.solid",
+    },
+    swatchOutline: {
+      display: "inline-block",
+      width: "3",
+      height: "3",
+      marginInlineEnd: "1.5",
+      verticalAlign: "middle",
+      borderRadius: "xs",
+      background: "red.subtle",
+      borderWidth: "1px",
+      borderStyle: "dashed",
+      borderColor: "red.border",
+    },
+  },
+});

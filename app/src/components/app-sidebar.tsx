@@ -1,6 +1,9 @@
-import { Box, Link, Stack, Text } from "@chakra-ui/react";
+import { Box, Link, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { useRouterState } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
+
+import { navItem } from "../../theme/recipes/nav-item";
+import { sidebar } from "../../theme/slot-recipes/sidebar";
 
 const navigation = [
   { label: "食事記録", href: "/" },
@@ -10,8 +13,8 @@ const navigation = [
 ] as const;
 
 const resources = [
-  { label: "ライセンス", href: "/license" },
-  { label: "Storybook", href: "/storybook/" },
+  { label: "ライセンス", href: "/license", external: false },
+  { label: "Storybook", href: "/storybook/", external: false },
   { label: "GitHub", href: "https://github.com/Nlkomaru/cho", external: true },
 ] as const;
 
@@ -20,25 +23,29 @@ export function AppSidebar() {
     select: (state) => state.location.pathname,
   });
 
+  return <AppSidebarView pathname={pathname} />;
+}
+
+export interface AppSidebarViewProps {
+  pathname: string;
+}
+
+/**
+ * ルーター非依存のサイドバー表示。Storybook もこの実体を描画する。
+ */
+export function AppSidebarView({ pathname }: AppSidebarViewProps) {
+  const recipe = useSlotRecipe({ recipe: sidebar });
+  const navItemRecipe = useRecipe({ recipe: navItem });
+  const styles = recipe();
+
   return (
-    <Box
-      as="aside"
-      aria-label="メインナビゲーション"
-      w="16rem"
-      minH="100vh"
-      flexShrink="0"
-      borderRightWidth="1px"
-      borderColor="border"
-      bg="bg.panel"
-      px="4"
-      py="6"
-    >
-      <Stack minH="calc(100vh - 3rem)" gap="8">
-        <Link href="/" color="fg.subtle" fontSize="xl" fontWeight="600">
+    <Box as="aside" aria-label="メインナビゲーション" css={styles.root}>
+      <Box css={styles.body}>
+        <Link href="/" css={styles.brand}>
           Cho
         </Link>
-        <Box as="nav" aria-label="ページ">
-          <Stack as="ul" listStyle="none" gap="1" m="0" p="0">
+        <Box as="nav" aria-label="ページ" css={styles.nav}>
+          <Box as="ul" css={styles.navList}>
             {navigation.map(({ label, href }) => {
               const isActive = pathname === href;
               return (
@@ -46,51 +53,36 @@ export function AppSidebar() {
                   <Link
                     href={href}
                     aria-current={isActive ? "page" : undefined}
-                    display="block"
-                    borderRadius="l3"
-                    bg={isActive ? "red.subtle" : "transparent"}
-                    color={isActive ? "red.fg" : "fg"}
-                    fontWeight={isActive ? "600" : "400"}
-                    px="3"
-                    py="2"
-                    _hover={{ bg: "bg.subtle", textDecoration: "none" }}
+                    css={navItemRecipe({ active: isActive })}
                   >
                     {label}
                   </Link>
                 </Box>
               );
             })}
-          </Stack>
+          </Box>
         </Box>
-        <Box as="footer" mt="auto" borderTopWidth="1px" borderColor="border" pt="4">
-          <Stack as="ul" listStyle="none" gap="1" m="0" p="0">
+        <Box as="footer" css={styles.footer}>
+          <Box as="ul" css={styles.resources}>
             {resources.map(({ label, href, external }) => (
               <Box as="li" key={label}>
                 <Link
                   href={href}
                   target={external ? "_blank" : undefined}
                   rel={external ? "noreferrer" : undefined}
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  borderRadius="l3"
-                  color="fg.muted"
-                  fontSize="sm"
-                  px="3"
-                  py="2"
-                  _hover={{ bg: "bg.subtle", textDecoration: "none" }}
+                  css={navItemRecipe({ emphasis: "resource" })}
                 >
                   {label}
                   {external ? <ExternalLinkIcon aria-hidden="true" size={14} /> : null}
                 </Link>
               </Box>
             ))}
-          </Stack>
-          <Text mt="3" px="3" color="fg.muted" fontSize="xs">
+          </Box>
+          <Box as="p" css={styles.copyright}>
             © Cho
-          </Text>
+          </Box>
         </Box>
-      </Stack>
+      </Box>
     </Box>
   );
 }
