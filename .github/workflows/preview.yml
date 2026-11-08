@@ -105,8 +105,7 @@ jobs:
           }
 
           migrate_hint() {
-            echo "::error::Apply the pending migration once, with operator approval, from the repository root:"
-            echo "::error::  pnpm --dir app exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc"
+            echo "::error::Do not apply migrations blindly: existing tables may conflict with 0000_initial.sql. Review the read-only metadata, prepare a data-preserving schema-version migration, and obtain explicit operator approval before any production writes."
           }
 
           tables_json="$(mktemp)"
@@ -126,6 +125,10 @@ jobs:
           done
           if (( ${#missing_tables[@]} > 0 )); then
             echo "::error::Production D1 database is missing required table(s): ${missing_tables[*]}."
+            echo "Existing table/index schema (metadata only; no application rows):"
+            query "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY type, name;"
+            echo "Existing ingredients columns (metadata only):"
+            query "PRAGMA table_info(ingredients);"
             migrate_hint
             exit 1
           fi
