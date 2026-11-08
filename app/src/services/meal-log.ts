@@ -12,7 +12,15 @@ import {
 import { calculateIngredientCost, calculateIngredientNutrition } from "../domain/ingredient";
 import { scaleNutritionFacts, sumNutritionFacts } from "../domain/nutrition";
 import type { NutritionFacts } from "../domain/nutrition";
-import type { InventiaStockAdjustRequest, InventiaStockOperationResult } from "./inventia-client";
+import {
+  assertIntegerStockAmount,
+  assertInventiaUnitMatch,
+  InventiaItemNotFoundError,
+  inventiaRequestErrorMessage,
+  type InventiaItemDto,
+  type InventiaStockAdjustRequest,
+  type InventiaStockOperationResult,
+} from "./inventia-client";
 
 export interface MealLogRepository {
   list(filter?: {
@@ -38,6 +46,7 @@ export interface MealIngredientRepository {
   getById(id: string): Promise<Ingredient | null>;
 }
 export interface MealInventiaClient {
+  getItem(id: string): Promise<InventiaItemDto | null>;
   adjustStock(id: string, input: InventiaStockAdjustRequest): Promise<InventiaStockOperationResult>;
 }
 export interface MealLogServiceOptions {
@@ -281,8 +290,13 @@ export function createMealLogService({
           const ingredient = await ingredientRepository.getById(ingredientId);
           if (!ingredient) throw new Error(`Unknown ingredient: ${ingredientId}`);
           if (!ingredient.inventiaItemId) continue;
+          const inventiaItem = await inventiaClient.getItem(ingredient.inventiaItemId);
+          if (!inventiaItem) throw new InventiaItemNotFoundError();
+          assertInventiaUnitMatch(ingredient, inventiaItem);
+          const amount = (totalAmount / dish.servings) * item.servingsFactor;
+          assertIntegerStockAmount(amount, inventiaItem.baseUnit);
           const body: InventiaStockAdjustRequest = {
-            delta: -Math.round((totalAmount / dish.servings) * item.servingsFactor),
+            delta: -amount,
             reason: "consume",
             idempotencyKey: `cho:meal:${log.id}:item:${item.id}:ing:${ingredient.id}`,
             note: `Cho: ${dish.name}`,
@@ -306,12 +320,19 @@ export function createMealLogService({
     if (!inventiaClient || !providerId)
       return {
         meal,
-        stockConsumption: { status: "failed", results: [], error: "Inventia is not configured." },
+        stockConsumption: {
+          status: "failed",
+          results: [],
+          error: "Inventia is not configured.",
+        },
       };
     try {
       const results = await consumeStock(meal.id);
       const refreshed = (await repository.getById(meal.id)) ?? meal;
-      return { meal: refreshed, stockConsumption: { status: "succeeded", results, error: null } };
+      return {
+        meal: refreshed,
+        stockConsumption: { status: "succeeded", results, error: null },
+      };
     } catch (error) {
       const refreshed = (await repository.getById(meal.id)) ?? meal;
       return {
@@ -319,7 +340,7 @@ export function createMealLogService({
         stockConsumption: {
           status: "failed",
           results: [],
-          error: error instanceof Error ? error.message : "在庫消費に失敗しました。",
+          error: inventiaRequestErrorMessage(error, "在庫消費に失敗しました。"),
         },
       };
     }

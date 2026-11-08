@@ -1,9 +1,8 @@
-import { Box, Button, Heading, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Field, Heading, Input, Stack, Text } from "@chakra-ui/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Feedback } from "../../../components/ui/feedback";
-import { Field, NativeInput } from "../../../components/ui/form";
 import { List, ListItem } from "../../../components/ui/list";
 import { Page, PageHeader } from "../../../components/ui/page";
 import { Section } from "../../../components/ui/section";
@@ -67,13 +66,14 @@ function DishListPage() {
       />
       <Section label="レシピ一覧" divided={false}>
         <Box maxW="sm">
-          <Field label="料理名で検索" htmlFor="dish-search">
-            <NativeInput
+          <Field.Root>
+            <Field.Label>料理名で検索</Field.Label>
+            <Input
               id="dish-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-          </Field>
+          </Field.Root>
         </Box>
         {error ? (
           <Feedback tone="error" role="alert">

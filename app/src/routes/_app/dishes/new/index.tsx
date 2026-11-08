@@ -1,12 +1,13 @@
-import { Box, Button, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { Feedback } from "../../../../components/ui/feedback";
-import { Field, NativeInput, NativeSelect, NativeTextArea } from "../../../../components/ui/form";
 import { ListItem } from "../../../../components/ui/list";
 import { Page, PageHeader } from "../../../../components/ui/page";
 import { Section } from "../../../../components/ui/section";
+import { FormField } from "../../-components/form-field";
+import { SelectControl } from "../../-components/select-control";
 import { errorMessageFrom } from "../../../../lib/api-error";
 import type { Ingredient, Dish } from "../../../../domain/ingredient";
 import { recipeSchema, type RecipeJson, type RecipeStep } from "../../../../domain/recipe";
@@ -347,23 +348,23 @@ function NewDishPage() {
         <Stack gap="7">
           <Section label="レシピ情報">
             <Stack direction={{ base: "column", sm: "row" }} gap="4">
-              <Field label="料理名">
-                <NativeInput
+              <FormField label="料理名">
+                <Input
                   required
                   maxLength={120}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
-              </Field>
-              <Field label="カテゴリ">
-                <NativeInput
+              </FormField>
+              <FormField label="カテゴリ">
+                <Input
                   maxLength={64}
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                 />
-              </Field>
-              <Field label="人前">
-                <NativeInput
+              </FormField>
+              <FormField label="人前">
+                <Input
                   type="number"
                   min="1"
                   max="100"
@@ -375,17 +376,17 @@ function NewDishPage() {
                     changeRecipe((r) => ({ ...r, servings: Number(e.target.value) || 1 }));
                   }}
                 />
-              </Field>
+              </FormField>
             </Stack>
-            <Field label="レシピの概要">
-              <NativeTextArea
+            <FormField label="レシピの概要">
+              <Textarea
                 maxLength={500}
                 value={recipe.summary ?? ""}
                 onChange={(e) => changeRecipe((r) => ({ ...r, summary: e.target.value || null }))}
               />
-            </Field>
-            <Field label="器具（カンマ区切り）">
-              <NativeInput
+            </FormField>
+            <FormField label="器具（カンマ区切り）">
+              <Input
                 value={recipe.equipment.join(", ")}
                 onChange={(e) =>
                   changeRecipe((r) => ({
@@ -398,7 +399,7 @@ function NewDishPage() {
                 }
                 placeholder="フライパン, 包丁, ボウル"
               />
-            </Field>
+            </FormField>
           </Section>
           <Section title="材料・グループ" label="材料とグループ">
             <Stack
@@ -406,8 +407,8 @@ function NewDishPage() {
               align={{ base: "stretch", md: "end" }}
               gap="3"
             >
-              <Field label="登録済み材料">
-                <NativeSelect
+              <FormField label="登録済み材料">
+                <SelectControl
                   value={selectedIngredient}
                   onChange={(e) => {
                     const item = ingredients.find((candidate) => candidate.id === e.target.value);
@@ -421,37 +422,37 @@ function NewDishPage() {
                       {item.name} ({item.baseUnit})
                     </option>
                   ))}
-                </NativeSelect>
-              </Field>
-              <Field label="基準単位量">
-                <NativeInput
+                </SelectControl>
+              </FormField>
+              <FormField label="基準単位量">
+                <Input
                   type="number"
                   min="0.001"
                   step="any"
                   value={entryAmount}
                   onChange={(e) => setEntryAmount(e.target.value)}
                 />
-              </Field>
-              <Field label="単位（材料マスタ）">
-                <NativeInput readOnly value={entryUnit} />
-              </Field>
-              <Field label="表示する分量">
-                <NativeInput
+              </FormField>
+              <FormField label="単位（材料マスタ）">
+                <Input readOnly value={entryUnit} />
+              </FormField>
+              <FormField label="表示する分量">
+                <Input
                   placeholder="大さじ1 (15mL)"
                   value={displayAmount}
                   onChange={(e) => setDisplayAmount(e.target.value)}
                 />
-              </Field>
-              <Field label="所属グループ">
-                <NativeSelect value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+              </FormField>
+              <FormField label="所属グループ">
+                <SelectControl value={groupId} onChange={(e) => setGroupId(e.target.value)}>
                   <option value="">グループなし</option>
                   {recipe.ingredientGroups.map((group) => (
                     <option key={group.id} value={group.id}>
                       {group.symbol} {group.label}
                     </option>
                   ))}
-                </NativeSelect>
-              </Field>
+                </SelectControl>
+              </FormField>
               <Button type="button" variant="outline" onClick={addEntry}>
                 材料を追加
               </Button>
@@ -461,8 +462,8 @@ function NewDishPage() {
               align={{ base: "stretch", sm: "end" }}
               gap="3"
             >
-              <Field label="グループ記号">
-                <NativeSelect
+              <FormField label="グループ記号">
+                <SelectControl
                   value={groupSymbol}
                   onChange={(e) => setGroupSymbol(e.target.value as typeof groupSymbol)}
                 >
@@ -471,16 +472,16 @@ function NewDishPage() {
                       {symbol}
                     </option>
                   ))}
-                </NativeSelect>
-              </Field>
-              <Field label="グループ名">
-                <NativeInput
+                </SelectControl>
+              </FormField>
+              <FormField label="グループ名">
+                <Input
                   maxLength={64}
                   value={groupLabel}
                   onChange={(e) => setGroupLabel(e.target.value)}
                   placeholder="合わせ調味料、下味など"
                 />
-              </Field>
+              </FormField>
               <Button type="button" variant="outline" onClick={addGroup}>
                 グループを追加
               </Button>
@@ -494,7 +495,7 @@ function NewDishPage() {
                   {entry.name} · {entry.displayAmount} ({entry.amount} {entry.unit})
                 </Text>
                 <Stack direction="row" gap="2">
-                  <NativeInput
+                  <Input
                     aria-label={`${entry.name} 下ごしらえメモ`}
                     placeholder="下ごしらえメモ"
                     maxLength={120}
@@ -547,27 +548,27 @@ function NewDishPage() {
                   <Text textStyle="label" minW={{ md: "10rem" }}>
                     {entry.name}
                   </Text>
-                  <Field label="基準量">
-                    <NativeInput
+                  <FormField label="基準量">
+                    <Input
                       type="number"
                       min="0.001"
                       step="any"
                       value={entry.amount}
                       onChange={(e) => updateEntry(entry.id, { amount: Number(e.target.value) })}
                     />
-                  </Field>
-                  <Field label="単位（材料マスタ）">
-                    <NativeInput readOnly value={entry.unit} />
-                  </Field>
-                  <Field label="表示分量">
-                    <NativeInput
+                  </FormField>
+                  <FormField label="単位（材料マスタ）">
+                    <Input readOnly value={entry.unit} />
+                  </FormField>
+                  <FormField label="表示分量">
+                    <Input
                       maxLength={64}
                       value={entry.displayAmount}
                       onChange={(e) => updateEntry(entry.id, { displayAmount: e.target.value })}
                     />
-                  </Field>
-                  <Field label="グループ">
-                    <NativeSelect
+                  </FormField>
+                  <FormField label="グループ">
+                    <SelectControl
                       value={entry.groupId ?? ""}
                       onChange={(e) => updateEntry(entry.id, { groupId: e.target.value || null })}
                     >
@@ -577,10 +578,10 @@ function NewDishPage() {
                           {group.symbol} {group.label}
                         </option>
                       ))}
-                    </NativeSelect>
-                  </Field>
-                  <Field label="役割">
-                    <NativeSelect
+                    </SelectControl>
+                  </FormField>
+                  <FormField label="役割">
+                    <SelectControl
                       value={entry.role}
                       onChange={(e) =>
                         updateEntry(entry.id, {
@@ -598,20 +599,20 @@ function NewDishPage() {
                           {label}
                         </option>
                       ))}
-                    </NativeSelect>
-                  </Field>
+                    </SelectControl>
+                  </FormField>
                 </Stack>
               ))}
             </Section>
           ) : null}
           <Section title="手順を構造化" label="AIによる手順構造化">
-            <Field label="レシピ本文">
-              <NativeTextArea
+            <FormField label="レシピ本文">
+              <Textarea
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
                 placeholder="調理手順をそのまま入力"
               />
-            </Field>
+            </FormField>
             <Button
               type="button"
               colorPalette="red"
@@ -642,8 +643,8 @@ function NewDishPage() {
                     Step {i + 1}
                   </Text>
                   <Stack direction={{ base: "column", md: "row" }} gap="3">
-                    <Field label="工程">
-                      <NativeSelect
+                    <FormField label="工程">
+                      <SelectControl
                         value={step.phase}
                         onChange={(e) =>
                           updateStep(i, { phase: e.target.value as RecipeStep["phase"] })
@@ -660,17 +661,17 @@ function NewDishPage() {
                             {label}
                           </option>
                         ))}
-                      </NativeSelect>
-                    </Field>
-                    <Field label="タイトル">
-                      <NativeInput
+                      </SelectControl>
+                    </FormField>
+                    <FormField label="タイトル">
+                      <Input
                         required
                         value={step.title}
                         onChange={(e) => updateStep(i, { title: e.target.value })}
                       />
-                    </Field>
-                    <Field label="実行">
-                      <NativeSelect
+                    </FormField>
+                    <FormField label="実行">
+                      <SelectControl
                         value={step.executionMode}
                         onChange={(e) =>
                           updateStep(i, {
@@ -681,10 +682,10 @@ function NewDishPage() {
                         <option value="active">作業</option>
                         <option value="passive">待機</option>
                         <option value="mixed">作業＋待機</option>
-                      </NativeSelect>
-                    </Field>
-                    <Field label="作業秒">
-                      <NativeInput
+                      </SelectControl>
+                    </FormField>
+                    <FormField label="作業秒">
+                      <Input
                         type="number"
                         min="0"
                         max="86400"
@@ -695,9 +696,9 @@ function NewDishPage() {
                           })
                         }
                       />
-                    </Field>
-                    <Field label="待機秒">
-                      <NativeInput
+                    </FormField>
+                    <FormField label="待機秒">
+                      <Input
                         type="number"
                         min="0"
                         max="604800"
@@ -708,11 +709,11 @@ function NewDishPage() {
                           })
                         }
                       />
-                    </Field>
+                    </FormField>
                   </Stack>
                   <Stack direction={{ base: "column", md: "row" }} gap="3" wrap="wrap">
-                    <Field label="最小合計秒">
-                      <NativeInput
+                    <FormField label="最小合計秒">
+                      <Input
                         type="number"
                         min="0"
                         max="604800"
@@ -727,9 +728,9 @@ function NewDishPage() {
                           })
                         }
                       />
-                    </Field>
-                    <Field label="最大合計秒">
-                      <NativeInput
+                    </FormField>
+                    <FormField label="最大合計秒">
+                      <Input
                         type="number"
                         min="0"
                         max="604800"
@@ -744,9 +745,9 @@ function NewDishPage() {
                           })
                         }
                       />
-                    </Field>
-                    <Field label="時間の伸縮">
-                      <NativeSelect
+                    </FormField>
+                    <FormField label="時間の伸縮">
+                      <SelectControl
                         value={step.timing.scalingMode}
                         onChange={(e) =>
                           updateStep(i, {
@@ -766,10 +767,10 @@ function NewDishPage() {
                             {label}
                           </option>
                         ))}
-                      </NativeSelect>
-                    </Field>
-                    <Field label="タイマー名">
-                      <NativeInput
+                      </SelectControl>
+                    </FormField>
+                    <FormField label="タイマー名">
+                      <Input
                         maxLength={64}
                         value={step.timing.timerLabel ?? ""}
                         onChange={(e) =>
@@ -782,9 +783,9 @@ function NewDishPage() {
                         }
                         placeholder="豚肉焼き"
                       />
-                    </Field>
-                    <Field label="目標温度（℃）">
-                      <NativeInput
+                    </FormField>
+                    <FormField label="目標温度（℃）">
+                      <Input
                         type="number"
                         min="-50"
                         max="350"
@@ -797,19 +798,19 @@ function NewDishPage() {
                           })
                         }
                       />
-                    </Field>
+                    </FormField>
                   </Stack>
-                  <Field label="手順">
-                    <NativeTextArea
+                  <FormField label="手順">
+                    <Textarea
                       required
                       maxLength={2000}
                       value={step.instruction}
                       onChange={(e) => updateStep(i, { instruction: e.target.value })}
                     />
-                  </Field>
+                  </FormField>
                   <Stack direction={{ base: "column", md: "row" }} gap="3">
-                    <Field label="依存する手順">
-                      <NativeSelect
+                    <FormField label="依存する手順">
+                      <SelectControl
                         multiple
                         aria-label={`Step ${i + 1} の先行手順`}
                         value={step.dependsOnStepIds}
@@ -826,10 +827,10 @@ function NewDishPage() {
                               Step {other.stepNumber}: {other.title || "（未入力）"}
                             </option>
                           ))}
-                      </NativeSelect>
-                    </Field>
-                    <Field label="器具・資源タグ（カンマ区切り）">
-                      <NativeInput
+                      </SelectControl>
+                    </FormField>
+                    <FormField label="器具・資源タグ（カンマ区切り）">
+                      <Input
                         value={step.resourceTags.join(", ")}
                         onChange={(e) =>
                           updateStep(i, {
@@ -841,9 +842,9 @@ function NewDishPage() {
                         }
                         placeholder="フライパン, コンロ"
                       />
-                    </Field>
-                    <Field label="火加減">
-                      <NativeSelect
+                    </FormField>
+                    <FormField label="火加減">
+                      <SelectControl
                         value={step.heatLevel}
                         onChange={(e) =>
                           updateStep(i, { heatLevel: e.target.value as RecipeStep["heatLevel"] })
@@ -863,8 +864,8 @@ function NewDishPage() {
                             {label}
                           </option>
                         ))}
-                      </NativeSelect>
-                    </Field>
+                      </SelectControl>
+                    </FormField>
                   </Stack>
                   <Stack gap="2">
                     <Text textStyle="label">投入材料（分割投入は割合と表記を調整）</Text>
@@ -883,8 +884,8 @@ function NewDishPage() {
                           >
                             <Text flex="1">{entry?.name ?? input.ingredientEntryId}</Text>
                             <Box w="110px">
-                              <Field label="割合">
-                                <NativeInput
+                              <FormField label="割合">
+                                <Input
                                   aria-label={`${entry?.name ?? "材料"} 使用割合`}
                                   type="number"
                                   min="0.01"
@@ -901,10 +902,10 @@ function NewDishPage() {
                                     })
                                   }
                                 />
-                              </Field>
+                              </FormField>
                             </Box>
-                            <Field label="分量表記">
-                              <NativeInput
+                            <FormField label="分量表記">
+                              <Input
                                 aria-label={`${entry?.name ?? "材料"} 投入量表記`}
                                 value={input.amountText ?? ""}
                                 placeholder={entry?.displayAmount}
@@ -918,7 +919,7 @@ function NewDishPage() {
                                   })
                                 }
                               />
-                            </Field>
+                            </FormField>
                             <Button
                               type="button"
                               variant="outline"
@@ -932,8 +933,8 @@ function NewDishPage() {
                         );
                       })}
                     <Stack direction={{ base: "column", md: "row" }} gap="3">
-                      <Field label="投入する個別材料">
-                        <NativeSelect
+                      <FormField label="投入する個別材料">
+                        <SelectControl
                           multiple
                           value={step.inputs
                             .filter((x) => x.type === "ingredient")
@@ -964,10 +965,10 @@ function NewDishPage() {
                               {entry.name} ({entry.displayAmount})
                             </option>
                           ))}
-                        </NativeSelect>
-                      </Field>
-                      <Field label="一括投入グループ">
-                        <NativeSelect
+                        </SelectControl>
+                      </FormField>
+                      <FormField label="一括投入グループ">
+                        <SelectControl
                           multiple
                           value={step.inputs
                             .filter((x) => x.type === "group")
@@ -990,10 +991,10 @@ function NewDishPage() {
                                 {group.symbol} {group.label}
                               </option>
                             ))}
-                        </NativeSelect>
-                      </Field>
-                      <Field label="生成物（名前を入力）">
-                        <NativeInput
+                        </SelectControl>
+                      </FormField>
+                      <FormField label="生成物（名前を入力）">
+                        <Input
                           value={step.outputs.map((x) => x.label).join(", ")}
                           onChange={(e) =>
                             updateStep(i, {
@@ -1008,11 +1009,11 @@ function NewDishPage() {
                           }
                           placeholder="下味をつけた肉"
                         />
-                      </Field>
+                      </FormField>
                     </Stack>
                   </Stack>
-                  <Field label="前の手順からの中間生成物">
-                    <NativeSelect
+                  <FormField label="前の手順からの中間生成物">
+                    <SelectControl
                       multiple
                       aria-label={`Step ${i + 1} の中間生成物`}
                       value={step.inputs
@@ -1044,21 +1045,21 @@ function NewDishPage() {
                             </option>
                           )),
                         )}
-                    </NativeSelect>
+                    </SelectControl>
                     <Text textStyle="caption">参照元を依存する手順にも選択してください。</Text>
-                  </Field>
+                  </FormField>
                   <Stack gap="3">
-                    <Field label="完了の目安">
-                      <NativeInput
+                    <FormField label="完了の目安">
+                      <Input
                         maxLength={300}
                         value={step.completionCue ?? ""}
                         onChange={(e) => updateStep(i, { completionCue: e.target.value || null })}
                       />
-                    </Field>
+                    </FormField>
                     <Text textStyle="label">注意事項</Text>
                     <Stack direction={{ base: "column", md: "row" }} gap="3">
-                      <Field label="注意の種類">
-                        <NativeSelect
+                      <FormField label="注意の種類">
+                        <SelectControl
                           value={step.cautions[0]?.category ?? "quality"}
                           onChange={(e) =>
                             updateCaution(i, {
@@ -1078,10 +1079,10 @@ function NewDishPage() {
                               {label}
                             </option>
                           ))}
-                        </NativeSelect>
-                      </Field>
-                      <Field label="重大度">
-                        <NativeSelect
+                        </SelectControl>
+                      </FormField>
+                      <FormField label="重大度">
+                        <SelectControl
                           value={step.cautions[0]?.severity ?? "warning"}
                           onChange={(e) =>
                             updateCaution(i, {
@@ -1099,27 +1100,27 @@ function NewDishPage() {
                               {label}
                             </option>
                           ))}
-                        </NativeSelect>
-                      </Field>
-                      <Field label="タイトル">
-                        <NativeInput
+                        </SelectControl>
+                      </FormField>
+                      <FormField label="タイトル">
+                        <Input
                           maxLength={120}
                           value={step.cautions[0]?.title ?? ""}
                           onChange={(e) => updateCaution(i, { title: e.target.value })}
                         />
-                      </Field>
-                      <Field label="発生条件">
-                        <NativeInput
+                      </FormField>
+                      <FormField label="発生条件">
+                        <Input
                           maxLength={200}
                           value={step.cautions[0]?.triggerCondition ?? ""}
                           onChange={(e) =>
                             updateCaution(i, { triggerCondition: e.target.value || null })
                           }
                         />
-                      </Field>
+                      </FormField>
                     </Stack>
-                    <Field label="注意の説明">
-                      <NativeTextArea
+                    <FormField label="注意の説明">
+                      <Textarea
                         maxLength={1000}
                         value={step.cautions[0]?.description ?? ""}
                         onChange={(e) =>
@@ -1128,7 +1129,7 @@ function NewDishPage() {
                             : updateStep(i, { cautions: [] })
                         }
                       />
-                    </Field>
+                    </FormField>
                   </Stack>
                   <Button
                     type="button"
@@ -1188,8 +1189,8 @@ function NewDishPage() {
             {recipe.globalCautions.map((caution, index) => (
               <Stack key={caution.id} gap="3" borderBottomWidth="1px" borderColor="border" py="3">
                 <Stack direction={{ base: "column", md: "row" }} gap="3">
-                  <Field label="注意の種類">
-                    <NativeSelect
+                  <FormField label="注意の種類">
+                    <SelectControl
                       value={caution.category}
                       onChange={(e) =>
                         updateGlobalCaution(index, {
@@ -1209,10 +1210,10 @@ function NewDishPage() {
                           {label}
                         </option>
                       ))}
-                    </NativeSelect>
-                  </Field>
-                  <Field label="重大度">
-                    <NativeSelect
+                    </SelectControl>
+                  </FormField>
+                  <FormField label="重大度">
+                    <SelectControl
                       value={caution.severity}
                       onChange={(e) =>
                         updateGlobalCaution(index, {
@@ -1230,34 +1231,34 @@ function NewDishPage() {
                           {label}
                         </option>
                       ))}
-                    </NativeSelect>
-                  </Field>
-                  <Field label="タイトル">
-                    <NativeInput
+                    </SelectControl>
+                  </FormField>
+                  <FormField label="タイトル">
+                    <Input
                       required
                       maxLength={120}
                       value={caution.title}
                       onChange={(e) => updateGlobalCaution(index, { title: e.target.value })}
                     />
-                  </Field>
-                  <Field label="発生条件">
-                    <NativeInput
+                  </FormField>
+                  <FormField label="発生条件">
+                    <Input
                       maxLength={200}
                       value={caution.triggerCondition ?? ""}
                       onChange={(e) =>
                         updateGlobalCaution(index, { triggerCondition: e.target.value || null })
                       }
                     />
-                  </Field>
+                  </FormField>
                 </Stack>
-                <Field label="説明">
-                  <NativeTextArea
+                <FormField label="説明">
+                  <Textarea
                     required
                     maxLength={1000}
                     value={caution.description}
                     onChange={(e) => updateGlobalCaution(index, { description: e.target.value })}
                   />
-                </Field>
+                </FormField>
                 <Button
                   type="button"
                   variant="outline"

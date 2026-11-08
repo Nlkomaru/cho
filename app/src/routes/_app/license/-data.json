@@ -1402,6 +1402,12 @@
 				"homepage": "https://github.com/ai/nanoid#readme"
 			},
 			{
+				"name": "next-themes",
+				"versions": ["0.4.6"],
+				"author": null,
+				"homepage": "https://github.com/pacocoursey/next-themes#readme"
+			},
+			{
 				"name": "node-releases",
 				"versions": ["2.0.53"],
 				"author": "Sergey Rubanov",

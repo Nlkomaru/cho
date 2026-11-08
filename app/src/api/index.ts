@@ -16,10 +16,11 @@ import { recipeSchema } from "../domain/recipe";
 export type ApiBindings = {
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
-  INVENTIA_BASE_URL: string;
+  INVENTIA_BASE_URL?: string;
   SETTINGS_ENCRYPTION_KEY?: string;
   CLOUDFLARE_ACCESS_CLIENT_ID?: string;
   CLOUDFLARE_ACCESS_CLIENT_SECRET?: string;
+  INVENTIA_STOCK_WRITES_ENABLED?: string;
 };
 
 declare global {

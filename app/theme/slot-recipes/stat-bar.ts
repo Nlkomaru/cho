@@ -1,9 +1,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 
 /**
- * 期間集計・食事詳細・レシピ詳細で使う数値サマリー。
- * 罫線 1px のグリッドで、数値は `numeric` テキストスタイル
- * (JetBrains Mono + tabular-nums) を使う。
+ * 日本語ラベルを等幅フォントに落とさない。
  */
 export const statBar = defineSlotRecipe({
   className: "cho-stat-bar",
@@ -11,7 +9,10 @@ export const statBar = defineSlotRecipe({
   base: {
     root: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))",
+      gridTemplateColumns: {
+        base: "repeat(2, minmax(0, 1fr))",
+        md: "repeat(4, minmax(0, 1fr))",
+      },
       borderTopWidth: "1px",
       borderLeftWidth: "1px",
       borderColor: "border",
@@ -30,11 +31,16 @@ export const statBar = defineSlotRecipe({
       textStyle: "caption",
     },
     value: {
-      textStyle: "numeric.strong",
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "baseline",
+      columnGap: "4",
+      rowGap: "1",
+      minWidth: "0",
       overflowWrap: "anywhere",
     },
     note: {
-      textStyle: "numeric.xs",
+      textStyle: "caption",
     },
   },
 });

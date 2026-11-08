@@ -8,8 +8,12 @@ import { createIngredientRepository } from "../repositories/ingredient-repositor
 import { createMealLogRepository } from "../repositories/meal-log-repository";
 import { createMealLogService } from "../services/meal-log";
 import { createSettingsRepository } from "../repositories/settings-repository";
-import { createInventiaClient } from "../services/inventia-client";
-import { decryptSecret } from "../services/crypto";
+import { describeInventiaFailure, type InventiaClient } from "../services/inventia-client";
+import {
+  inventiaConfigurationMessage,
+  inventiaStockWritesDisabledMessage,
+  resolveInventiaConnection,
+} from "../services/integration-settings";
 import type { ApiBindings } from "./index";
 
 const errorSchema = z.object({ error: z.string() }).strict();
@@ -112,6 +116,10 @@ const createMealRoute = createRoute({
       description: "Invalid meal input or referenced item.",
       content: { "application/json": { schema: errorSchema } },
     },
+    409: {
+      description: "Inventia stock writes are disabled.",
+      content: { "application/json": { schema: errorSchema } },
+    },
     500: {
       description: "Meal creation failed.",
       content: { "application/json": { schema: errorSchema } },
@@ -122,11 +130,21 @@ const createMealRoute = createRoute({
 mealRoutes.openapi(createMealRoute, async (context) => {
   try {
     const { consumeStock, ...input } = context.req.valid("json");
-    const inventia =
+    if (
+      consumeStock &&
+      input.sourceType === "self_cooked" &&
+      context.env.INVENTIA_STOCK_WRITES_ENABLED !== "true"
+    )
+      return context.json({ error: inventiaStockWritesDisabledMessage }, 409);
+    const connection =
       consumeStock && input.sourceType === "self_cooked"
         ? await createMealInventiaContext(context.env)
         : null;
-    const service = createMealService(context.env, inventia ?? undefined);
+    const inventia =
+      connection?.client && connection.status.providerId
+        ? { client: connection.client, providerId: connection.status.providerId }
+        : undefined;
+    const service = createMealService(context.env, inventia);
     if (!consumeStock) {
       const meal = await service.create(input);
       return context.json(meal, 201);
@@ -256,6 +274,8 @@ const consumeStockRoute = createRoute({
   },
 });
 mealRoutes.openapi(consumeStockRoute, async (context) => {
+  if (context.env.INVENTIA_STOCK_WRITES_ENABLED !== "true")
+    return context.json({ error: inventiaStockWritesDisabledMessage }, 409);
   const { id } = context.req.valid("param");
   const baseService = createMealService(context.env);
   const meal = await baseService.get(id);
@@ -263,46 +283,31 @@ mealRoutes.openapi(consumeStockRoute, async (context) => {
   if (meal.sourceType !== "self_cooked")
     return context.json({ error: "Only self-cooked meals can consume stock." }, 400);
   const inventia = await createMealInventiaContext(context.env);
-  if (!inventia) return context.json({ error: "Inventia is not configured." }, 409);
+  if (!inventia.client || !inventia.status.capabilities.readItems)
+    return context.json({ error: inventiaConfigurationMessage(inventia.status.issue) }, 409);
+  if (!inventia.status.providerId)
+    return context.json(
+      {
+        error:
+          "Inventia Provider ID is required for stock writes. Save it in the Cho integration settings.",
+      },
+      409,
+    );
   try {
-    const results = await createMealService(context.env, inventia).consumeStock(id);
+    const results = await createMealService(context.env, {
+      client: inventia.client,
+      providerId: inventia.status.providerId,
+    }).consumeStock(id);
     return context.json(results, 200);
-  } catch {
-    return context.json({ error: "Unable to consume meal stock." }, 502);
+  } catch (error) {
+    const failure = describeInventiaFailure(error, "Unable to consume meal stock.");
+    return context.json({ error: failure.error }, failure.status);
   }
 });
 
 async function createMealInventiaContext(env: ApiBindings) {
-  if (!env.SETTINGS_ENCRYPTION_KEY) return null;
-  try {
-    const settings = await createSettingsRepository(createDbClient(env.DB)).get("inventia");
-    if (!settings || !hasProviderId(settings.publicConfig)) return null;
-    const decryptedToken = await decryptSecret(
-      settings.encryptedPayload,
-      env.SETTINGS_ENCRYPTION_KEY,
-    );
-    return {
-      client: createInventiaClient({
-        baseUrl: env.INVENTIA_BASE_URL,
-        decryptedToken,
-        cloudflareAccessClientId: env.CLOUDFLARE_ACCESS_CLIENT_ID,
-        cloudflareAccessClientSecret: env.CLOUDFLARE_ACCESS_CLIENT_SECRET,
-      }),
-      providerId: (settings.publicConfig as { providerId: string }).providerId,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function hasProviderId(config: unknown): config is { providerId: string } {
-  return (
-    typeof config === "object" &&
-    config !== null &&
-    "providerId" in config &&
-    typeof config.providerId === "string" &&
-    config.providerId.trim().length > 0
-  );
+  const settings = await createSettingsRepository(createDbClient(env.DB)).get("inventia");
+  return resolveInventiaConnection(settings, env);
 }
 
 mealRoutes.openapi(deleteMealRoute, async (context) => {
@@ -318,7 +323,7 @@ mealRoutes.openapi(deleteMealRoute, async (context) => {
 
 function createMealService(
   env: ApiBindings,
-  inventia?: { client: ReturnType<typeof createInventiaClient>; providerId: string },
+  inventia?: { client: InventiaClient; providerId: string },
 ) {
   const db = createDbClient(env.DB);
   return createMealLogService({

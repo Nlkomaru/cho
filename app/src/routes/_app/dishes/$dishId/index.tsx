@@ -1,10 +1,22 @@
-import { Box, Button, chakra, Stack, Text, useSlotRecipe } from "@chakra-ui/react";
+import {
+  Box,
+  Button,
+  Checkbox,
+  chakra,
+  Field,
+  Input,
+  Stack,
+  Text,
+  Textarea,
+  useSlotRecipe,
+} from "@chakra-ui/react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Feedback } from "../../../../components/ui/feedback";
-import { Field, NativeInput, NativeTextArea } from "../../../../components/ui/form";
 import { List, ListItem } from "../../../../components/ui/list";
+import { NumberField } from "../../../../components/ui/number-field";
+import { Numeric } from "../../../../components/ui/numeric";
 import { Page, PageHeader } from "../../../../components/ui/page";
 import { Section } from "../../../../components/ui/section";
 import { StatBar } from "../../../../components/ui/stat-bar";
@@ -285,29 +297,32 @@ function DishDetailPage() {
           <Box as="form" onSubmit={saveMeta}>
             <Stack gap="3">
               <Stack direction={{ base: "column", md: "row" }} gap="3">
-                <Field label="料理名">
-                  <NativeInput
+                <Field.Root>
+                  <Field.Label>料理名</Field.Label>
+                  <Input
                     required
                     maxLength={120}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                   />
-                </Field>
-                <Field label="カテゴリ">
-                  <NativeInput
+                </Field.Root>
+                <Field.Root>
+                  <Field.Label>カテゴリ</Field.Label>
+                  <Input
                     maxLength={64}
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                   />
-                </Field>
+                </Field.Root>
               </Stack>
-              <Field label="メモ">
-                <NativeTextArea
+              <Field.Root>
+                <Field.Label>メモ</Field.Label>
+                <Textarea
                   maxLength={4000}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                 />
-              </Field>
+              </Field.Root>
               <Button type="submit" colorPalette="red" alignSelf="start" loading={busy}>
                 変更を保存
               </Button>
@@ -321,220 +336,327 @@ function DishDetailPage() {
           align={{ base: "stretch", sm: "end" }}
           gap="3"
         >
-          <Field label="表示人前数">
-            <NativeInput
-              type="number"
-              min="1"
-              max="100"
-              step="1"
-              value={servings}
-              onChange={(e) => setServings(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+          <Box minW="10rem">
+            <NumberField
+              label="表示人前数"
+              value={String(servings)}
+              min={1}
+              max={100}
+              step={1}
+              onChange={(value) => setServings(Math.min(100, Math.max(1, Number(value) || 1)))}
             />
-          </Field>
+          </Box>
           <Text textStyle="caption">数量はこの画面と食事記録の追加に反映されます。</Text>
         </Stack>
         <StatBar
           items={[
             {
               label: "原価",
-              value: yen(totalCost),
-              note: `1人前 ${yen(totalCost === null ? null : totalCost / servings)}`,
+              value: (
+                <Numeric size="lg" tone="strong">
+                  {yen(totalCost)}
+                </Numeric>
+              ),
+              note: (
+                <>
+                  1人前{" "}
+                  <Numeric size="sm" tone="muted">
+                    {yen(totalCost === null ? null : totalCost / servings)}
+                  </Numeric>
+                </>
+              ),
             },
             {
               label: "エネルギー",
-              value: totalNutrition ? `${fmt(totalNutrition.caloriesKcal)} kcal` : "—",
-              note: `1人前 ${totalNutrition ? `${fmt(totalNutrition.caloriesKcal / servings)} kcal` : "—"}`,
+              value: totalNutrition ? (
+                <>
+                  <Numeric size="lg" tone="strong">
+                    {fmt(totalNutrition.caloriesKcal)}
+                  </Numeric>
+                  <Box as="span">kcal</Box>
+                </>
+              ) : (
+                "—"
+              ),
+              note: totalNutrition ? (
+                <>
+                  1人前{" "}
+                  <Numeric size="sm" tone="muted">
+                    {fmt(totalNutrition.caloriesKcal / servings)}
+                  </Numeric>{" "}
+                  kcal
+                </>
+              ) : (
+                "1人前 —"
+              ),
             },
             {
               label: "P / F / C",
-              value: totalNutrition
-                ? `${fmt(totalNutrition.proteinG)}g / ${fmt(totalNutrition.fatG)}g / ${fmt(totalNutrition.carbohydrateG)}g`
-                : "—",
-              note: totalNutrition
-                ? `1人前 P ${fmt(totalNutrition.proteinG / servings)}g / F ${fmt(totalNutrition.fatG / servings)}g / C ${fmt(totalNutrition.carbohydrateG / servings)}g`
-                : "1人前 —",
+              value: totalNutrition ? (
+                <>
+                  <Box as="span">
+                    P{" "}
+                    <Numeric size="lg" tone="strong">
+                      {fmt(totalNutrition.proteinG)}
+                    </Numeric>{" "}
+                    g
+                  </Box>
+                  <Box as="span">
+                    F{" "}
+                    <Numeric size="lg" tone="strong">
+                      {fmt(totalNutrition.fatG)}
+                    </Numeric>{" "}
+                    g
+                  </Box>
+                  <Box as="span">
+                    C{" "}
+                    <Numeric size="lg" tone="strong">
+                      {fmt(totalNutrition.carbohydrateG)}
+                    </Numeric>{" "}
+                    g
+                  </Box>
+                </>
+              ) : (
+                "—"
+              ),
+              note: totalNutrition ? (
+                <>
+                  1人前 P{" "}
+                  <Numeric size="sm" tone="muted">
+                    {fmt(totalNutrition.proteinG / servings)}
+                  </Numeric>{" "}
+                  g / F{" "}
+                  <Numeric size="sm" tone="muted">
+                    {fmt(totalNutrition.fatG / servings)}
+                  </Numeric>{" "}
+                  g / C{" "}
+                  <Numeric size="sm" tone="muted">
+                    {fmt(totalNutrition.carbohydrateG / servings)}
+                  </Numeric>{" "}
+                  g
+                </>
+              ) : (
+                "1人前 —"
+              ),
             },
             {
               label: "食物繊維 / 食塩",
-              value: totalNutrition
-                ? `${fmt(totalNutrition.fiberG)}g / ${fmt(totalNutrition.saltEquivalentG)}g`
-                : "—",
-              note: totalNutrition
-                ? `1人前 ${fmt(totalNutrition.fiberG === null ? null : totalNutrition.fiberG / servings)}g / ${fmt(totalNutrition.saltEquivalentG === null ? null : totalNutrition.saltEquivalentG / servings)}g`
-                : "1人前 —",
+              value: totalNutrition ? (
+                <>
+                  <Box as="span">
+                    <Numeric size="lg" tone="strong">
+                      {fmt(totalNutrition.fiberG)}
+                    </Numeric>{" "}
+                    g /{" "}
+                    <Numeric size="lg" tone="strong">
+                      {fmt(totalNutrition.saltEquivalentG)}
+                    </Numeric>{" "}
+                    g
+                  </Box>
+                </>
+              ) : (
+                "—"
+              ),
+              note: totalNutrition ? (
+                <>
+                  1人前{" "}
+                  <Numeric size="sm" tone="muted">
+                    {fmt(totalNutrition.fiberG === null ? null : totalNutrition.fiberG / servings)}
+                  </Numeric>{" "}
+                  g /{" "}
+                  <Numeric size="sm" tone="muted">
+                    {fmt(
+                      totalNutrition.saltEquivalentG === null
+                        ? null
+                        : totalNutrition.saltEquivalentG / servings,
+                    )}
+                  </Numeric>{" "}
+                  g
+                </>
+              ) : (
+                "1人前 —"
+              ),
             },
           ]}
         />
       </Section>
-      <Section title="材料" label="材料と栄養・原価内訳">
-        <Stack gap="4">
-          {ingredientSections.map((section) => (
-            <Box key={section.key}>
-              {section.label ? (
-                <Text as="h3" textStyle="heading.xs">
-                  {section.label}
-                </Text>
-              ) : null}
-              <List>
-                {section.entries.map((entry) => {
-                  const data = entryData.find((item) => item.entry.id === entry.id)!;
-                  const usages = ingredientUsages(entry);
-                  return (
-                    <ListItem layout="row" key={entry.id}>
-                      <Box minW="0">
-                        <Text textStyle="label">
-                          {entry.name} · {displayEntryAmount(entry, data.amount)}
-                        </Text>
-                        <Text textStyle="caption">
-                          {entry.prepNote ? `下ごしらえ: ${entry.prepNote} · ` : ""}
-                          {data.nutrition
-                            ? `${fmt(data.nutrition.caloriesKcal)} kcal · P ${fmt(data.nutrition.proteinG)}g / F ${fmt(data.nutrition.fatG)}g / C ${fmt(data.nutrition.carbohydrateG)}g`
-                            : "栄養価未計算"}{" "}
-                          · 原価 {yen(data.cost)}
-                        </Text>
-                      </Box>
-                      <Stack gap="1" aria-label={`${entry.name} の手順別使用量`}>
-                        <Text textStyle="label">手順別の使用</Text>
-                        {usages.length ? (
-                          usages.map((usage, index) => (
-                            <Text textStyle="numeric.sm" key={`${usage.step.id}-${index}`}>
-                              <a href={`#${usage.step.id}`}>Step {usage.step.stepNumber}</a>:{" "}
-                              {displayEntryAmount(entry, usage.amount)}
-                              {usage.amountText ? ` · ${usage.amountText}` : ""}
-                            </Text>
-                          ))
-                        ) : (
-                          <Text textStyle="body.sm">未指定</Text>
-                        )}
-                      </Stack>
-                    </ListItem>
-                  );
-                })}
-              </List>
-            </Box>
-          ))}
-        </Stack>
-      </Section>
-      <Section
-        label="調理手順スケジュール"
-        title={
-          <>
-            調理手順 · {duration(schedule.totalDurationSec)}（直列{" "}
-            {duration(schedule.serialDurationSec)} / 短縮 {duration(schedule.savedDurationSec)}）
-          </>
-        }
-        actions={
-          <Stack direction="row" aria-label="手順表示" gap="2">
-            <Button
-              variant={view === "gantt" ? "outline" : "ghost"}
-              aria-pressed={view === "gantt"}
-              onClick={() => setView("gantt")}
-            >
-              ガント
-            </Button>
-            <Button
-              variant={view === "list" ? "outline" : "ghost"}
-              aria-pressed={view === "list"}
-              onClick={() => setView("list")}
-            >
-              リスト
-            </Button>
-          </Stack>
-        }
+      <Box
+        display="grid"
+        gridTemplateColumns={{ base: "1fr", lg: "minmax(0, 5fr) minmax(0, 7fr)" }}
+        gap="8"
+        alignItems="start"
       >
-        {view === "gantt" ? <Gantt recipe={dish.recipe} schedule={schedule} /> : null}
-        <Box style={{ display: view === "list" ? "flex" : "none" }}>
-          <List divided={false}>
-            {dish.recipe.steps.map((step) => {
-              const bar = schedule.bars.find((item) => item.stepId === step.id);
-              const completed = completedStepIds.includes(step.id);
-              return (
-                <Box as="div" id={step.id} key={step.id}>
-                  <ListItem>
-                    <Stack gap="2">
-                      <Stack
-                        direction={{ base: "column", sm: "row" }}
-                        justify="space-between"
-                        align={{ base: "stretch", sm: "center" }}
-                      >
-                        <Text as="h3" textStyle="heading.xs">
-                          Step {step.stepNumber} · {step.title}
-                        </Text>
-                        <Stack direction="row" align="center" gap="4">
-                          <Text textStyle="numeric.sm">
-                            作業 {duration(step.timing.activeDurationSec)} · 待機{" "}
-                            {duration(step.timing.passiveDurationSec)}
-                            {step.heatLevel !== "none" ? ` · 火加減 ${step.heatLevel}` : ""}
+        <Stack gap="7">
+          <Section title="材料" label="材料と栄養・原価内訳">
+            <Stack gap="4">
+              {ingredientSections.map((section) => (
+                <Box key={section.key}>
+                  {section.label ? (
+                    <Text as="h3" textStyle="heading.xs">
+                      {section.label}
+                    </Text>
+                  ) : null}
+                  <List>
+                    {section.entries.map((entry) => {
+                      const data = entryData.find((item) => item.entry.id === entry.id)!;
+                      const usages = ingredientUsages(entry);
+                      return (
+                        <ListItem layout="row" key={entry.id}>
+                          <Box minW="0">
+                            <Text textStyle="label">
+                              {entry.name} · {displayEntryAmount(entry, data.amount)}
+                            </Text>
+                            <Text textStyle="caption">
+                              {entry.prepNote ? `下ごしらえ: ${entry.prepNote} · ` : ""}
+                              {data.nutrition
+                                ? `${fmt(data.nutrition.caloriesKcal)} kcal · P ${fmt(data.nutrition.proteinG)}g / F ${fmt(data.nutrition.fatG)}g / C ${fmt(data.nutrition.carbohydrateG)}g`
+                                : "栄養価未計算"}{" "}
+                              · 原価 {yen(data.cost)}
+                            </Text>
+                          </Box>
+                          <Stack gap="1" aria-label={`${entry.name} の手順別使用量`}>
+                            <Text textStyle="label">手順別の使用</Text>
+                            {usages.length ? (
+                              usages.map((usage, index) => (
+                                <Text textStyle="body.sm" key={`${usage.step.id}-${index}`}>
+                                  <a href={`#${usage.step.id}`}>Step {usage.step.stepNumber}</a>:{" "}
+                                  {displayEntryAmount(entry, usage.amount)}
+                                  {usage.amountText ? ` · ${usage.amountText}` : ""}
+                                </Text>
+                              ))
+                            ) : (
+                              <Text textStyle="body.sm">未指定</Text>
+                            )}
+                          </Stack>
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                </Box>
+              ))}
+            </Stack>
+          </Section>
+        </Stack>
+        <Section
+          label="調理手順スケジュール"
+          title={
+            <>
+              調理手順 · {duration(schedule.totalDurationSec)}（直列{" "}
+              {duration(schedule.serialDurationSec)} / 短縮 {duration(schedule.savedDurationSec)}）
+            </>
+          }
+          actions={
+            <Stack direction="row" aria-label="手順表示" gap="2">
+              <Button
+                variant={view === "gantt" ? "outline" : "ghost"}
+                aria-pressed={view === "gantt"}
+                onClick={() => setView("gantt")}
+              >
+                ガント
+              </Button>
+              <Button
+                variant={view === "list" ? "outline" : "ghost"}
+                aria-pressed={view === "list"}
+                onClick={() => setView("list")}
+              >
+                リスト
+              </Button>
+            </Stack>
+          }
+        >
+          {view === "gantt" ? <Gantt recipe={dish.recipe} schedule={schedule} /> : null}
+          <Box style={{ display: view === "list" ? "flex" : "none" }}>
+            <List divided={false}>
+              {dish.recipe.steps.map((step) => {
+                const bar = schedule.bars.find((item) => item.stepId === step.id);
+                const completed = completedStepIds.includes(step.id);
+                return (
+                  <Box as="div" id={step.id} key={step.id}>
+                    <ListItem>
+                      <Stack gap="2">
+                        <Stack
+                          direction={{ base: "column", sm: "row" }}
+                          justify="space-between"
+                          align={{ base: "stretch", sm: "center" }}
+                        >
+                          <Text as="h3" textStyle="heading.xs">
+                            Step {step.stepNumber} · {step.title}
                           </Text>
-                          <label>
-                            <input
-                              type="checkbox"
-                              aria-label={`Step ${step.stepNumber} を完了`}
+                          <Stack direction="row" align="center" gap="4">
+                            <Text textStyle="body.sm">
+                              作業 {duration(step.timing.activeDurationSec)} · 待機{" "}
+                              {duration(step.timing.passiveDurationSec)}
+                              {step.heatLevel !== "none" ? ` · 火加減 ${step.heatLevel}` : ""}
+                            </Text>
+                            <Checkbox.Root
                               checked={completed}
-                              onChange={(event) =>
+                              onCheckedChange={(details) =>
                                 setCompletedStepIds((current) =>
-                                  event.target.checked
+                                  details.checked
                                     ? [...current, step.id]
                                     : current.filter((id) => id !== step.id),
                                 )
                               }
-                            />
-                            完了
-                          </label>
+                            >
+                              <Checkbox.HiddenInput />
+                              <Checkbox.Control />
+                              <Checkbox.Label>完了</Checkbox.Label>
+                            </Checkbox.Root>
+                          </Stack>
                         </Stack>
+                        <Text>{step.instruction}</Text>
+                        {step.inputs.length ? (
+                          <Text textStyle="body.sm">
+                            <strong>投入:</strong>{" "}
+                            {step.inputs.map((input) => inputLabel(input)).join(" · ")}
+                          </Text>
+                        ) : null}
+                        {step.outputs.length ? (
+                          <Text textStyle="body.sm">
+                            <strong>生成:</strong>{" "}
+                            {step.outputs.map((output) => output.label).join(" · ")}
+                          </Text>
+                        ) : null}
+                        {step.completionCue ? (
+                          <Text textStyle="body.sm">
+                            <strong>完了の目安:</strong> {step.completionCue}
+                          </Text>
+                        ) : null}
+                        {step.cautions.map((caution) => (
+                          <Text key={caution.id} textStyle="caution">
+                            <strong>{caution.title}:</strong> {caution.description}
+                          </Text>
+                        ))}
+                        {step.resourceTags.length ? (
+                          <Text textStyle="caption">器具: {step.resourceTags.join(" · ")}</Text>
+                        ) : null}
+                        {step.dependsOnStepIds.length ? (
+                          <Text textStyle="caption">
+                            前提:{" "}
+                            {step.dependsOnStepIds
+                              .map((id) => {
+                                const dependency = dish.recipe.steps.find((item) => item.id === id);
+                                return `Step ${dependency?.stepNumber ?? "?"} ${dependency?.title ?? ""}`;
+                              })
+                              .join(" · ")}
+                            （先行手順の終了後に開始）
+                          </Text>
+                        ) : null}
+                        {bar ? (
+                          <Text textStyle="caption">
+                            予定 {duration(bar.startSec)}–{duration(bar.endSec)}
+                            {bar.isCriticalPath ? " · クリティカルパス" : ""}
+                          </Text>
+                        ) : null}
                       </Stack>
-                      <Text>{step.instruction}</Text>
-                      {step.inputs.length ? (
-                        <Text textStyle="body.sm">
-                          <strong>投入:</strong>{" "}
-                          {step.inputs.map((input) => inputLabel(input)).join(" · ")}
-                        </Text>
-                      ) : null}
-                      {step.outputs.length ? (
-                        <Text textStyle="body.sm">
-                          <strong>生成:</strong>{" "}
-                          {step.outputs.map((output) => output.label).join(" · ")}
-                        </Text>
-                      ) : null}
-                      {step.completionCue ? (
-                        <Text textStyle="body.sm">
-                          <strong>完了の目安:</strong> {step.completionCue}
-                        </Text>
-                      ) : null}
-                      {step.cautions.map((caution) => (
-                        <Text key={caution.id} textStyle="caution">
-                          <strong>{caution.title}:</strong> {caution.description}
-                        </Text>
-                      ))}
-                      {step.resourceTags.length ? (
-                        <Text textStyle="caption">器具: {step.resourceTags.join(" · ")}</Text>
-                      ) : null}
-                      {step.dependsOnStepIds.length ? (
-                        <Text textStyle="caption">
-                          前提:{" "}
-                          {step.dependsOnStepIds
-                            .map((id) => {
-                              const dependency = dish.recipe.steps.find((item) => item.id === id);
-                              return `Step ${dependency?.stepNumber ?? "?"} ${dependency?.title ?? ""}`;
-                            })
-                            .join(" · ")}
-                          （先行手順の終了後に開始）
-                        </Text>
-                      ) : null}
-                      {bar ? (
-                        <Text textStyle="numeric.xs">
-                          予定 {duration(bar.startSec)}–{duration(bar.endSec)}
-                          {bar.isCriticalPath ? " · クリティカルパス" : ""}
-                        </Text>
-                      ) : null}
-                    </Stack>
-                  </ListItem>
-                </Box>
-              );
-            })}
-          </List>
-        </Box>
-      </Section>
+                    </ListItem>
+                  </Box>
+                );
+              })}
+            </List>
+          </Box>
+        </Section>
+      </Box>
     </Page>
   );
 }

@@ -4,6 +4,10 @@ import type { ApiBindings } from "./index";
 import { createSettingsRepository } from "../repositories/settings-repository";
 import { encryptSecret } from "../services/crypto";
 import { createDbClient } from "../db/client";
+import {
+  describeIntegrationSettings,
+  integrationSettingsSchema,
+} from "../services/integration-settings";
 function requireEncryptionKey(key: string | undefined): string {
   if (!key) throw new Error("Settings encryption is not configured");
   return key;
@@ -15,12 +19,6 @@ const providerConfigSchema = z
 const openRouterConfigSchema = z
   .object({ model: z.string().trim().min(1).optional() })
   .passthrough();
-const responseSchema = z
-  .object({
-    openrouter: z.object({ configured: z.boolean(), model: z.string() }).strict(),
-    inventia: z.object({ configured: z.boolean(), providerId: z.string().nullable() }).strict(),
-  })
-  .strict();
 const requestSchema = z
   .object({
     openrouter: z
@@ -49,18 +47,20 @@ const route = createRoute({
   responses: {
     200: {
       description: "Integration configuration status",
-      content: { "application/json": { schema: responseSchema } },
+      content: { "application/json": { schema: integrationSettingsSchema } },
     },
   },
 });
 const putRoute = createRoute({
   method: "put",
   path: "/api/settings/integrations",
-  request: { body: { required: true, content: { "application/json": { schema: requestSchema } } } },
+  request: {
+    body: { required: true, content: { "application/json": { schema: requestSchema } } },
+  },
   responses: {
     200: {
       description: "Updated integration configuration",
-      content: { "application/json": { schema: responseSchema } },
+      content: { "application/json": { schema: integrationSettingsSchema } },
     },
     400: {
       description: "Invalid configuration",
@@ -80,29 +80,8 @@ settingsRoutes.openapi(route, async (context) => {
     repository.get("openrouter"),
     repository.get("inventia"),
   ]);
-  const openRouterConfig =
-    openrouter?.publicConfig === null || !openrouter
-      ? {}
-      : openRouterConfigSchema.parse(openrouter.publicConfig);
-  const inventiaConfig =
-    inventia?.publicConfig === null || !inventia
-      ? {}
-      : providerConfigSchema.parse(inventia.publicConfig);
   return context.json(
-    {
-      openrouter: {
-        configured: Boolean(openrouter?.encryptedPayload),
-        model:
-          typeof openRouterConfig.model === "string"
-            ? openRouterConfig.model
-            : "google/gemini-3.7-flash",
-      },
-      inventia: {
-        configured: Boolean(inventia?.encryptedPayload),
-        providerId:
-          typeof inventiaConfig.providerId === "string" ? inventiaConfig.providerId : null,
-      },
-    },
+    await describeIntegrationSettings({ openrouter, inventia }, context.env),
     200,
   );
 });
@@ -118,6 +97,23 @@ settingsRoutes.openapi(putRoute, async (context) => {
       repository.get("openrouter"),
       repository.get("inventia"),
     ]);
+    if (
+      input.data.openrouter &&
+      !input.data.openrouter.apiKey &&
+      input.data.openrouter.model !== undefined &&
+      !oldOpenrouter?.encryptedPayload
+    )
+      return context.json({ error: "Save the OpenRouter API key before saving the model." }, 400);
+    if (
+      input.data.inventia &&
+      !input.data.inventia.token &&
+      input.data.inventia.providerId !== undefined &&
+      !oldInventia?.encryptedPayload
+    )
+      return context.json(
+        { error: "Save the Inventia API token before saving the Provider ID." },
+        400,
+      );
     if (input.data.openrouter) {
       const oldConfig =
         oldOpenrouter?.publicConfig === null || !oldOpenrouter
@@ -158,29 +154,8 @@ settingsRoutes.openapi(putRoute, async (context) => {
       repository.get("openrouter"),
       repository.get("inventia"),
     ]);
-    const openRouterConfig =
-      openrouter?.publicConfig === null || !openrouter
-        ? {}
-        : openRouterConfigSchema.parse(openrouter.publicConfig);
-    const inventiaConfig =
-      inventia?.publicConfig === null || !inventia
-        ? {}
-        : providerConfigSchema.parse(inventia.publicConfig);
     return context.json(
-      {
-        openrouter: {
-          configured: Boolean(openrouter?.encryptedPayload),
-          model:
-            typeof openRouterConfig.model === "string"
-              ? openRouterConfig.model
-              : "google/gemini-3.7-flash",
-        },
-        inventia: {
-          configured: Boolean(inventia?.encryptedPayload),
-          providerId:
-            typeof inventiaConfig.providerId === "string" ? inventiaConfig.providerId : null,
-        },
-      },
+      await describeIntegrationSettings({ openrouter, inventia }, context.env),
       200,
     );
   } catch {

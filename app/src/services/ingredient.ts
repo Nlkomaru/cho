@@ -1,9 +1,12 @@
 import type { Ingredient } from "../domain/ingredient";
-import type {
-  InventiaItemDto,
-  InventiaPriceRecordDto,
-  InventiaStockAdjustRequest,
-  InventiaStockOperationResult,
+import {
+  assertIntegerStockAmount,
+  assertInventiaUnitMatch,
+  InventiaItemNotFoundError,
+  type InventiaItemDto,
+  type InventiaPriceRecordDto,
+  type InventiaStockAdjustRequest,
+  type InventiaStockOperationResult,
 } from "./inventia-client";
 
 export interface IngredientRepository {
@@ -15,6 +18,7 @@ export interface IngredientRepository {
 }
 export interface IngredientInventiaClient {
   searchItems(query: string): Promise<InventiaItemDto[]>;
+  getItem(id: string): Promise<InventiaItemDto | null>;
   getItemPrices(id: string): Promise<InventiaPriceRecordDto[]>;
   adjustStock(id: string, input: InventiaStockAdjustRequest): Promise<InventiaStockOperationResult>;
 }
@@ -72,23 +76,26 @@ export function createIngredientService({
       if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
       if (!ingredient.inventiaItemId)
         return { found: false, currentQuantity: null, baseUnit: null };
-      const items = await client.searchItems(ingredient.name);
-      const match = items.find((item) => item.id === ingredient.inventiaItemId);
+      const match = await client.getItem(ingredient.inventiaItemId);
       return match
         ? { found: true, currentQuantity: match.currentQuantity, baseUnit: match.baseUnit }
         : { found: false, currentQuantity: null, baseUnit: null };
     },
-    async adjustInventiaStock(ingredientId: string, amount: number) {
+    async adjustInventiaStock(ingredientId: string, amount: number, idempotencyKey: string) {
       const client = requireInventiaClient();
       if (!providerId) throw new Error("Inventia providerId is not configured");
       const ingredient = await repository.getById(ingredientId);
       if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
       if (!ingredient.inventiaItemId)
         throw new Error(`Ingredient is not linked to Inventia: ${ingredientId}`);
+      const item = await client.getItem(ingredient.inventiaItemId);
+      if (!item) throw new InventiaItemNotFoundError();
+      assertInventiaUnitMatch(ingredient, item);
+      assertIntegerStockAmount(amount, item.baseUnit);
       return client.adjustStock(ingredient.inventiaItemId, {
-        delta: -Math.round(amount),
+        delta: -amount,
         reason: "consume",
-        idempotencyKey: `cho:ingredient-stock:${ingredient.id}:${crypto.randomUUID()}`,
+        idempotencyKey,
         note: `Cho: 在庫消費 ${ingredient.name}`,
         externalProviderId: providerId,
         externalId: ingredient.id,
@@ -101,6 +108,9 @@ export function createIngredientService({
       const client = requireInventiaClient();
       const ingredient = await repository.getById(ingredientId);
       if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
+      const item = await client.getItem(itemId);
+      if (!item) throw new InventiaItemNotFoundError();
+      assertInventiaUnitMatch(ingredient, item);
       const prices = await client.getItemPrices(itemId);
       const latestPrice = prices[0];
       if (!latestPrice) return { synced: false, reason: "no_price_records", ingredient };

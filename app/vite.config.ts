@@ -57,7 +57,7 @@ export default defineConfig({
   },
   plugins: [
     devtools(),
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    ...(process.env.VITEST ? [] : [cloudflare({ viteEnvironment: { name: "ssr" } })]),
     viteTsConfigPaths({ projects: ["./tsconfig.json"] }),
     tanstackStart(),
     viteReact(),

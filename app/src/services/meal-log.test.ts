@@ -1,5 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { createMealLogService, type MealLogRepository } from "./meal-log";
+import { InventiaHttpError } from "./inventia-client";
 import { mealLogSchema, type Dish, type Ingredient, type MealLog } from "../domain/ingredient";
 import { recipeSchema } from "../domain/recipe";
 import { validateRecipeDag } from "../domain/recipe-scheduler";
@@ -43,9 +44,9 @@ const recipe = () => {
         id: "tomato-b",
         ingredientId: "tomato",
         name: "Tomato",
-        amount: 61,
+        amount: 60,
         unit: "g",
-        displayAmount: "61 g",
+        displayAmount: "60 g",
       },
     ],
     steps: [
@@ -79,7 +80,7 @@ const dish: Dish = {
   coverImageId: null,
   notes: null,
 };
-function fixture(currentIngredient = ingredient(100)) {
+function fixture(currentIngredient = ingredient(100), currentDish: Dish = dish) {
   let saved: MealLog | null = null;
   const statuses: string[] = [];
   const repository: MealLogRepository = {
@@ -96,11 +97,20 @@ function fixture(currentIngredient = ingredient(100)) {
   };
   const service = createMealLogService({
     repository,
-    dishRepository: { getById: async (id) => (id === dish.id ? dish : null) },
+    dishRepository: { getById: async (id) => (id === currentDish.id ? currentDish : null) },
     ingredientRepository: {
       getById: async (id) => (id === currentIngredient.id ? currentIngredient : null),
     },
-    inventiaClient: { adjustStock: async () => ({}) as never },
+    inventiaClient: {
+      getItem: async (id) => ({
+        id,
+        name: "Tomato",
+        baseUnit: "g",
+        baseDimension: "mass",
+        currentQuantity: 1000,
+      }),
+      adjustStock: async () => ({}) as never,
+    },
     providerId: "provider-7",
   });
   return {
@@ -147,7 +157,7 @@ test("snapshots self-cooked item price, nutrition, and ingredient costs; memo pa
   expect(created.items[0]?.nutrition?.caloriesKcal).toBe(100);
   expect(created.items[0]?.ingredientCostBreakdown).toEqual([
     { ingredientId: "tomato", name: "Tomato", amount: 20, unit: "g", costYen: 20 },
-    { ingredientId: "tomato", name: "Tomato", amount: 30.5, unit: "g", costYen: 30.5 },
+    { ingredientId: "tomato", name: "Tomato", amount: 30, unit: "g", costYen: 30 },
   ]);
   state.setIngredient(ingredient(300));
   const updated = await state.service.update("meal-1", { memo: "after" });
@@ -177,6 +187,13 @@ test("aggregates duplicate recipe ingredients into one exact Inventia adjustment
     ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
     providerId: "provider-7",
     inventiaClient: {
+      getItem: async (id) => ({
+        id,
+        name: "Tomato",
+        baseUnit: "g",
+        baseDimension: "mass",
+        currentQuantity: 1000,
+      }),
       adjustStock: async (id, body) => {
         calls.push({ id, body });
         return { id: "operation-1" } as never;
@@ -188,7 +205,7 @@ test("aggregates duplicate recipe ingredients into one exact Inventia adjustment
     {
       id: "inventia-tomato",
       body: {
-        delta: -51,
+        delta: -50,
         reason: "consume",
         idempotencyKey: "cho:meal:meal-1:item:item-1:ing:tomato",
         note: "Cho: Tomato dish",
@@ -221,6 +238,13 @@ test("marks consumption failed and rethrows an adjustment rejection", async () =
     ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
     providerId: "provider-7",
     inventiaClient: {
+      getItem: async (id) => ({
+        id,
+        name: "Tomato",
+        baseUnit: "g",
+        baseDimension: "mass",
+        currentQuantity: 1000,
+      }),
       adjustStock: async () => {
         throw failure;
       },
@@ -335,13 +359,118 @@ test("createWithStock consumes stock during creation and reports a failure witho
     ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
     providerId: "provider-7",
     inventiaClient: {
+      getItem: async (id) => ({
+        id,
+        name: "Tomato",
+        baseUnit: "g",
+        baseDimension: "mass",
+        currentQuantity: 1000,
+      }),
       adjustStock: async () => {
-        throw new Error("stock unavailable");
+        throw new InventiaHttpError(401);
       },
     },
   });
   const failed = await failing.createWithStock(mealInput);
   expect(failed.meal.id).toBe("meal-1");
   expect(failed.stockConsumption.status).toBe("failed");
-  expect(failed.stockConsumption.error).toBe("stock unavailable");
+  expect(failed.stockConsumption.error).toContain("API token");
+});
+
+test("meal consumption refuses an item whose unit changed after linking", async () => {
+  const state = fixture(ingredient(100, "inventia-tomato"));
+  await state.service.create(mealInput);
+  const service = createMealLogService({
+    repository: {
+      list: async () => [],
+      getById: async () => state.service.get("meal-1"),
+      create: async (value) => value,
+      update: async () => null,
+      delete: async () => null,
+      setInventiaConsumptionStatus: async (_id, status) => {
+        state.statuses.push(status);
+        return true;
+      },
+    },
+    dishRepository: { getById: async () => dish },
+    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
+    providerId: "provider-7",
+    inventiaClient: {
+      getItem: async (id) => ({
+        id,
+        name: "Tomato",
+        baseUnit: "kg",
+        baseDimension: "mass",
+        currentQuantity: 1,
+      }),
+      adjustStock: async () => {
+        throw new Error("Stock must not be mutated with a changed unit");
+      },
+    },
+  });
+  await expect(service.consumeStock("meal-1")).rejects.toMatchObject({
+    name: "InventiaUnitMismatchError",
+    expectedUnit: "g",
+    actualUnit: "kg",
+  });
+  expect(state.statuses).toEqual(["pending", "failed"]);
+});
+
+test("meal consumption refuses a fractional computed amount naming the unit", async () => {
+  const [firstEntry, secondEntry] = recipe().ingredients;
+  const [mealItem] = mealInput.items;
+  if (!firstEntry || !secondEntry || !mealItem)
+    throw new Error("Fractional stock fixture is incomplete");
+  const fractionalDish: Dish = {
+    ...dish,
+    id: "dish-fractional",
+    servings: 3,
+    recipe: {
+      ...recipe(),
+      servings: 3,
+      ingredients: [
+        { ...firstEntry, amount: 100 },
+        { ...secondEntry, amount: 1 },
+      ],
+    },
+  };
+  const state = fixture(ingredient(100, "inventia-tomato"), fractionalDish);
+  await state.service.create({
+    ...mealInput,
+    items: [{ ...mealItem, dishId: fractionalDish.id }],
+  });
+  const service = createMealLogService({
+    repository: {
+      list: async () => [],
+      getById: async () => state.service.get("meal-1"),
+      create: async (value) => value,
+      update: async () => null,
+      delete: async () => null,
+      setInventiaConsumptionStatus: async (_id, status) => {
+        state.statuses.push(status);
+        return true;
+      },
+    },
+    dishRepository: { getById: async () => fractionalDish },
+    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
+    providerId: "provider-7",
+    inventiaClient: {
+      getItem: async (id) => ({
+        id,
+        name: "Tomato",
+        baseUnit: "g",
+        baseDimension: "mass",
+        currentQuantity: 1000,
+      }),
+      adjustStock: async () => {
+        throw new Error("Stock must not be mutated with a fractional amount");
+      },
+    },
+  });
+  await expect(service.consumeStock("meal-1")).rejects.toMatchObject({
+    name: "InventiaAmountError",
+    unit: "g",
+    amount: 101 / 3,
+  });
+  expect(state.statuses).toEqual(["pending", "failed"]);
 });
