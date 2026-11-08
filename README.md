@@ -62,43 +62,35 @@ pnpm deploy
 
 Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)、D1 (`DB`)、R2 (`IMAGES_BUCKET`) を使用します。`<D1_DATABASE_ID>` はデプロイ環境で `CLOUDFLARE_DATABASE_ID` から解決し、実 ID をリポジトリに保存しません。Production workflow は deploy 前に `wrangler d1 migrations apply DB --remote` を実行します。PR Check は一時 UUID を設定したローカル Wrangler SQLite DB に `--local` で migrations を適用し、production DB には接続しません。
 
-### D1 スキーマの現状と移行
+### D1 データベースの初期化
 
-production D1 (`cho`) は廃止したレシピ/調理記録スキーマから引き継いでおり、2026-11-08 時点の読み取り専用診断で次を確認しています。
+このアプリはまだ本番運用しておらず、production D1 (`cho`) のアプリケーションデータは破棄可能と判断しました。production D1 は廃止したレシピ/調理記録スキーマを引き継ぎ、`ingredients` も旧形状だったため、データ移行は行わずにアプリテーブルを削除して `app/migrations/0000_initial.sql` から作り直します。2026-11-08 にこのリセットを実行し、production のアプリテーブルは空です。旧スキーマの `user` / `recipes` などの残骸テーブルは削除対象外で残りますが、アプリは参照しません。
 
-- 存在する: `ingredients`（旧スキーマ。`owner_id`、`grams_per_milliliter`、`inventory_item_id`、`note` を持ち、`user` を参照）、`user`、`session`、`account`、`verification`、`recipes`、`recipe_*`、`cook_*`、`ingredient_conversions`、`d1_migrations`
-- 存在しない: `media_images`、`dishes`、`dish_ingredients`、`meal_logs`、`meal_log_items`、`app_settings`
+リセットは `.github/workflows/reset-database.yml` の手動実行だけで行います。
 
-このため `app/migrations/` は 2 段構えです。
+- 削除するテーブル（FK 順）: `meal_log_items`, `meal_logs`, `dish_ingredients`, `dishes`, `media_images`, `app_settings`, `ingredients`, `d1_migrations`。これ以外のテーブルは触りません。
+- 続けて `wrangler d1 migrations apply DB --remote` で `app/migrations/0000_initial.sql` を再適用します。
+- 最後に `sqlite_master` のテーブル一覧を出力します。
 
-- `0000_initial.sql`: 旧 `ingredients` の実形状（production と同一）を表すベースライン。新規 DB ではこれを作成し、production では形状が一致することを確認して `d1_migrations` に適用済みとして記録するだけで、実行しません。
-- `0001_reconcile_legacy_schema.sql`: 旧 `ingredients` を `ingredients_legacy_v0` にリネームして行を保持し、`app/src/db/schema.ts` の形で `ingredients` を作り直して旧行を `INSERT ... SELECT` で移行します（密度がある行は `volume`/`mL`/100、それ以外は `count`/`個`/1、栄養価は 0 で `memo` に確認が必要な旨を記録、`inventory_item_id` は `inventia_item_id` へ）。続けて不足している 6 テーブルを `0000_initial.sql` と同じ DDL で作成します。
-
-production への適用は明示的な運用承認が必要です。承認後に、実 ID を一時 config にだけ展開して次を実行します（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_DATABASE_ID` は環境変数で渡し、値を表示しない）。
+再実行する場合（production のアプリデータは毎回失われます）:
 
 ```bash
-cfg=".wrangler-operator.$$.jsonc"
-sed "s/<D1_DATABASE_ID>/${CLOUDFLARE_DATABASE_ID}/" app/wrangler.jsonc >"app/$cfg"
-
-# 1) 形状を読み取り専用で確認する（sqlite_master と PRAGMA table_info(ingredients)）
-pnpm --dir app exec wrangler d1 execute DB --remote --config "$cfg" --json \
-  --command "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table','index') ORDER BY type, name;"
-
-# 2) ベースラインを適用済みとして記録する（production への書き込み。承認後にのみ実行）
-pnpm --dir app exec wrangler d1 execute DB --remote --config "$cfg" \
-  --command "INSERT INTO d1_migrations (name) VALUES ('0000_initial.sql');"
-
-# 3) 0001 を適用し、Wrangler が 0001 を記録する
-pnpm --dir app exec wrangler d1 migrations apply DB --remote --config "$cfg"
-
-rm "app/$cfg"
+gh workflow run reset-database.yml --ref main -f confirmation=reset-cho-database
+gh run list --workflow reset-database.yml --limit 1
 ```
 
-3 が失敗した場合は `DELETE FROM d1_migrations WHERE name = '0000_initial.sql';` で 2 の記録を戻し、読み取り専用診断からやり直します。2 と 3 の完了までは `main` の deploy は 0000 の `CREATE TABLE` で停止し、意図せず古い形のまま進むことはありません。適用後は `ingredients_legacy_v0` に旧行がそのまま残るため、旧 `note` や密度は参照できます。
+`confirmation` が `reset-cho-database` と完全一致しない場合は失敗します。`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_DATABASE_ID` は repository secrets の値を使い、workflow は値を出力しません。
 
-ローカルの Wrangler D1 に旧 `0000_initial.sql`（7 テーブル版）を適用済みの場合は、`0001` と形状が合わないため local state を削除してから `pnpm dev` を再実行してください。`pnpm smoke:worker` は毎回一時 DB を使うため影響を受けません。
+ローカルの Wrangler D1 も同じ形にしたい場合は、local state を削除してから migrations を適用します。
 
-プレビューは production D1 を共有するため、上の移行が終わるまで `/api/settings/integrations` などの D1 依存 API は 500 になります。preview workflow は移行前に読み取り専用チェックで停止します。
+```bash
+rm -rf app/.wrangler/state
+pnpm --dir app exec wrangler d1 migrations apply DB --local
+```
+
+`pnpm smoke:worker` は毎回一時 DB を使うため、この操作は不要です。
+
+preview は production D1 を共有します。リセット後は production のアプリテーブルが空で、preview も同じ空のテーブルを参照します。アプリデータの復元手順はなく、必要なら移行前のバックアップからのみ戻せます。
 
 `main` への push と手動実行は `.github/workflows/deploy.yml`、Pull Request のプレビューは `.github/workflows/preview.yml` が担当します。GitHub Actions repository secrets に次を設定してください:
 

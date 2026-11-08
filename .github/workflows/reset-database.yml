@@ -1,0 +1,107 @@
+name: Reset Database
+
+# Destructive, manually dispatched reset for the Cho app tables in production
+# D1. The app has never served live user data, so the retired recipe schema is
+# dropped instead of migrated. Every table this workflow touches is listed
+# explicitly below; no other table is modified.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type reset-cho-database to drop the Cho tables and re-apply migrations.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reset-database
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    name: Reset production D1
+    timeout-minutes: 15
+    steps:
+      - name: Verify confirmation input
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRMATION" != "reset-cho-database" ]]; then
+            echo "::error::The confirmation input must be exactly 'reset-cho-database'."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v6
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: ./pnpm-lock.yaml
+
+      - name: Resolve D1 database id
+        env:
+          CLOUDFLARE_DATABASE_ID: ${{ secrets.CLOUDFLARE_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CLOUDFLARE_DATABASE_ID" =~ ^[[:alnum:]-]+$ ]]; then
+            echo "::error::CLOUDFLARE_DATABASE_ID is missing or invalid."
+            exit 1
+          fi
+          sed -i "s/<D1_DATABASE_ID>/${CLOUDFLARE_DATABASE_ID}/" app/wrangler.jsonc
+
+      - name: Install
+        run: pnpm install
+
+      - name: Drop Cho tables
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set."
+            exit 1
+          fi
+
+          # Child tables first so foreign keys stay satisfied, then
+          # d1_migrations so Wrangler re-applies every local migration.
+          pnpm --dir app exec wrangler d1 execute DB --remote --config wrangler.jsonc --command "
+            DROP TABLE IF EXISTS meal_log_items;
+            DROP TABLE IF EXISTS meal_logs;
+            DROP TABLE IF EXISTS dish_ingredients;
+            DROP TABLE IF EXISTS dishes;
+            DROP TABLE IF EXISTS media_images;
+            DROP TABLE IF EXISTS app_settings;
+            DROP TABLE IF EXISTS ingredients;
+            DROP TABLE IF EXISTS d1_migrations;
+          "
+
+      - name: Apply migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Never wait for a TTY confirmation in CI.
+          CI: "true"
+        run: |
+          set -euo pipefail
+          pnpm --dir app exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+
+      - name: Print final table list
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          pnpm --dir app exec wrangler d1 execute DB --remote --config wrangler.jsonc --json \
+            --command "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
