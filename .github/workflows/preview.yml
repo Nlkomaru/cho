@@ -110,7 +110,6 @@ jobs:
             --content-type text/html \
             --endpoint-url "$S3_URL" > /dev/null
 
-
   comment:
     needs: [check, deploy-app-preview, deploy-storybook-preview]
     if: always()
