@@ -240,10 +240,11 @@ jobs:
           EOF
           row App "$app_preview_url" "$APP_QR_URL"
           row Storybook "$storybook_preview_url" "$STORYBOOK_QR_URL"
-          cat << 'EOF' >> comment.md
-
-          App and Storybook share this preview Worker. App API writes to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized.
-          EOF
+          if [ -z "$APP_VERSION_ID" ]; then
+            echo "Preview URLs unavailable because App Worker deployment failed; see the Deploy App Preview job."
+          else
+            echo "App and Storybook share this preview Worker. App API writes to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized."
+          fi >> comment.md
 
       - name: Create PR comment
         run: |
