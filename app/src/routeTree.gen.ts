@@ -11,13 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
-import { Route as AppIngredientsRouteImport } from './routes/_app/ingredients'
-import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
 import { Route as AppDishesIndexRouteImport } from './routes/_app/dishes/index'
-import { Route as AppDishesNewRouteImport } from './routes/_app/dishes/new'
+import { Route as AppIngredientsIndexRouteImport } from './routes/_app/ingredients/index'
 import { Route as AppLicenseIndexRouteImport } from './routes/_app/license/index'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppDishesDishIdIndexRouteImport } from './routes/_app/dishes/$dishId/index'
+import { Route as AppDishesNewIndexRouteImport } from './routes/_app/dishes/new/index'
 import { Route as AppMealsMealIdIndexRouteImport } from './routes/_app/meals/$mealId/index'
 
 const AppRoute = AppRouteImport.update({
@@ -27,16 +27,6 @@ const AppRoute = AppRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppIngredientsRoute = AppIngredientsRouteImport.update({
-  id: '/ingredients',
-  path: '/ingredients',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsRoute = AppSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const ApiSplatRoute = ApiSplatRouteImport.update({
@@ -49,9 +39,9 @@ const AppDishesIndexRoute = AppDishesIndexRouteImport.update({
   path: '/dishes/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppDishesNewRoute = AppDishesNewRouteImport.update({
-  id: '/dishes/new',
-  path: '/dishes/new',
+const AppIngredientsIndexRoute = AppIngredientsIndexRouteImport.update({
+  id: '/ingredients/',
+  path: '/ingredients/',
   getParentRoute: () => AppRoute,
 } as any)
 const AppLicenseIndexRoute = AppLicenseIndexRouteImport.update({
@@ -59,9 +49,19 @@ const AppLicenseIndexRoute = AppLicenseIndexRouteImport.update({
   path: '/license/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDishesDishIdIndexRoute = AppDishesDishIdIndexRouteImport.update({
   id: '/dishes/$dishId/',
   path: '/dishes/$dishId/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDishesNewIndexRoute = AppDishesNewIndexRouteImport.update({
+  id: '/dishes/new/',
+  path: '/dishes/new/',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMealsMealIdIndexRoute = AppMealsMealIdIndexRouteImport.update({
@@ -72,73 +72,73 @@ const AppMealsMealIdIndexRoute = AppMealsMealIdIndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
-  '/ingredients': typeof AppIngredientsRoute
-  '/settings': typeof AppSettingsRoute
   '/api/$': typeof ApiSplatRoute
-  '/dishes/new': typeof AppDishesNewRoute
   '/dishes/': typeof AppDishesIndexRoute
+  '/ingredients/': typeof AppIngredientsIndexRoute
   '/license/': typeof AppLicenseIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
   '/dishes/$dishId/': typeof AppDishesDishIdIndexRoute
+  '/dishes/new/': typeof AppDishesNewIndexRoute
   '/meals/$mealId/': typeof AppMealsMealIdIndexRoute
 }
 export interface FileRoutesByTo {
-  '/ingredients': typeof AppIngredientsRoute
-  '/settings': typeof AppSettingsRoute
   '/api/$': typeof ApiSplatRoute
   '/': typeof AppIndexRoute
-  '/dishes/new': typeof AppDishesNewRoute
   '/dishes': typeof AppDishesIndexRoute
+  '/ingredients': typeof AppIngredientsIndexRoute
   '/license': typeof AppLicenseIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
   '/dishes/$dishId': typeof AppDishesDishIdIndexRoute
+  '/dishes/new': typeof AppDishesNewIndexRoute
   '/meals/$mealId': typeof AppMealsMealIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
-  '/_app/ingredients': typeof AppIngredientsRoute
-  '/_app/settings': typeof AppSettingsRoute
   '/api/$': typeof ApiSplatRoute
   '/_app/': typeof AppIndexRoute
-  '/_app/dishes/new': typeof AppDishesNewRoute
   '/_app/dishes/': typeof AppDishesIndexRoute
+  '/_app/ingredients/': typeof AppIngredientsIndexRoute
   '/_app/license/': typeof AppLicenseIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/dishes/$dishId/': typeof AppDishesDishIdIndexRoute
+  '/_app/dishes/new/': typeof AppDishesNewIndexRoute
   '/_app/meals/$mealId/': typeof AppMealsMealIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/ingredients'
-    | '/settings'
     | '/api/$'
-    | '/dishes/new'
     | '/dishes/'
+    | '/ingredients/'
     | '/license/'
+    | '/settings/'
     | '/dishes/$dishId/'
+    | '/dishes/new/'
     | '/meals/$mealId/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/ingredients'
-    | '/settings'
     | '/api/$'
     | '/'
-    | '/dishes/new'
     | '/dishes'
+    | '/ingredients'
     | '/license'
+    | '/settings'
     | '/dishes/$dishId'
+    | '/dishes/new'
     | '/meals/$mealId'
   id:
     | '__root__'
     | '/_app'
-    | '/_app/ingredients'
-    | '/_app/settings'
     | '/api/$'
     | '/_app/'
-    | '/_app/dishes/new'
     | '/_app/dishes/'
+    | '/_app/ingredients/'
     | '/_app/license/'
+    | '/_app/settings/'
     | '/_app/dishes/$dishId/'
+    | '/_app/dishes/new/'
     | '/_app/meals/$mealId/'
   fileRoutesById: FileRoutesById
 }
@@ -163,20 +163,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/ingredients': {
-      id: '/_app/ingredients'
-      path: '/ingredients'
-      fullPath: '/ingredients'
-      preLoaderRoute: typeof AppIngredientsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings': {
-      id: '/_app/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/api/$': {
       id: '/api/$'
       path: '/api/$'
@@ -191,11 +177,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDishesIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/dishes/new': {
-      id: '/_app/dishes/new'
-      path: '/dishes/new'
-      fullPath: '/dishes/new'
-      preLoaderRoute: typeof AppDishesNewRouteImport
+    '/_app/ingredients/': {
+      id: '/_app/ingredients/'
+      path: '/ingredients'
+      fullPath: '/ingredients/'
+      preLoaderRoute: typeof AppIngredientsIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/license/': {
@@ -205,11 +191,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLicenseIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dishes/$dishId/': {
       id: '/_app/dishes/$dishId/'
       path: '/dishes/$dishId'
       fullPath: '/dishes/$dishId/'
       preLoaderRoute: typeof AppDishesDishIdIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dishes/new/': {
+      id: '/_app/dishes/new/'
+      path: '/dishes/new'
+      fullPath: '/dishes/new/'
+      preLoaderRoute: typeof AppDishesNewIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/meals/$mealId/': {
@@ -223,24 +223,24 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
-  AppIngredientsRoute: typeof AppIngredientsRoute
-  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
-  AppDishesNewRoute: typeof AppDishesNewRoute
   AppDishesIndexRoute: typeof AppDishesIndexRoute
+  AppIngredientsIndexRoute: typeof AppIngredientsIndexRoute
   AppLicenseIndexRoute: typeof AppLicenseIndexRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppDishesDishIdIndexRoute: typeof AppDishesDishIdIndexRoute
+  AppDishesNewIndexRoute: typeof AppDishesNewIndexRoute
   AppMealsMealIdIndexRoute: typeof AppMealsMealIdIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppIngredientsRoute: AppIngredientsRoute,
-  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
-  AppDishesNewRoute: AppDishesNewRoute,
   AppDishesIndexRoute: AppDishesIndexRoute,
+  AppIngredientsIndexRoute: AppIngredientsIndexRoute,
   AppLicenseIndexRoute: AppLicenseIndexRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppDishesDishIdIndexRoute: AppDishesDishIdIndexRoute,
+  AppDishesNewIndexRoute: AppDishesNewIndexRoute,
   AppMealsMealIdIndexRoute: AppMealsMealIdIndexRoute,
 }
 

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Box, Button, Flex, Heading, Stack, Text } from "@chakra-ui/react";
+import { Button, Flex, Text } from "@chakra-ui/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+
+import { Card } from "../../../../components/ui/card";
+import { DataTable, DataTableCell, DataTableRow } from "../../../../components/ui/data-table";
+import { Feedback } from "../../../../components/ui/feedback";
+import { List, ListItem } from "../../../../components/ui/list";
+import { Page, PageHeader } from "../../../../components/ui/page";
+import { Section } from "../../../../components/ui/section";
+import { StatBar } from "../../../../components/ui/stat-bar";
+import { errorMessageFrom } from "../../../../lib/api-error";
 import type { NutritionFacts } from "../../../../domain/nutrition";
 
 export const Route = createFileRoute("/_app/meals/$mealId/")({
@@ -54,7 +63,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let message = `通信に失敗しました (${response.status})`;
     try {
-      message = ((await response.json()) as { error?: string }).error ?? message;
+      message = errorMessageFrom(await response.json(), message);
     } catch {}
     throw new Error(message);
   }
@@ -107,21 +116,23 @@ function MealDetailPage() {
   }
   if (loading)
     return (
-      <Stack as="main" px={{ base: "4", md: "8" }} py="8" role="status">
-        <Text>読み込み中</Text>
-      </Stack>
+      <Page size="lg">
+        <Feedback tone="status" role="status">
+          読み込み中
+        </Feedback>
+      </Page>
     );
   if (error && !meal)
     return (
-      <Stack as="main" px={{ base: "4", md: "8" }} py="8">
-        <Text role="alert" color="red.fg">
+      <Page size="lg">
+        <Feedback tone="error" role="alert">
           {error}
-        </Text>
+        </Feedback>
         <Button alignSelf="start" variant="outline" onClick={() => void load()}>
           再読み込み
         </Button>
         <Link to="/">食事記録に戻る</Link>
-      </Stack>
+      </Page>
     );
   if (!meal) return null;
   const facts = meal.totalNutrition;
@@ -132,18 +143,18 @@ function MealDetailPage() {
           meal.inventiaConsumptionStatus
         ] ?? meal.inventiaConsumptionStatus);
   const summary = [
-    ["料金", yen(meal.totalPriceYen)],
-    ["エネルギー", facts ? `${num(facts.caloriesKcal)} kcal` : "—"],
-    [
-      "PFC",
-      facts
+    { label: "料金", value: yen(meal.totalPriceYen) },
+    { label: "エネルギー", value: facts ? `${num(facts.caloriesKcal)} kcal` : "—" },
+    {
+      label: "PFC",
+      value: facts
         ? `P ${num(facts.proteinG)}g / F ${num(facts.fatG)}g / C ${num(facts.carbohydrateG)}g`
         : "—",
-    ],
-    [
-      "食物繊維・食塩",
-      facts ? `食物繊維 ${num(facts.fiberG)}g / 食塩 ${num(facts.saltEquivalentG)}g` : "—",
-    ],
+    },
+    {
+      label: "食物繊維・食塩",
+      value: facts ? `食物繊維 ${num(facts.fiberG)}g / 食塩 ${num(facts.saltEquivalentG)}g` : "—",
+    },
   ];
   const costs = meal.items.flatMap((item) =>
     item.ingredientCostBreakdown.map((cost, index) => ({
@@ -153,133 +164,79 @@ function MealDetailPage() {
     })),
   );
   return (
-    <Stack as="main" w="full" maxW="7xl" gap="5" px={{ base: "4", md: "8" }} py="8" color="fg">
-      <Text>
-        <Link to="/">食事記録に戻る</Link>
-      </Text>
-      <Flex justify="space-between" align="center" wrap="wrap" gap="3">
-        <Heading as="h1" color="fg.subtle" fontSize="2xl" fontWeight="600">
-          {meal.title}
-        </Heading>
-        <Text>
-          {sourceLabels[meal.sourceType] ?? meal.sourceType}
-          {meal.mealTiming ? ` · ${timingLabels[meal.mealTiming] ?? meal.mealTiming}` : ""}
-        </Text>
-      </Flex>
-      <Text>
-        {new Date(meal.eatenAt).toLocaleString("ja-JP")}　{meal.placeName ?? ""}
+    <Page size="lg">
+      <Link to="/">食事記録に戻る</Link>
+      <PageHeader title={meal.title} />
+      <Text textStyle="numeric.sm">
+        {new Date(meal.eatenAt).toLocaleString("ja-JP")}　{meal.placeName ?? ""}　
+        {sourceLabels[meal.sourceType] ?? meal.sourceType}
+        {meal.mealTiming ? ` · ${timingLabels[meal.mealTiming] ?? meal.mealTiming}` : ""}
       </Text>
       {meal.memo && <Text>{meal.memo}</Text>}
       {meal.imageIds.length > 0 && (
         <Flex as="section" aria-label="食事の写真" wrap="wrap" gap="3">
           {meal.imageIds.map((id, index) => (
-            <Box
+            <Card
               key={id}
-              as="img"
-              src={`/api/images/${encodeURIComponent(id)}`}
-              alt={`${meal.title}の写真 ${index + 1}`}
-              width="full"
-              maxW="320px"
-              maxH="280px"
-              objectFit="cover"
-              borderWidth="1px"
-              borderColor="border"
+              media={
+                <img
+                  src={`/api/images/${encodeURIComponent(id)}`}
+                  alt={`${meal.title}の写真 ${index + 1}`}
+                />
+              }
             />
           ))}
         </Flex>
       )}
-      <Box
-        as="section"
-        aria-label="食事の集計"
-        display="grid"
-        gridTemplateColumns="repeat(auto-fit,minmax(min(100%,180px),1fr))"
-        borderTopWidth="1px"
-        borderLeftWidth="1px"
-        borderColor="border"
-      >
-        {summary.map(([label, value]) => (
-          <Box
-            key={label}
-            p="4"
-            borderRightWidth="1px"
-            borderBottomWidth="1px"
-            borderColor="border"
-          >
-            <Text>{label}</Text>
-            <Text mt="2" color="fg.subtle" fontWeight="600" fontVariantNumeric="tabular-nums">
-              {value}
-            </Text>
-          </Box>
-        ))}
-      </Box>
-      <Heading as="h2" size="lg">
-        品目
-      </Heading>
-      <Box overflowX="auto">
-        <table width="100%">
-          <thead>
-            <tr>
-              {["品目", "料金", "エネルギー", "P / F / C", "食物繊維・食塩"].map((label) => (
-                <th key={label}>{label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {meal.items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  {item.name}
-                  {item.servingsFactor !== 1 && (
-                    <Text as="small" display="block">
-                      人前係数 {num(item.servingsFactor)}
-                    </Text>
-                  )}
-                </td>
-                <td>{yen(item.priceYen)}</td>
-                <td>{item.nutrition ? `${num(item.nutrition.caloriesKcal)} kcal` : "—"}</td>
-                <td>
-                  {item.nutrition
-                    ? `P ${num(item.nutrition.proteinG)}g / F ${num(item.nutrition.fatG)}g / C ${num(item.nutrition.carbohydrateG)}g`
-                    : "—"}
-                </td>
-                <td>
-                  {item.nutrition
-                    ? `${num(item.nutrition.fiberG)}g / ${num(item.nutrition.saltEquivalentG)}g`
-                    : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Box>
-      <Heading as="h2" size="lg">
-        材料原価
-      </Heading>
-      {costs.length ? (
-        <Stack gap="0">
-          {costs.map(({ key, item, cost }) => (
-            <Flex
-              key={key}
-              justify="space-between"
-              gap="3"
-              borderBottomWidth="1px"
-              borderColor="border"
-              py="3"
-            >
-              <Text>
-                {item} / {cost.name}　{num(cost.amount)} {cost.unit}
-              </Text>
-              <Text>{yen(cost.costYen)}</Text>
-            </Flex>
+      <StatBar label="食事の集計" items={summary} />
+      <Section title="品目">
+        <DataTable
+          label="品目の内訳"
+          columns={["品目", "料金", "エネルギー", "P / F / C", "食物繊維・食塩"]}
+        >
+          {meal.items.map((item) => (
+            <DataTableRow key={item.id}>
+              <DataTableCell>
+                {item.name}
+                {item.servingsFactor !== 1 && (
+                  <Text textStyle="caption">人前係数 {num(item.servingsFactor)}</Text>
+                )}
+              </DataTableCell>
+              <DataTableCell numeric>{yen(item.priceYen)}</DataTableCell>
+              <DataTableCell numeric>
+                {item.nutrition ? `${num(item.nutrition.caloriesKcal)} kcal` : "—"}
+              </DataTableCell>
+              <DataTableCell numeric>
+                {item.nutrition
+                  ? `P ${num(item.nutrition.proteinG)}g / F ${num(item.nutrition.fatG)}g / C ${num(item.nutrition.carbohydrateG)}g`
+                  : "—"}
+              </DataTableCell>
+              <DataTableCell numeric>
+                {item.nutrition
+                  ? `${num(item.nutrition.fiberG)}g / ${num(item.nutrition.saltEquivalentG)}g`
+                  : "—"}
+              </DataTableCell>
+            </DataTableRow>
           ))}
-        </Stack>
-      ) : (
-        <Text>材料原価の内訳はありません。</Text>
-      )}
-      <Stack as="section" borderTopWidth="1px" borderColor="border" pt="4" gap="3">
-        <Heading as="h2" size="lg">
-          在庫消費
-        </Heading>
+        </DataTable>
+      </Section>
+      <Section title="材料原価">
+        {costs.length ? (
+          <List>
+            {costs.map(({ key, item, cost }) => (
+              <ListItem layout="row" key={key}>
+                <Text textStyle="numeric.sm">
+                  {item} / {cost.name}　{num(cost.amount)} {cost.unit}
+                </Text>
+                <Text textStyle="numeric.sm">{yen(cost.costYen)}</Text>
+              </ListItem>
+            ))}
+          </List>
+        ) : (
+          <Text>材料原価の内訳はありません。</Text>
+        )}
+      </Section>
+      <Section title="在庫消費">
         <Text>Inventiaの消費状況: {stockStatus}</Text>
         {meal.sourceType === "self_cooked" && (
           <Button
@@ -302,12 +259,16 @@ function MealDetailPage() {
           </Button>
         )}
         {error && (
-          <Text role="alert" color="red.fg">
+          <Feedback tone="error" role="alert">
             {error}
-          </Text>
+          </Feedback>
         )}
-        {status && <Text role="status">{status}</Text>}
-      </Stack>
-    </Stack>
+        {status && (
+          <Feedback tone="status" role="status">
+            {status}
+          </Feedback>
+        )}
+      </Section>
+    </Page>
   );
 }

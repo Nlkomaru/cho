@@ -1,7 +1,15 @@
 import { Box, Button, Heading, Stack, Text } from "@chakra-ui/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { Feedback } from "../../../components/ui/feedback";
+import { Field, NativeInput } from "../../../components/ui/form";
+import { List, ListItem } from "../../../components/ui/list";
+import { Page, PageHeader } from "../../../components/ui/page";
+import { Section } from "../../../components/ui/section";
+import { errorMessageFrom } from "../../../lib/api-error";
 import { computeRecipeGanttSchedule } from "../../../domain/recipe-scheduler";
+import type { Dish } from "../../../domain/ingredient";
 
 export const Route = createFileRoute("/_app/dishes/")({
   staticData: { breadcrumbs: [{ label: "レシピ" }] },
@@ -13,11 +21,10 @@ const yen = (value: number | null | undefined) =>
   value == null ? "—" : `¥${Math.round(value).toLocaleString("ja-JP")}`;
 async function api<T>(url: string): Promise<T> {
   const response = await fetch(url);
-  if (!response.ok)
-    throw new Error(
-      ((await response.json().catch(() => ({}))) as { error?: string }).error ??
-        `通信に失敗しました (${response.status})`,
-    );
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => undefined);
+    throw new Error(errorMessageFrom(body, `通信に失敗しました (${response.status})`));
+  }
   return response.json() as Promise<T>;
 }
 function duration(recipe: Dish["recipe"]) {
@@ -49,91 +56,73 @@ function DishListPage() {
     [dishes, query],
   );
   return (
-    <Stack as="main" w="full" maxW="6xl" gap="7" px={{ base: "4", md: "8" }} py="8">
-      <Stack
-        direction={{ base: "column", sm: "row" }}
-        align={{ base: "stretch", sm: "center" }}
-        justify="space-between"
-        gap="3"
-      >
-        <Heading as="h1" color="fg.subtle" fontSize="2xl" fontWeight="600">
-          レシピ
-        </Heading>
-        <Link to="/dishes/new">
-          <Button colorPalette="red">レシピを追加</Button>
-        </Link>
-      </Stack>
-      <Stack as="section" aria-label="レシピ一覧" gap="4">
+    <Page>
+      <PageHeader
+        title="レシピ"
+        actions={
+          <Link to="/dishes/new" search={{ dishId: undefined }}>
+            <Button colorPalette="red">レシピを追加</Button>
+          </Link>
+        }
+      />
+      <Section label="レシピ一覧" divided={false}>
         <Box maxW="sm">
-          <Text as="label" htmlFor="dish-search" fontSize="sm" fontWeight="600">
-            料理名で検索
-          </Text>
-          <input
-            id="dish-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            style={inputStyle}
-          />
+          <Field label="料理名で検索" htmlFor="dish-search">
+            <NativeInput
+              id="dish-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </Field>
         </Box>
         {error ? (
-          <Text role="alert" color="red.fg">
+          <Feedback tone="error" role="alert">
             {error}{" "}
             <Button variant="outline" onClick={() => void refresh()}>
               再読み込み
             </Button>
-          </Text>
+          </Feedback>
         ) : null}
         {loading ? (
-          <Text role="status">レシピを読み込み中…</Text>
+          <Feedback tone="status" role="status">
+            レシピを読み込み中…
+          </Feedback>
         ) : visible.length ? (
-          <Box as="ul" m="0" p="0" listStyle="none" borderTopWidth="1px" borderColor="border">
+          <List>
             {visible.map((dish) => (
-              <Box as="li" key={dish.id} borderBottomWidth="1px" borderColor="border" py="5">
-                <Stack direction={{ base: "column", md: "row" }} justify="space-between" gap="3">
-                  <Box minW="0">
-                    <Heading as="h2" fontSize="lg" fontWeight="600" overflowWrap="anywhere">
-                      <Link to="/dishes/$dishId" params={{ dishId: dish.id }}>
-                        {dish.name}
-                      </Link>
-                    </Heading>
-                    <Text color="fg.muted" fontSize="sm">
-                      {dish.category ?? "カテゴリなし"} · {dish.servings}人前 ·{" "}
-                      {dish.recipe.ingredients.length}材料 · {dish.recipe.steps.length}手順
-                    </Text>
-                  </Box>
-                  <Stack
-                    direction={{ base: "column", sm: "row" }}
-                    gap={{ base: "1", sm: "6" }}
-                    fontSize="sm"
-                  >
-                    <Text>
-                      <strong>{yen(dish.totalCostYen)}</strong> / 人前
-                    </Text>
-                    <Text>
-                      {dish.totalNutrition
-                        ? `${fmt(dish.totalNutrition.caloriesKcal)} kcal · P ${fmt(dish.totalNutrition.proteinG)}g · F ${fmt(dish.totalNutrition.fatG)}g · C ${fmt(dish.totalNutrition.carbohydrateG)}g`
-                        : "栄養価 —"}{" "}
-                      / 人前
-                    </Text>
-                    <Text>調理時間 {duration(dish.recipe)}</Text>
-                  </Stack>
+              <ListItem layout="row" key={dish.id}>
+                <Box minW="0">
+                  <Heading as="h2" textStyle="heading.sm" overflowWrap="anywhere">
+                    <Link to="/dishes/$dishId" params={{ dishId: dish.id }}>
+                      {dish.name}
+                    </Link>
+                  </Heading>
+                  <Text textStyle="caption">
+                    {dish.category ?? "カテゴリなし"} · {dish.servings}人前 ·{" "}
+                    {dish.recipe.ingredients.length}材料 · {dish.recipe.steps.length}手順
+                  </Text>
+                </Box>
+                <Stack direction={{ base: "column", sm: "row" }} gap={{ base: "1", sm: "6" }}>
+                  <Text textStyle="numeric.sm">
+                    <strong>{yen(dish.totalCostYen)}</strong> / 人前
+                  </Text>
+                  <Text textStyle="numeric.sm">
+                    {dish.totalNutrition
+                      ? `${fmt(dish.totalNutrition.caloriesKcal)} kcal · P ${fmt(dish.totalNutrition.proteinG)}g · F ${fmt(dish.totalNutrition.fatG)}g · C ${fmt(dish.totalNutrition.carbohydrateG)}g`
+                      : "栄養価 —"}{" "}
+                    / 人前
+                  </Text>
+                  <Text textStyle="numeric.sm">調理時間 {duration(dish.recipe)}</Text>
                 </Stack>
-              </Box>
+              </ListItem>
             ))}
-          </Box>
+          </List>
         ) : (
-          <Text role="status">
+          <Feedback tone="status" role="status">
             {dishes.length ? "検索結果がありません。" : "レシピはまだ登録されていません。"}
-          </Text>
+          </Feedback>
         )}
-      </Stack>
-    </Stack>
+      </Section>
+    </Page>
   );
 }
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  minHeight: 40,
-  border: "1px solid #d4d4d8",
-  padding: 8,
-  background: "white",
-};

@@ -1,11 +1,18 @@
-import { Box, Button, Heading, Input, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Stack, Text } from "@chakra-ui/react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import type { Ingredient, Dish } from "../../../domain/ingredient";
-import { recipeSchema, type RecipeJson, type RecipeStep } from "../../../domain/recipe";
-import { validateRecipeDag } from "../../../domain/recipe-scheduler";
 
-export const Route = createFileRoute("/_app/dishes/new")({
+import { Feedback } from "../../../../components/ui/feedback";
+import { Field, NativeInput, NativeSelect, NativeTextArea } from "../../../../components/ui/form";
+import { ListItem } from "../../../../components/ui/list";
+import { Page, PageHeader } from "../../../../components/ui/page";
+import { Section } from "../../../../components/ui/section";
+import { errorMessageFrom } from "../../../../lib/api-error";
+import type { Ingredient, Dish } from "../../../../domain/ingredient";
+import { recipeSchema, type RecipeJson, type RecipeStep } from "../../../../domain/recipe";
+import { validateRecipeDag } from "../../../../domain/recipe-scheduler";
+
+export const Route = createFileRoute("/_app/dishes/new/")({
   validateSearch: (search: Record<string, unknown>) => ({
     dishId: typeof search.dishId === "string" ? search.dishId : undefined,
   }),
@@ -23,32 +30,13 @@ const blankRecipe = (): RecipeJson => ({
   globalCautions: [],
 });
 const makeId = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-const fieldStyle: React.CSSProperties = {
-  width: "100%",
-  minHeight: 40,
-  border: "1px solid #d4d4d8",
-  padding: 8,
-  background: "white",
-};
-const areaStyle: React.CSSProperties = { ...fieldStyle, minHeight: 76, resize: "vertical" };
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
-  if (!response.ok)
-    throw new Error(
-      ((await response.json().catch(() => ({}))) as { error?: string }).error ??
-        `通信に失敗しました (${response.status})`,
-    );
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => undefined);
+    throw new Error(errorMessageFrom(body, `通信に失敗しました (${response.status})`));
+  }
   return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);
-}
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <Stack as="label" gap="1" flex="1" minW="0">
-      <Text fontSize="sm" fontWeight="600">
-        {label}
-      </Text>
-      {children}
-    </Stack>
-  );
 }
 const emptyStep = (number: number): RecipeStep => ({
   id: makeId("step"),
@@ -185,6 +173,17 @@ function NewDishPage() {
       }),
     }));
   }
+  function updateGlobalCaution(
+    index: number,
+    patch: Partial<RecipeJson["globalCautions"][number]>,
+  ) {
+    changeRecipe((current) => ({
+      ...current,
+      globalCautions: current.globalCautions.map((caution, i) =>
+        i === index ? { ...caution, ...patch } : caution,
+      ),
+    }));
+  }
   function updateEntry(id: string, patch: Partial<RecipeJson["ingredients"][number]>) {
     changeRecipe((current) => {
       const entries = current.ingredients.map((entry) =>
@@ -211,6 +210,12 @@ function NewDishPage() {
         })),
       };
     });
+  }
+  function updateStep(index: number, patch: Partial<RecipeStep>) {
+    changeRecipe((current) => ({
+      ...current,
+      steps: current.steps.map((step, i) => (i === index ? { ...step, ...patch } : step)),
+    }));
   }
   function addGroup() {
     if (!groupLabel.trim()) {
@@ -319,34 +324,31 @@ function NewDishPage() {
     }
   }
   return (
-    <Stack as="main" w="full" maxW="6xl" gap="7" px={{ base: "4", md: "8" }} py="8">
-      <Stack direction="row" align="center" justify="space-between">
-        <Heading as="h1" fontSize="2xl" fontWeight="600">
-          {dishId ? "レシピ編集" : "レシピ作成"}
-        </Heading>
-        <Link to="/dishes">
-          <Button variant="outline">一覧へ戻る</Button>
-        </Link>
-      </Stack>
+    <Page>
+      <PageHeader
+        title={dishId ? "レシピ編集" : "レシピ作成"}
+        actions={
+          <Link to="/dishes">
+            <Button variant="outline">一覧へ戻る</Button>
+          </Link>
+        }
+      />
       {error ? (
-        <Text role="alert" whiteSpace="pre-wrap" color="red.fg">
+        <Feedback tone="error" role="alert">
           {error}
-        </Text>
+        </Feedback>
       ) : null}
-      {notice ? <Text role="status">{notice}</Text> : null}
+      {notice ? (
+        <Feedback tone="status" role="status">
+          {notice}
+        </Feedback>
+      ) : null}
       <Box as="form" onSubmit={save}>
         <Stack gap="7">
-          <Stack
-            as="section"
-            aria-label="レシピ情報"
-            gap="4"
-            borderTopWidth="1px"
-            borderColor="border"
-            pt="4"
-          >
+          <Section label="レシピ情報">
             <Stack direction={{ base: "column", sm: "row" }} gap="4">
               <Field label="料理名">
-                <Input
+                <NativeInput
                   required
                   maxLength={120}
                   value={name}
@@ -354,14 +356,14 @@ function NewDishPage() {
                 />
               </Field>
               <Field label="カテゴリ">
-                <Input
+                <NativeInput
                   maxLength={64}
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                 />
               </Field>
               <Field label="人前">
-                <Input
+                <NativeInput
                   type="number"
                   min="1"
                   max="100"
@@ -376,33 +378,36 @@ function NewDishPage() {
               </Field>
             </Stack>
             <Field label="レシピの概要">
-              <textarea
-                style={areaStyle}
+              <NativeTextArea
                 maxLength={500}
                 value={recipe.summary ?? ""}
                 onChange={(e) => changeRecipe((r) => ({ ...r, summary: e.target.value || null }))}
               />
             </Field>
-          </Stack>
-          <Stack
-            as="section"
-            aria-label="材料とグループ"
-            gap="4"
-            borderTopWidth="1px"
-            borderColor="border"
-            pt="4"
-          >
-            <Heading as="h2" fontSize="xl" fontWeight="600">
-              材料・グループ
-            </Heading>
+            <Field label="器具（カンマ区切り）">
+              <NativeInput
+                value={recipe.equipment.join(", ")}
+                onChange={(e) =>
+                  changeRecipe((r) => ({
+                    ...r,
+                    equipment: e.target.value
+                      .split(",")
+                      .map((value) => value.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                placeholder="フライパン, 包丁, ボウル"
+              />
+            </Field>
+          </Section>
+          <Section title="材料・グループ" label="材料とグループ">
             <Stack
               direction={{ base: "column", md: "row" }}
               align={{ base: "stretch", md: "end" }}
               gap="3"
             >
               <Field label="登録済み材料">
-                <select
-                  style={fieldStyle}
+                <NativeSelect
                   value={selectedIngredient}
                   onChange={(e) => {
                     const item = ingredients.find((candidate) => candidate.id === e.target.value);
@@ -416,10 +421,10 @@ function NewDishPage() {
                       {item.name} ({item.baseUnit})
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
               <Field label="基準単位量">
-                <Input
+                <NativeInput
                   type="number"
                   min="0.001"
                   step="any"
@@ -428,30 +433,26 @@ function NewDishPage() {
                 />
               </Field>
               <Field label="単位（材料マスタ）">
-                <Input readOnly value={entryUnit} />
+                <NativeInput readOnly value={entryUnit} />
               </Field>
               <Field label="表示する分量">
-                <Input
+                <NativeInput
                   placeholder="大さじ1 (15mL)"
                   value={displayAmount}
                   onChange={(e) => setDisplayAmount(e.target.value)}
                 />
               </Field>
               <Field label="所属グループ">
-                <select
-                  style={fieldStyle}
-                  value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
-                >
+                <NativeSelect value={groupId} onChange={(e) => setGroupId(e.target.value)}>
                   <option value="">グループなし</option>
                   {recipe.ingredientGroups.map((group) => (
                     <option key={group.id} value={group.id}>
                       {group.symbol} {group.label}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
-              <Button type="button" onClick={addEntry}>
+              <Button type="button" variant="outline" onClick={addEntry}>
                 材料を追加
               </Button>
             </Stack>
@@ -461,8 +462,7 @@ function NewDishPage() {
               gap="3"
             >
               <Field label="グループ記号">
-                <select
-                  style={fieldStyle}
+                <NativeSelect
                   value={groupSymbol}
                   onChange={(e) => setGroupSymbol(e.target.value as typeof groupSymbol)}
                 >
@@ -471,10 +471,10 @@ function NewDishPage() {
                       {symbol}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
               <Field label="グループ名">
-                <Input
+                <NativeInput
                   maxLength={64}
                   value={groupLabel}
                   onChange={(e) => setGroupLabel(e.target.value)}
@@ -486,22 +486,15 @@ function NewDishPage() {
               </Button>
             </Stack>
             {recipe.ingredients.map((entry, i) => (
-              <Stack
-                key={entry.id}
-                direction={{ base: "column", sm: "row" }}
-                justify="space-between"
-                borderBottomWidth="1px"
-                borderColor="border"
-                py="2"
-              >
-                <Text>
+              <ListItem layout="row" key={entry.id}>
+                <Text textStyle="numeric.sm">
                   {entry.groupId
                     ? `${recipe.ingredientGroups.find((g) => g.id === entry.groupId)?.symbol ?? ""} `
                     : ""}
                   {entry.name} · {entry.displayAmount} ({entry.amount} {entry.unit})
                 </Text>
                 <Stack direction="row" gap="2">
-                  <Input
+                  <NativeInput
                     aria-label={`${entry.name} 下ごしらえメモ`}
                     placeholder="下ごしらえメモ"
                     maxLength={120}
@@ -539,102 +532,81 @@ function NewDishPage() {
                     削除
                   </Button>
                 </Stack>
-              </Stack>
+              </ListItem>
             ))}
-          </Stack>
-          <Stack
-            as="section"
-            aria-label="材料エントリー編集"
-            gap="3"
-            borderTopWidth="1px"
-            borderColor="border"
-            pt="4"
-          >
-            <Heading as="h3" fontSize="md" fontWeight="600">
-              材料の分量・表示・単位を編集
-            </Heading>
-            {recipe.ingredients.map((entry) => (
-              <Stack
-                key={entry.id}
-                direction={{ base: "column", md: "row" }}
-                gap="3"
-                align={{ base: "stretch", md: "end" }}
-              >
-                <Text minW={{ md: "10rem" }} fontWeight="600">
-                  {entry.name}
-                </Text>
-                <Field label="基準量">
-                  <Input
-                    type="number"
-                    min="0.001"
-                    step="any"
-                    value={entry.amount}
-                    onChange={(e) => updateEntry(entry.id, { amount: Number(e.target.value) })}
-                  />
-                </Field>
-                <Field label="単位（材料マスタ）">
-                  <Input readOnly value={entry.unit} />
-                </Field>
-                <Field label="表示分量">
-                  <Input
-                    maxLength={64}
-                    value={entry.displayAmount}
-                    onChange={(e) => updateEntry(entry.id, { displayAmount: e.target.value })}
-                  />
-                </Field>
-                <Field label="グループ">
-                  <select
-                    style={fieldStyle}
-                    value={entry.groupId ?? ""}
-                    onChange={(e) => updateEntry(entry.id, { groupId: e.target.value || null })}
-                  >
-                    <option value="">グループなし</option>
-                    {recipe.ingredientGroups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.symbol} {group.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="役割">
-                  <select
-                    style={fieldStyle}
-                    value={entry.role}
-                    onChange={(e) =>
-                      updateEntry(entry.id, {
-                        role: e.target.value as RecipeJson["ingredients"][number]["role"],
-                      })
-                    }
-                  >
-                    {[
-                      ["main", "主材料"],
-                      ["seasoning", "調味料"],
-                      ["topping", "トッピング"],
-                      ["optional", "任意"],
-                    ].map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </Stack>
-            ))}
-          </Stack>
-          <Stack
-            as="section"
-            aria-label="AIによる手順構造化"
-            gap="3"
-            borderTopWidth="1px"
-            borderColor="border"
-            pt="4"
-          >
-            <Heading as="h2" fontSize="xl" fontWeight="600">
-              手順を構造化
-            </Heading>
+          </Section>
+          {recipe.ingredients.length ? (
+            <Section title="材料の分量・表示・単位を編集" label="材料エントリー編集" level={3}>
+              {recipe.ingredients.map((entry) => (
+                <Stack
+                  key={entry.id}
+                  direction={{ base: "column", md: "row" }}
+                  gap="3"
+                  align={{ base: "stretch", md: "end" }}
+                >
+                  <Text textStyle="label" minW={{ md: "10rem" }}>
+                    {entry.name}
+                  </Text>
+                  <Field label="基準量">
+                    <NativeInput
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      value={entry.amount}
+                      onChange={(e) => updateEntry(entry.id, { amount: Number(e.target.value) })}
+                    />
+                  </Field>
+                  <Field label="単位（材料マスタ）">
+                    <NativeInput readOnly value={entry.unit} />
+                  </Field>
+                  <Field label="表示分量">
+                    <NativeInput
+                      maxLength={64}
+                      value={entry.displayAmount}
+                      onChange={(e) => updateEntry(entry.id, { displayAmount: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="グループ">
+                    <NativeSelect
+                      value={entry.groupId ?? ""}
+                      onChange={(e) => updateEntry(entry.id, { groupId: e.target.value || null })}
+                    >
+                      <option value="">グループなし</option>
+                      {recipe.ingredientGroups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.symbol} {group.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                  <Field label="役割">
+                    <NativeSelect
+                      value={entry.role}
+                      onChange={(e) =>
+                        updateEntry(entry.id, {
+                          role: e.target.value as RecipeJson["ingredients"][number]["role"],
+                        })
+                      }
+                    >
+                      {[
+                        ["main", "主材料"],
+                        ["seasoning", "調味料"],
+                        ["topping", "トッピング"],
+                        ["optional", "任意"],
+                      ].map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                </Stack>
+              ))}
+            </Section>
+          ) : null}
+          <Section title="手順を構造化" label="AIによる手順構造化">
             <Field label="レシピ本文">
-              <textarea
-                style={{ ...areaStyle, minHeight: 130 }}
+              <NativeTextArea
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
                 placeholder="調理手順をそのまま入力"
@@ -650,36 +622,28 @@ function NewDishPage() {
             >
               入力した材料と本文から AI で手順を作成
             </Button>
-            <Text fontSize="sm" color="fg.muted">
+            <Text textStyle="caption">
               AI 出力は保存前に下の手順エディターで確認・修正できます。
             </Text>
-          </Stack>
-          <Stack
-            as="section"
-            aria-label="手順 DAG 編集"
-            gap="4"
-            borderTopWidth="1px"
-            borderColor="border"
-            pt="4"
-          >
-            <Stack direction="row" align="center" justify="space-between">
-              <Heading as="h2" fontSize="xl" fontWeight="600">
-                手順 DAG
-              </Heading>
+          </Section>
+          <Section
+            title="手順 DAG"
+            label="手順 DAG 編集"
+            actions={
               <Button type="button" variant="outline" onClick={addStep}>
                 手順を追加
               </Button>
-            </Stack>
+            }
+          >
             {recipe.steps.map((step, i) => (
-              <Box key={step.id} borderBottomWidth="1px" borderColor="border" pb="5">
+              <ListItem key={step.id}>
                 <Stack gap="3">
-                  <Heading as="h3" fontSize="md" fontWeight="600">
+                  <Text as="h3" textStyle="heading.xs">
                     Step {i + 1}
-                  </Heading>
+                  </Text>
                   <Stack direction={{ base: "column", md: "row" }} gap="3">
                     <Field label="工程">
-                      <select
-                        style={fieldStyle}
+                      <NativeSelect
                         value={step.phase}
                         onChange={(e) =>
                           updateStep(i, { phase: e.target.value as RecipeStep["phase"] })
@@ -696,18 +660,17 @@ function NewDishPage() {
                             {label}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </Field>
                     <Field label="タイトル">
-                      <Input
+                      <NativeInput
                         required
                         value={step.title}
                         onChange={(e) => updateStep(i, { title: e.target.value })}
                       />
                     </Field>
                     <Field label="実行">
-                      <select
-                        style={fieldStyle}
+                      <NativeSelect
                         value={step.executionMode}
                         onChange={(e) =>
                           updateStep(i, {
@@ -718,10 +681,10 @@ function NewDishPage() {
                         <option value="active">作業</option>
                         <option value="passive">待機</option>
                         <option value="mixed">作業＋待機</option>
-                      </select>
+                      </NativeSelect>
                     </Field>
                     <Field label="作業秒">
-                      <Input
+                      <NativeInput
                         type="number"
                         min="0"
                         max="86400"
@@ -734,7 +697,7 @@ function NewDishPage() {
                       />
                     </Field>
                     <Field label="待機秒">
-                      <Input
+                      <NativeInput
                         type="number"
                         min="0"
                         max="604800"
@@ -747,21 +710,108 @@ function NewDishPage() {
                       />
                     </Field>
                   </Stack>
+                  <Stack direction={{ base: "column", md: "row" }} gap="3" wrap="wrap">
+                    <Field label="最小合計秒">
+                      <NativeInput
+                        type="number"
+                        min="0"
+                        max="604800"
+                        value={step.timing.minTotalDurationSec ?? ""}
+                        onChange={(e) =>
+                          updateStep(i, {
+                            timing: {
+                              ...step.timing,
+                              minTotalDurationSec:
+                                e.target.value === "" ? null : Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="最大合計秒">
+                      <NativeInput
+                        type="number"
+                        min="0"
+                        max="604800"
+                        value={step.timing.maxTotalDurationSec ?? ""}
+                        onChange={(e) =>
+                          updateStep(i, {
+                            timing: {
+                              ...step.timing,
+                              maxTotalDurationSec:
+                                e.target.value === "" ? null : Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="時間の伸縮">
+                      <NativeSelect
+                        value={step.timing.scalingMode}
+                        onChange={(e) =>
+                          updateStep(i, {
+                            timing: {
+                              ...step.timing,
+                              scalingMode: e.target.value as RecipeStep["timing"]["scalingMode"],
+                            },
+                          })
+                        }
+                      >
+                        {[
+                          ["fixed", "固定"],
+                          ["linear", "比例"],
+                          ["sublinear", "逓減"],
+                        ].map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </Field>
+                    <Field label="タイマー名">
+                      <NativeInput
+                        maxLength={64}
+                        value={step.timing.timerLabel ?? ""}
+                        onChange={(e) =>
+                          updateStep(i, {
+                            timing: {
+                              ...step.timing,
+                              timerLabel: e.target.value || null,
+                            },
+                          })
+                        }
+                        placeholder="豚肉焼き"
+                      />
+                    </Field>
+                    <Field label="目標温度（℃）">
+                      <NativeInput
+                        type="number"
+                        min="-50"
+                        max="350"
+                        step="any"
+                        value={step.targetTempCelsius ?? ""}
+                        onChange={(e) =>
+                          updateStep(i, {
+                            targetTempCelsius:
+                              e.target.value === "" ? null : Number(e.target.value),
+                          })
+                        }
+                      />
+                    </Field>
+                  </Stack>
                   <Field label="手順">
-                    <textarea
+                    <NativeTextArea
                       required
                       maxLength={2000}
-                      style={areaStyle}
                       value={step.instruction}
                       onChange={(e) => updateStep(i, { instruction: e.target.value })}
                     />
                   </Field>
                   <Stack direction={{ base: "column", md: "row" }} gap="3">
                     <Field label="依存する手順">
-                      <select
+                      <NativeSelect
                         multiple
                         aria-label={`Step ${i + 1} の先行手順`}
-                        style={{ ...fieldStyle, minHeight: 80 }}
                         value={step.dependsOnStepIds}
                         onChange={(e) =>
                           updateStep(i, {
@@ -776,10 +826,10 @@ function NewDishPage() {
                               Step {other.stepNumber}: {other.title || "（未入力）"}
                             </option>
                           ))}
-                      </select>
+                      </NativeSelect>
                     </Field>
                     <Field label="器具・資源タグ（カンマ区切り）">
-                      <Input
+                      <NativeInput
                         value={step.resourceTags.join(", ")}
                         onChange={(e) =>
                           updateStep(i, {
@@ -793,8 +843,7 @@ function NewDishPage() {
                       />
                     </Field>
                     <Field label="火加減">
-                      <select
-                        style={fieldStyle}
+                      <NativeSelect
                         value={step.heatLevel}
                         onChange={(e) =>
                           updateStep(i, { heatLevel: e.target.value as RecipeStep["heatLevel"] })
@@ -814,13 +863,11 @@ function NewDishPage() {
                             {label}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </Field>
                   </Stack>
                   <Stack gap="2">
-                    <Text fontSize="sm" fontWeight="600">
-                      投入材料（分割投入は割合と表記を調整）
-                    </Text>
+                    <Text textStyle="label">投入材料（分割投入は割合と表記を調整）</Text>
                     {step.inputs
                       .filter((x) => x.type === "ingredient")
                       .map((input) => {
@@ -835,30 +882,29 @@ function NewDishPage() {
                             align="center"
                           >
                             <Text flex="1">{entry?.name ?? input.ingredientEntryId}</Text>
-                            <label>
-                              割合
-                              <input
-                                aria-label={`${entry?.name ?? "材料"} 使用割合`}
-                                type="number"
-                                min="0.01"
-                                max="1"
-                                step="0.01"
-                                value={input.amountRatio}
-                                onChange={(e) =>
-                                  updateStep(i, {
-                                    inputs: step.inputs.map((x) =>
-                                      x === input
-                                        ? { ...input, amountRatio: Number(e.target.value) }
-                                        : x,
-                                    ),
-                                  })
-                                }
-                                style={{ ...fieldStyle, width: 110 }}
-                              />
-                            </label>
-                            <label>
-                              分量表記
-                              <Input
+                            <Box w="110px">
+                              <Field label="割合">
+                                <NativeInput
+                                  aria-label={`${entry?.name ?? "材料"} 使用割合`}
+                                  type="number"
+                                  min="0.01"
+                                  max="1"
+                                  step="0.01"
+                                  value={input.amountRatio}
+                                  onChange={(e) =>
+                                    updateStep(i, {
+                                      inputs: step.inputs.map((x) =>
+                                        x === input
+                                          ? { ...input, amountRatio: Number(e.target.value) }
+                                          : x,
+                                      ),
+                                    })
+                                  }
+                                />
+                              </Field>
+                            </Box>
+                            <Field label="分量表記">
+                              <NativeInput
                                 aria-label={`${entry?.name ?? "材料"} 投入量表記`}
                                 value={input.amountText ?? ""}
                                 placeholder={entry?.displayAmount}
@@ -872,7 +918,7 @@ function NewDishPage() {
                                   })
                                 }
                               />
-                            </label>
+                            </Field>
                             <Button
                               type="button"
                               variant="outline"
@@ -887,9 +933,8 @@ function NewDishPage() {
                       })}
                     <Stack direction={{ base: "column", md: "row" }} gap="3">
                       <Field label="投入する個別材料">
-                        <select
+                        <NativeSelect
                           multiple
-                          style={{ ...fieldStyle, minHeight: 80 }}
                           value={step.inputs
                             .filter((x) => x.type === "ingredient")
                             .map((x) => x.ingredientEntryId)}
@@ -919,12 +964,11 @@ function NewDishPage() {
                               {entry.name} ({entry.displayAmount})
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       </Field>
                       <Field label="一括投入グループ">
-                        <select
+                        <NativeSelect
                           multiple
-                          style={{ ...fieldStyle, minHeight: 80 }}
                           value={step.inputs
                             .filter((x) => x.type === "group")
                             .map((x) => x.groupId)}
@@ -946,10 +990,10 @@ function NewDishPage() {
                                 {group.symbol} {group.label}
                               </option>
                             ))}
-                        </select>
+                        </NativeSelect>
                       </Field>
                       <Field label="生成物（名前を入力）">
-                        <Input
+                        <NativeInput
                           value={step.outputs.map((x) => x.label).join(", ")}
                           onChange={(e) =>
                             updateStep(i, {
@@ -968,10 +1012,9 @@ function NewDishPage() {
                     </Stack>
                   </Stack>
                   <Field label="前の手順からの中間生成物">
-                    <select
+                    <NativeSelect
                       multiple
                       aria-label={`Step ${i + 1} の中間生成物`}
-                      style={{ ...fieldStyle, minHeight: 80 }}
                       value={step.inputs
                         .filter((x) => x.type === "intermediate")
                         .map((x) => `${x.fromStepId}::${x.outputId}`)}
@@ -1001,26 +1044,21 @@ function NewDishPage() {
                             </option>
                           )),
                         )}
-                    </select>
-                    <Text fontSize="xs" color="fg.muted">
-                      参照元を依存する手順にも選択してください。
-                    </Text>
+                    </NativeSelect>
+                    <Text textStyle="caption">参照元を依存する手順にも選択してください。</Text>
                   </Field>
                   <Stack gap="3">
                     <Field label="完了の目安">
-                      <Input
+                      <NativeInput
                         maxLength={300}
                         value={step.completionCue ?? ""}
                         onChange={(e) => updateStep(i, { completionCue: e.target.value || null })}
                       />
                     </Field>
-                    <Text fontSize="sm" fontWeight="600">
-                      注意事項
-                    </Text>
+                    <Text textStyle="label">注意事項</Text>
                     <Stack direction={{ base: "column", md: "row" }} gap="3">
                       <Field label="注意の種類">
-                        <select
-                          style={fieldStyle}
+                        <NativeSelect
                           value={step.cautions[0]?.category ?? "quality"}
                           onChange={(e) =>
                             updateCaution(i, {
@@ -1040,11 +1078,10 @@ function NewDishPage() {
                               {label}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       </Field>
                       <Field label="重大度">
-                        <select
-                          style={fieldStyle}
+                        <NativeSelect
                           value={step.cautions[0]?.severity ?? "warning"}
                           onChange={(e) =>
                             updateCaution(i, {
@@ -1062,17 +1099,17 @@ function NewDishPage() {
                               {label}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       </Field>
                       <Field label="タイトル">
-                        <Input
+                        <NativeInput
                           maxLength={120}
                           value={step.cautions[0]?.title ?? ""}
                           onChange={(e) => updateCaution(i, { title: e.target.value })}
                         />
                       </Field>
                       <Field label="発生条件">
-                        <Input
+                        <NativeInput
                           maxLength={200}
                           value={step.cautions[0]?.triggerCondition ?? ""}
                           onChange={(e) =>
@@ -1082,9 +1119,8 @@ function NewDishPage() {
                       </Field>
                     </Stack>
                     <Field label="注意の説明">
-                      <textarea
+                      <NativeTextArea
                         maxLength={1000}
-                        style={areaStyle}
                         value={step.cautions[0]?.description ?? ""}
                         onChange={(e) =>
                           e.target.value
@@ -1118,9 +1154,126 @@ function NewDishPage() {
                     手順を削除
                   </Button>
                 </Stack>
-              </Box>
+              </ListItem>
             ))}
-          </Stack>
+          </Section>
+          <Section
+            title="全体の注意事項"
+            label="レシピ全体の注意"
+            actions={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  changeRecipe((r) => ({
+                    ...r,
+                    globalCautions: [
+                      ...r.globalCautions,
+                      {
+                        id: makeId("caution"),
+                        category: "quality",
+                        severity: "warning",
+                        title: "注意",
+                        description: "",
+                        triggerCondition: null,
+                      },
+                    ],
+                  }))
+                }
+              >
+                注意を追加
+              </Button>
+            }
+          >
+            {recipe.globalCautions.map((caution, index) => (
+              <Stack key={caution.id} gap="3" borderBottomWidth="1px" borderColor="border" py="3">
+                <Stack direction={{ base: "column", md: "row" }} gap="3">
+                  <Field label="注意の種類">
+                    <NativeSelect
+                      value={caution.category}
+                      onChange={(e) =>
+                        updateGlobalCaution(index, {
+                          category: e.target
+                            .value as RecipeJson["globalCautions"][number]["category"],
+                        })
+                      }
+                    >
+                      {[
+                        ["safety", "安全"],
+                        ["quality", "品質"],
+                        ["timing", "タイミング"],
+                        ["substitution", "代替"],
+                        ["storage", "保存"],
+                      ].map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                  <Field label="重大度">
+                    <NativeSelect
+                      value={caution.severity}
+                      onChange={(e) =>
+                        updateGlobalCaution(index, {
+                          severity: e.target
+                            .value as RecipeJson["globalCautions"][number]["severity"],
+                        })
+                      }
+                    >
+                      {[
+                        ["info", "情報"],
+                        ["warning", "注意"],
+                        ["critical", "重要"],
+                      ].map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                  <Field label="タイトル">
+                    <NativeInput
+                      required
+                      maxLength={120}
+                      value={caution.title}
+                      onChange={(e) => updateGlobalCaution(index, { title: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="発生条件">
+                    <NativeInput
+                      maxLength={200}
+                      value={caution.triggerCondition ?? ""}
+                      onChange={(e) =>
+                        updateGlobalCaution(index, { triggerCondition: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                </Stack>
+                <Field label="説明">
+                  <NativeTextArea
+                    required
+                    maxLength={1000}
+                    value={caution.description}
+                    onChange={(e) => updateGlobalCaution(index, { description: e.target.value })}
+                  />
+                </Field>
+                <Button
+                  type="button"
+                  variant="outline"
+                  alignSelf="end"
+                  onClick={() =>
+                    changeRecipe((r) => ({
+                      ...r,
+                      globalCautions: r.globalCautions.filter((_, i) => i !== index),
+                    }))
+                  }
+                >
+                  注意を削除
+                </Button>
+              </Stack>
+            ))}
+          </Section>
           <Stack direction={{ base: "column", sm: "row" }}>
             <Button type="submit" colorPalette="red" loading={busy}>
               {dishId ? "レシピを更新" : "レシピを保存"}
@@ -1131,6 +1284,6 @@ function NewDishPage() {
           </Stack>
         </Stack>
       </Box>
-    </Stack>
+    </Page>
   );
 }

@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Button, Flex, Heading, Input, Stack, Text, Textarea } from "@chakra-ui/react";
+import { useCallback, useEffect, useState } from "react";
+import { Box, Button, Flex, Heading, Stack, Text } from "@chakra-ui/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { z } from "zod";
+import { Card } from "../../components/ui/card";
+import { DataTable, DataTableCell, DataTableRow } from "../../components/ui/data-table";
+import { Feedback } from "../../components/ui/feedback";
+import { Field, NativeInput, NativeSelect, NativeTextArea } from "../../components/ui/form";
+import { Page, PageHeader } from "../../components/ui/page";
+import { StatBar } from "../../components/ui/stat-bar";
 import type { NutritionFacts } from "../../domain/nutrition";
-import type { Ingredient } from "../../domain/ingredient";
+import {
+  calculateIngredientCost,
+  calculateIngredientNutrition,
+  type Ingredient,
+} from "../../domain/ingredient";
 
 const mealSearchSchema = z.object({
   dishId: z.string().trim().min(1).optional(),
@@ -48,6 +58,25 @@ type Meal = {
   items: MealItem[];
   memo?: string | null;
 };
+type PeriodTotals = {
+  priceYen: number;
+  caloriesKcal: number | null;
+  proteinG: number | null;
+  fatG: number | null;
+  carbohydrateG: number | null;
+  fiberG: number | null;
+  saltEquivalentG: number | null;
+};
+type MealListResponse = {
+  meals: Meal[];
+  summary: { day: PeriodTotals; week: PeriodTotals; month: PeriodTotals };
+};
+type StockConsumption = {
+  status: "succeeded" | "failed" | "skipped";
+  results: unknown[];
+  error: string | null;
+};
+type CreatedMeal = Meal & { stockConsumption?: StockConsumption };
 type Dish = {
   id: string;
   name: string;
@@ -122,16 +151,13 @@ function localDateTimeValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
-function localCalendarDate(value: string) {
-  const date = new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
 function MealListPage() {
   const search = Route.useSearch();
   const requestedDishId = search.dishId;
   const requestedServings = search.servings ?? 1;
   const [open, setOpen] = useState(Boolean(requestedDishId));
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [summary, setSummary] = useState<MealListResponse["summary"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [period, setPeriod] = useState<"day" | "week" | "month">("day");
@@ -142,43 +168,37 @@ function MealListPage() {
   const [view, setView] = useState<"cards" | "table">("cards");
   const refresh = useCallback(async () => {
     setLoading(true);
+    const params = new URLSearchParams();
+    if (source) params.set("sourceType", source);
+    if (timing) params.set("mealTiming", timing);
+    if (query.trim()) params.set("q", query.trim());
+    if (date) params.set("date", date);
+    const suffix = params.size ? `?${params}` : "";
     try {
-      setMeals(await api<Meal[]>("/api/meals"));
+      const result = await api<MealListResponse>(`/api/meals${suffix}`);
+      setMeals(result.meals);
+      setSummary(result.summary);
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "食事記録を読み込めませんでした。");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [source, timing, query, date]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  const visible = useMemo(
-    () =>
-      meals.filter(
-        (meal) =>
-          (!source || meal.sourceType === source) &&
-          (!timing || meal.mealTiming === timing) &&
-          (!date || localCalendarDate(meal.eatenAt) === date) &&
-          (!query ||
-            `${meal.title} ${meal.placeName ?? ""}`
-              .toLocaleLowerCase()
-              .includes(query.toLocaleLowerCase())),
-      ),
-    [meals, source, timing, date, query],
-  );
-  const totals = useMemo(() => calculateTotals(meals, period), [meals, period]);
+  const totals = summary?.[period] ?? null;
   return (
-    <Stack as="main" w="full" maxW="7xl" gap="6" px={{ base: "4", md: "8" }} py="8" color="fg">
-      <Flex justify="space-between" align="center" gap="4" wrap="wrap">
-        <Heading as="h1" color="fg.subtle" fontSize="2xl" fontWeight="600">
-          食事記録
-        </Heading>
-        <Button colorPalette="red" onClick={() => setOpen(true)}>
-          記録を追加
-        </Button>
-      </Flex>
+    <Page size="lg">
+      <PageHeader
+        title="食事記録"
+        actions={
+          <Button colorPalette="red" onClick={() => setOpen(true)}>
+            記録を追加
+          </Button>
+        }
+      />
       <Flex gap="2" aria-label="集計期間">
         {(
           [
@@ -198,76 +218,61 @@ function MealListPage() {
           </Button>
         ))}
       </Flex>
-      <Box
-        as="section"
-        aria-label="期間の集計"
-        display="grid"
-        gridTemplateColumns="repeat(auto-fit,minmax(min(100%,190px),1fr))"
-        borderTopWidth="1px"
-        borderLeftWidth="1px"
-        borderColor="border"
-      >
-        {[
-          ["料金", currency(totals.price)],
-          ["エネルギー", `${fmt(totals.calories)} kcal`],
-          [
-            "PFC",
-            `P ${fmt(totals.protein)}g / F ${fmt(totals.fat)}g / C ${fmt(totals.carbohydrate)}g`,
-          ],
-          ["食物繊維・食塩", `食物繊維 ${fmt(totals.fiber)}g / 食塩 ${fmt(totals.salt)}g`],
-        ].map(([label, value]) => (
-          <Box
-            key={label}
-            p="4"
-            borderRightWidth="1px"
-            borderBottomWidth="1px"
-            borderColor="border"
-          >
-            <Text>{label}</Text>
-            <Text mt="2" color="fg.subtle" fontWeight="600" fontVariantNumeric="tabular-nums">
-              {value}
-            </Text>
-          </Box>
-        ))}
-      </Box>
+      <StatBar
+        label="期間の集計"
+        items={[
+          { label: "料金", value: currency(totals?.priceYen) },
+          { label: "エネルギー", value: `${fmt(totals?.caloriesKcal)} kcal` },
+          {
+            label: "PFC",
+            value: `P ${fmt(totals?.proteinG)}g / F ${fmt(totals?.fatG)}g / C ${fmt(totals?.carbohydrateG)}g`,
+          },
+          {
+            label: "食物繊維・食塩",
+            value: `食物繊維 ${fmt(totals?.fiberG)}g / 食塩 ${fmt(totals?.saltEquivalentG)}g`,
+          },
+        ]}
+      />
       <Flex as="section" aria-label="食事記録の絞り込み" gap="3" wrap="wrap" align="end">
-        <label>
-          区分{" "}
-          <select value={source} onChange={(event) => setSource(event.target.value as Source | "")}>
+        <Field label="区分">
+          <NativeSelect
+            value={source}
+            onChange={(event) => setSource(event.target.value as Source | "")}
+          >
             {sources.map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
-          食事区分{" "}
-          <select value={timing} onChange={(event) => setTiming(event.target.value as Timing | "")}>
+          </NativeSelect>
+        </Field>
+        <Field label="食事区分">
+          <NativeSelect
+            value={timing}
+            onChange={(event) => setTiming(event.target.value as Timing | "")}
+          >
             {timings.map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
-          料理名・場所{" "}
-          <Input
+          </NativeSelect>
+        </Field>
+        <Field label="料理名・場所">
+          <NativeInput
             aria-label="料理名・場所で検索"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-        </label>
-        <label>
-          日付{" "}
-          <Input
+        </Field>
+        <Field label="日付">
+          <NativeInput
             type="date"
             aria-label="日付で絞り込み"
             value={date}
             onChange={(event) => setDate(event.target.value)}
           />
-        </label>
+        </Field>
         <Flex ml={{ base: "0", md: "auto" }} gap="2">
           <Button
             aria-pressed={view === "cards"}
@@ -286,75 +291,81 @@ function MealListPage() {
         </Flex>
       </Flex>
       {error && (
-        <Text role="alert" color="red.fg">
+        <Feedback tone="error" role="alert">
           {error}{" "}
           <Button variant="outline" onClick={() => void refresh()}>
             再読み込み
           </Button>
-        </Text>
+        </Feedback>
       )}
       {loading ? (
-        <Text role="status">読み込み中</Text>
-      ) : visible.length === 0 ? (
+        <Feedback tone="status" role="status">
+          読み込み中
+        </Feedback>
+      ) : meals.length === 0 ? (
         <Text>該当する食事記録はありません。</Text>
       ) : view === "table" ? (
-        <Box overflowX="auto">
-          <table width="100%">
-            <thead>
-              <tr>
-                {["日時", "区分", "料理名", "料金", "栄養価"].map((label) => (
-                  <th key={label}>{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((meal) => (
-                <tr key={meal.id}>
-                  <td>{new Date(meal.eatenAt).toLocaleString("ja-JP")}</td>
-                  <td>{sourceName[meal.sourceType]}</td>
-                  <td>
-                    <Link to="/meals/$mealId" params={{ mealId: meal.id }}>
-                      {meal.title}
-                    </Link>
-                  </td>
-                  <td>{currency(meal.totalPriceYen)}</td>
-                  <td>{nutritionText(meal.totalNutrition)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Box>
+        <DataTable
+          label="食事記録の表"
+          columns={["画像", "日時", "区分", "料理名", "料金", "栄養価"]}
+        >
+          {meals.map((meal) => (
+            <DataTableRow key={meal.id}>
+              <DataTableCell>
+                {meal.imageIds[0] ? (
+                  <img
+                    src={`/api/images/${encodeURIComponent(meal.imageIds[0])}`}
+                    alt={`${meal.title}の写真`}
+                    width={48}
+                    height={48}
+                  />
+                ) : (
+                  "—"
+                )}
+              </DataTableCell>
+              <DataTableCell numeric>
+                {new Date(meal.eatenAt).toLocaleString("ja-JP")}
+              </DataTableCell>
+              <DataTableCell>{sourceName[meal.sourceType]}</DataTableCell>
+              <DataTableCell>
+                <Link to="/meals/$mealId" params={{ mealId: meal.id }}>
+                  {meal.title}
+                </Link>
+              </DataTableCell>
+              <DataTableCell numeric>{currency(meal.totalPriceYen)}</DataTableCell>
+              <DataTableCell numeric>{nutritionText(meal.totalNutrition)}</DataTableCell>
+            </DataTableRow>
+          ))}
+        </DataTable>
       ) : (
         <Box
           display="grid"
           gridTemplateColumns="repeat(auto-fit,minmax(min(100%,260px),1fr))"
           gap="3"
         >
-          {visible.map((meal) => (
-            <Box as="article" key={meal.id} borderWidth="1px" borderColor="border" p="4">
-              {meal.imageIds[0] && (
-                <Box
-                  as="img"
-                  src={`/api/images/${encodeURIComponent(meal.imageIds[0])}`}
-                  alt={`${meal.title}の写真`}
-                  width="full"
-                  maxH="180px"
-                  objectFit="cover"
-                  mb="3"
-                />
-              )}
-              <Text>
-                {new Date(meal.eatenAt).toLocaleString("ja-JP")}　{sourceName[meal.sourceType]}
-              </Text>
-              <Heading as="h2" fontSize="lg" mt="2" mb="2">
+          {meals.map((meal) => (
+            <Card
+              as="article"
+              key={meal.id}
+              media={
+                meal.imageIds[0] ? (
+                  <img
+                    src={`/api/images/${encodeURIComponent(meal.imageIds[0])}`}
+                    alt={`${meal.title}の写真`}
+                  />
+                ) : undefined
+              }
+              title={
                 <Link to="/meals/$mealId" params={{ mealId: meal.id }}>
                   {meal.title}
                 </Link>
-              </Heading>
-              <Text>
+              }
+              meta={`${new Date(meal.eatenAt).toLocaleString("ja-JP")}　${sourceName[meal.sourceType]}`}
+            >
+              <Text textStyle="numeric.sm">
                 {currency(meal.totalPriceYen)}　·　{nutritionText(meal.totalNutrition)}
               </Text>
-            </Box>
+            </Card>
           ))}
         </Box>
       )}
@@ -372,64 +383,8 @@ function MealListPage() {
           }}
         />
       )}
-    </Stack>
+    </Page>
   );
-}
-type Totals = {
-  price: number;
-  calories: number | null;
-  protein: number | null;
-  fat: number | null;
-  carbohydrate: number | null;
-  fiber: number | null;
-  salt: number | null;
-};
-function calculateTotals(meals: Meal[], period: "day" | "week" | "month"): Totals {
-  const end = new Date();
-  const start = new Date(end);
-  if (period === "day") start.setHours(0, 0, 0, 0);
-  else if (period === "week") {
-    start.setDate(end.getDate() - ((end.getDay() + 6) % 7));
-    start.setHours(0, 0, 0, 0);
-  } else {
-    start.setDate(1);
-    start.setHours(0, 0, 0, 0);
-  }
-  const included = meals.filter(
-    (meal) => new Date(meal.eatenAt) >= start && new Date(meal.eatenAt) <= end,
-  );
-  const totals: Totals = {
-    price: 0,
-    calories: 0,
-    protein: 0,
-    fat: 0,
-    carbohydrate: 0,
-    fiber: 0,
-    salt: 0,
-  };
-  for (const meal of included) {
-    totals.price += meal.totalPriceYen ?? 0;
-    const facts = meal.totalNutrition;
-    if (!facts) {
-      totals.calories =
-        totals.protein =
-        totals.fat =
-        totals.carbohydrate =
-        totals.fiber =
-        totals.salt =
-          null;
-      continue;
-    }
-    if (totals.calories !== null) totals.calories += facts.caloriesKcal;
-    if (totals.protein !== null) totals.protein += facts.proteinG;
-    if (totals.fat !== null) totals.fat += facts.fatG;
-    if (totals.carbohydrate !== null) totals.carbohydrate += facts.carbohydrateG;
-    if (facts.fiberG === null) totals.fiber = null;
-    else if (totals.fiber !== null) totals.fiber += facts.fiberG;
-    if (facts.saltEquivalentG === null) totals.salt = null;
-    else if (totals.salt !== null) totals.salt += facts.saltEquivalentG;
-  }
-  return totals;
 }
 function MealDialog({
   close,
@@ -459,6 +414,7 @@ function MealDialog({
   const [stock, setStock] = useState(false);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [ingredientId, setIngredientId] = useState("");
+  const [ingredientQty, setIngredientQty] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [savedMealId, setSavedMealId] = useState<string | null>(null);
@@ -508,6 +464,16 @@ function MealDialog({
         .then(setIngredients)
         .catch((cause) => setError(cause.message));
   }, [mode, initialDishId, initialServings]);
+  function updateItem(index: number, patch: Partial<MealItem>) {
+    const manual = "priceYen" in patch || "nutrition" in patch;
+    setItems((current) =>
+      current.map((item, i) =>
+        i === index
+          ? { ...item, ...patch, ...(manual ? { estimationSource: "manual" } : {}) }
+          : item,
+      ),
+    );
+  }
   async function analyze() {
     setWorking(true);
     setError("");
@@ -589,16 +555,22 @@ function MealDialog({
       },
     ]);
   }
-  function chooseIngredient(id: string) {
+  function chooseIngredient(id: string, amount = 0) {
     setIngredientId(id);
     const ingredient = ingredients.find((entry) => entry.id === id);
-    if (!ingredient) return;
+    if (!ingredient) {
+      setIngredientQty("");
+      return;
+    }
+    const quantity = amount > 0 ? amount : ingredient.nutritionBasisAmount;
+    setIngredientQty(String(quantity));
     setItems([
       {
         name: ingredient.name,
         ingredientId: ingredient.id,
-        priceYen: ingredient.latestUnitPriceYen,
-        nutrition: ingredient.nutritionPerBasis,
+        servingsFactor: quantity / ingredient.nutritionBasisAmount,
+        priceYen: calculateIngredientCost(ingredient, quantity),
+        nutrition: calculateIngredientNutrition(ingredient, quantity),
         estimationSource: "ingredient",
       },
     ]);
@@ -631,21 +603,26 @@ function MealDialog({
         rating: null,
         memo: null,
         imageIds: mode === "ai" ? imageIds : [],
+        consumeStock: stock && mode === "dish" ? true : undefined,
         items: validItems.map((item, index) => ({
           ...item,
           sortOrder: index,
           priceYen: item.priceYen === null ? null : Number(item.priceYen),
         })),
       };
-      const meal = await api<Meal>("/api/meals", {
+      const meal = await api<CreatedMeal>("/api/meals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (stock && mode === "dish") {
+      if (meal.stockConsumption?.status === "failed") {
         setSavedMealId(meal.id);
-        await finishStockOrClose(meal.id);
-      } else await saved();
+        setError(
+          `食事記録は保存されました。${meal.stockConsumption.error ?? "在庫消費に失敗しました。"}在庫消費を再試行するか、記録を閉じてください。`,
+        );
+        return;
+      }
+      await saved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "食事記録を保存できませんでした。");
     } finally {
@@ -696,22 +673,23 @@ function MealDialog({
             閉じる
           </Button>
         </Flex>
-        <label>
-          入力方法{" "}
-          <select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
+        <Field label="入力方法">
+          <NativeSelect
+            value={mode}
+            onChange={(event) => setMode(event.target.value as typeof mode)}
+          >
             <option value="ai">AI解析</option>
             <option value="dish">レシピから選択</option>
             <option value="direct">直接入力</option>
-          </select>
-        </label>
+          </NativeSelect>
+        </Field>
         {mode === "ai" && (
           <Stack as="section" gap="3">
             <Heading as="h2" size="md">
               AI解析
             </Heading>
-            <label>
-              写真を選択{" "}
-              <Input
+            <Field label="写真を選択">
+              <NativeInput
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
                 multiple
@@ -720,15 +698,14 @@ function MealDialog({
                   setImageIds([]);
                 }}
               />
-            </label>
-            <label>
-              料理・レシートについて{" "}
-              <Textarea value={hint} onChange={(event) => setHint(event.target.value)} />
-            </label>
+            </Field>
+            <Field label="料理・レシートについて">
+              <NativeTextArea value={hint} onChange={(event) => setHint(event.target.value)} />
+            </Field>
             <Button disabled={working} variant="outline" onClick={() => void analyze()}>
               解析する
             </Button>
-            <Text>{files.length} / 4 枚</Text>
+            <Feedback tone="status">{files.length} / 4 枚</Feedback>
           </Stack>
         )}
         {mode === "dish" && (
@@ -736,20 +713,18 @@ function MealDialog({
             <Heading as="h2" size="md">
               レシピ
             </Heading>
-            <label>
-              レシピ{" "}
-              <select value={dishId} onChange={(event) => chooseDish(event.target.value)}>
+            <Field label="レシピ">
+              <NativeSelect value={dishId} onChange={(event) => chooseDish(event.target.value)}>
                 <option value="">選択</option>
                 {dishes.map((dish) => (
                   <option key={dish.id} value={dish.id}>
                     {dish.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
-              人前数{" "}
-              <Input
+              </NativeSelect>
+            </Field>
+            <Field label="人前数">
+              <NativeInput
                 type="number"
                 min="0.1"
                 step="0.1"
@@ -759,7 +734,7 @@ function MealDialog({
                   if (dishId) chooseDish(dishId, Number(event.target.value));
                 }}
               />
-            </label>
+            </Field>
             <label>
               <input
                 type="checkbox"
@@ -775,9 +750,8 @@ function MealDialog({
             <Heading as="h2" size="md">
               直接入力
             </Heading>
-            <label>
-              材料マスタから選択{" "}
-              <select
+            <Field label="材料マスタから選択">
+              <NativeSelect
                 value={ingredientId}
                 onChange={(event) => chooseIngredient(event.target.value)}
               >
@@ -787,27 +761,48 @@ function MealDialog({
                     {ingredient.name}
                   </option>
                 ))}
-              </select>
-            </label>
+              </NativeSelect>
+            </Field>
+            {ingredientId ? (
+              <Field
+                label={`分量（${ingredients.find((entry) => entry.id === ingredientId)?.baseUnit ?? "基準単位"}）`}
+              >
+                <NativeInput
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={ingredientQty}
+                  onChange={(event) => {
+                    setIngredientQty(event.target.value);
+                    const quantity = Number(event.target.value);
+                    if (quantity > 0) chooseIngredient(ingredientId, quantity);
+                  }}
+                />
+              </Field>
+            ) : null}
           </Stack>
         )}
         <Stack as="fieldset" gap="3">
           <legend>食事の情報</legend>
-          <label>
-            料理名{" "}
-            <Input required value={title} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <label>
-            日時{" "}
-            <Input
+          <Field label="料理名">
+            <NativeInput
+              required
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </Field>
+          <Field label="日時">
+            <NativeInput
               type="datetime-local"
               value={date}
               onChange={(event) => setDate(event.target.value)}
             />
-          </label>
-          <label>
-            食事区分{" "}
-            <select value={timing} onChange={(event) => setTiming(event.target.value as Timing)}>
+          </Field>
+          <Field label="食事区分">
+            <NativeSelect
+              value={timing}
+              onChange={(event) => setTiming(event.target.value as Timing)}
+            >
               {timings
                 .filter(([id]) => id)
                 .map(([id, name]) => (
@@ -815,11 +810,13 @@ function MealDialog({
                     {name}
                   </option>
                 ))}
-            </select>
-          </label>
-          <label>
-            区分{" "}
-            <select value={source} onChange={(event) => setSource(event.target.value as Source)}>
+            </NativeSelect>
+          </Field>
+          <Field label="区分">
+            <NativeSelect
+              value={source}
+              onChange={(event) => setSource(event.target.value as Source)}
+            >
               {sources
                 .filter(([id]) => id)
                 .map(([id, name]) => (
@@ -827,35 +824,32 @@ function MealDialog({
                     {name}
                   </option>
                 ))}
-            </select>
-          </label>
-          <label>
-            場所 <Input value={place} onChange={(event) => setPlace(event.target.value)} />
-          </label>
-          <label>
-            合計料金（円）{" "}
-            <Input
+            </NativeSelect>
+          </Field>
+          <Field label="場所">
+            <NativeInput value={place} onChange={(event) => setPlace(event.target.value)} />
+          </Field>
+          <Field label="合計料金（円）">
+            <NativeInput
               type="number"
               min="0"
               value={price}
               onChange={(event) => setPrice(event.target.value)}
             />
-          </label>
+          </Field>
         </Stack>
         <Stack as="fieldset" gap="3">
           <legend>品目</legend>
           {items.map((item, index) => (
             <Stack key={index} borderBottomWidth="1px" borderColor="border" py="3" gap="2">
-              <label>
-                品目名{" "}
-                <Input
+              <Field label="品目名">
+                <NativeInput
                   value={item.name}
                   onChange={(event) => updateItem(index, { name: event.target.value })}
                 />
-              </label>
-              <label>
-                料金（円）{" "}
-                <Input
+              </Field>
+              <Field label="料金（円）">
+                <NativeInput
                   type="number"
                   min="0"
                   value={item.priceYen ?? ""}
@@ -865,7 +859,7 @@ function MealDialog({
                     })
                   }
                 />
-              </label>
+              </Field>
               <NutritionFields
                 value={item.nutrition}
                 change={(nutrition) => updateItem(index, { nutrition })}
@@ -893,9 +887,9 @@ function MealDialog({
           </Button>
         </Stack>
         {error && (
-          <Text role="alert" color="red.fg">
+          <Feedback tone="error" role="alert">
             {error}
-          </Text>
+          </Feedback>
         )}
         <Flex gap="3" wrap="wrap">
           <Button
@@ -922,7 +916,7 @@ function NutritionFields({
   value: NutritionFacts | null;
   change: (nutrition: NutritionFacts) => void;
 }) {
-  const fields: [keyof NutritionFacts, string][] = [
+  const fields: [keyof Omit<NutritionFacts, "micronutrients">, string][] = [
     ["caloriesKcal", "エネルギー (kcal)"],
     ["proteinG", "たんぱく質 (g)"],
     ["fatG", "脂質 (g)"],
@@ -953,18 +947,15 @@ function NutritionFields({
       <summary>栄養価を編集</summary>
       <Stack gap="2" mt="2">
         {fields.map(([key, label]) => (
-          <label key={key}>
-            {label}
-            <Input
+          <Field key={key} label={label}>
+            <NativeInput
               type="number"
               min="0"
               step="0.1"
               value={draft[key]}
-              onChange={(event) =>
-                update(key as keyof Omit<NutritionFacts, "micronutrients">, event.target.value)
-              }
+              onChange={(event) => update(key, event.target.value)}
             />
-          </label>
+          </Field>
         ))}
       </Stack>
     </details>

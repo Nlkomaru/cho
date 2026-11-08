@@ -1,8 +1,13 @@
-import { Box, Button, Heading, Input, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Stack } from "@chakra-ui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-export const Route = createFileRoute("/_app/settings")({
+import { Feedback } from "../../../components/ui/feedback";
+import { Field, NativeInput } from "../../../components/ui/form";
+import { Page, PageHeader } from "../../../components/ui/page";
+import { Section } from "../../../components/ui/section";
+
+export const Route = createFileRoute("/_app/settings/")({
   staticData: { breadcrumbs: [{ label: "設定" }] },
   component: SettingsPage,
 });
@@ -86,48 +91,27 @@ function SettingsPage() {
   }
 
   return (
-    <Stack as="main" w="full" maxW="4xl" gap="8" px={{ base: "4", md: "8" }} py="8">
-      <Heading as="h1" color="fg.subtle" fontSize="2xl" fontWeight="600">
-        設定
-      </Heading>
+    <Page size="sm">
+      <PageHeader title="設定" />
       {loading ? (
-        <Text role="status" aria-live="polite">
+        <Feedback tone="status" role="status" ariaLive="polite">
           設定を読み込み中…
-        </Text>
+        </Feedback>
       ) : null}
       {error && !settings ? (
-        <Text role="alert" color="red.fg">
+        <Feedback tone="error" role="alert">
           {error}
-        </Text>
+        </Feedback>
       ) : null}
       {settings ? (
         <Box as="form" onSubmit={save}>
           <Stack gap="8" align="stretch">
-            <Stack
-              as="section"
-              aria-labelledby="openrouter-heading"
-              gap="4"
-              borderTopWidth="1px"
-              borderColor="border"
-              pt="5"
-            >
-              <Heading
-                id="openrouter-heading"
-                as="h2"
-                fontSize="lg"
-                fontWeight="600"
-                color="fg.subtle"
-              >
-                OpenRouter
-              </Heading>
-              <Text color="fg" fontSize="sm">
+            <Section title="OpenRouter" label="OpenRouter 設定">
+              <Feedback tone="status">
                 API キー: {settings.openrouter.configured ? "設定済み" : "未設定"}
-              </Text>
-              <Stack gap="1">
-                <Text as="label" htmlFor="openrouter-key" fontSize="sm" fontWeight="600">
-                  API キー
-                </Text>
-                <Input
+              </Feedback>
+              <Field label="API キー" htmlFor="openrouter-key">
+                <NativeInput
                   id="openrouter-key"
                   type="password"
                   autoComplete="new-password"
@@ -135,44 +119,22 @@ function SettingsPage() {
                   onChange={(event) => setApiKey(event.target.value)}
                   placeholder="新しい API キー"
                 />
-              </Stack>
-              <Stack gap="1">
-                <Text as="label" htmlFor="openrouter-model" fontSize="sm" fontWeight="600">
-                  モデル
-                </Text>
-                <Input
+              </Field>
+              <Field label="モデル" htmlFor="openrouter-model">
+                <NativeInput
                   id="openrouter-model"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
                   required
                 />
-              </Stack>
-            </Stack>
-            <Stack
-              as="section"
-              aria-labelledby="inventia-heading"
-              gap="4"
-              borderTopWidth="1px"
-              borderColor="border"
-              pt="5"
-            >
-              <Heading
-                id="inventia-heading"
-                as="h2"
-                fontSize="lg"
-                fontWeight="600"
-                color="fg.subtle"
-              >
-                Inventia
-              </Heading>
-              <Text color="fg" fontSize="sm">
+              </Field>
+            </Section>
+            <Section title="Inventia" label="Inventia 設定">
+              <Feedback tone="status">
                 トークン: {settings.inventia.configured ? "設定済み" : "未設定"}
-              </Text>
-              <Stack gap="1">
-                <Text as="label" htmlFor="inventia-token" fontSize="sm" fontWeight="600">
-                  トークン
-                </Text>
-                <Input
+              </Feedback>
+              <Field label="トークン" htmlFor="inventia-token">
+                <NativeInput
                   id="inventia-token"
                   type="password"
                   autoComplete="new-password"
@@ -180,18 +142,15 @@ function SettingsPage() {
                   onChange={(event) => setToken(event.target.value)}
                   placeholder="新しいトークン"
                 />
-              </Stack>
-              <Stack gap="1">
-                <Text as="label" htmlFor="inventia-provider" fontSize="sm" fontWeight="600">
-                  Provider ID
-                </Text>
-                <Input
+              </Field>
+              <Field label="Provider ID" htmlFor="inventia-provider">
+                <NativeInput
                   id="inventia-provider"
                   value={providerId}
                   onChange={(event) => setProviderId(event.target.value)}
                 />
-              </Stack>
-            </Stack>
+              </Field>
+            </Section>
             <Stack
               direction={{ base: "column", sm: "row" }}
               align={{ base: "stretch", sm: "center" }}
@@ -200,18 +159,18 @@ function SettingsPage() {
               <Button type="submit" colorPalette="red" loading={saving} disabled={loading}>
                 設定を保存
               </Button>
-              <Text role="status" aria-live="polite" color="fg">
+              <Feedback tone="status" role="status" ariaLive="polite">
                 {saving ? "保存中…" : success}
-              </Text>
+              </Feedback>
               {error ? (
-                <Text role="alert" color="red.fg">
+                <Feedback tone="error" role="alert">
                   {error}
-                </Text>
+                </Feedback>
               ) : null}
             </Stack>
           </Stack>
         </Box>
       ) : null}
-    </Stack>
+    </Page>
   );
 }

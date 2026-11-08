@@ -1,8 +1,16 @@
-import { Box, Button, Heading, Input, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Stack, Text } from "@chakra-ui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 
-export const Route = createFileRoute("/_app/ingredients")({
+import { Feedback } from "../../../components/ui/feedback";
+import { Field, NativeInput, NativeSelect, NativeTextArea } from "../../../components/ui/form";
+import { List, ListItem } from "../../../components/ui/list";
+import { Page, PageHeader } from "../../../components/ui/page";
+import { Section } from "../../../components/ui/section";
+import { errorMessageFrom } from "../../../lib/api-error";
+
+export const Route = createFileRoute("/_app/ingredients/")({
   staticData: { breadcrumbs: [{ label: "材料" }] },
   component: IngredientsPage,
 });
@@ -39,6 +47,17 @@ type InventiaItem = {
   baseDimension: Dimension;
   currentQuantity: number;
 };
+type StockResult = { found: boolean; currentQuantity: number | null; baseUnit: string | null };
+const stockResultResponseSchema = z
+  .object({
+    found: z.boolean(),
+    currentQuantity: z.number().nullable(),
+    baseUnit: z.string().nullable(),
+  })
+  .strict();
+const stockAdjustResponseSchema = z
+  .object({ currentQuantity: z.number(), allocations: z.array(z.unknown()) })
+  .strict();
 type Form = {
   name: string;
   baseDimension: Dimension;
@@ -88,6 +107,8 @@ function IngredientsPage() {
   const [matches, setMatches] = useState<InventiaItem[]>([]);
   const [selectedMatch, setSelectedMatch] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [stock, setStock] = useState<Record<string, StockResult>>({});
+  const [stockAmount, setStockAmount] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -315,6 +336,59 @@ function IngredientsPage() {
       setBusyId("");
     }
   }
+  async function readStock(ingredient: Ingredient) {
+    setBusyId(ingredient.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/ingredients/${encodeURIComponent(ingredient.id)}/stock`);
+      const body: unknown = await response.json();
+      if (!response.ok) throw new Error(errorMessageFrom(body, "在庫を取得できませんでした。"));
+      const result = stockResultResponseSchema.parse(body);
+      setStock((current) => ({ ...current, [ingredient.id]: result }));
+      if (!result.found)
+        setNotice("Inventia の検索結果に紐付け品目が見つからないため、在庫を表示できません。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "在庫を取得できませんでした。");
+    } finally {
+      setBusyId("");
+    }
+  }
+  async function consumeStock(ingredient: Ingredient) {
+    const amount = Number(stockAmount[ingredient.id] ?? "");
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("消費量には0より大きい数値を入力してください。");
+      return;
+    }
+    setBusyId(ingredient.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/ingredients/${encodeURIComponent(ingredient.id)}/stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount }),
+      });
+      const body: unknown = await response.json();
+      if (!response.ok) throw new Error(errorMessageFrom(body, "在庫を消費できませんでした。"));
+      const result = stockAdjustResponseSchema.parse(body);
+      const baseUnit = stock[ingredient.id]?.baseUnit ?? ingredient.baseUnit;
+      setStock((current) => ({
+        ...current,
+        [ingredient.id]: {
+          found: true,
+          currentQuantity: result.currentQuantity,
+          baseUnit,
+        },
+      }));
+      setStockAmount((current) => ({ ...current, [ingredient.id]: "" }));
+      setNotice(`在庫を消費しました。残り ${result.currentQuantity} ${baseUnit}。`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "在庫を消費できませんでした。");
+    } finally {
+      setBusyId("");
+    }
+  }
   function addMicro() {
     setField("micronutrients", [
       ...form.micronutrients,
@@ -333,189 +407,193 @@ function IngredientsPage() {
   }
 
   return (
-    <Stack as="main" w="full" maxW="6xl" gap="7" px={{ base: "4", md: "8" }} py="8">
-      <Stack
-        direction={{ base: "column", sm: "row" }}
-        align={{ base: "stretch", sm: "center" }}
-        justify="space-between"
-        gap="3"
-      >
-        <Heading as="h1" color="fg.subtle" fontSize="2xl" fontWeight="600">
-          材料
-        </Heading>
-        <Button colorPalette="red" onClick={newIngredient}>
-          材料を追加
-        </Button>
-      </Stack>
+    <Page>
+      <PageHeader
+        title="材料"
+        actions={
+          <Button colorPalette="red" onClick={newIngredient}>
+            材料を追加
+          </Button>
+        }
+      />
       {error ? (
-        <Text role="alert" aria-live="assertive" color="red.fg">
+        <Feedback tone="error" role="alert" ariaLive="assertive">
           {error}
-        </Text>
+        </Feedback>
       ) : null}
       {notice ? (
-        <Text role="status" aria-live="polite">
+        <Feedback tone="status" role="status" ariaLive="polite">
           {notice}
-        </Text>
+        </Feedback>
       ) : null}
-      <Stack as="section" aria-label="材料一覧" gap="4">
-        <Stack gap="1">
-          <Text as="label" htmlFor="ingredient-search" fontSize="sm" fontWeight="600">
-            材料を検索
-          </Text>
-          <Input
-            id="ingredient-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </Stack>
+      <Section label="材料一覧" divided={false}>
+        <Box maxW="sm">
+          <Field label="材料を検索" htmlFor="ingredient-search">
+            <NativeInput
+              id="ingredient-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </Field>
+        </Box>
         {loading ? (
-          <Text role="status" aria-live="polite">
+          <Feedback tone="status" role="status" ariaLive="polite">
             材料を読み込み中…
-          </Text>
+          </Feedback>
         ) : visible.length === 0 ? (
-          <Text role="status">
+          <Feedback tone="status" role="status">
             {items.length ? "検索結果がありません。" : "材料はまだ登録されていません。"}
-          </Text>
+          </Feedback>
         ) : (
-          <Stack
-            as="ul"
-            gap="0"
-            listStyle="none"
-            m="0"
-            p="0"
-            borderTopWidth="1px"
-            borderColor="border"
-          >
+          <List>
             {visible.map((item) => (
-              <Box as="li" key={item.id} borderBottomWidth="1px" borderColor="border" py="4">
-                <Stack gap="3">
-                  <Stack
-                    direction={{ base: "column", sm: "row" }}
-                    justify="space-between"
-                    align={{ base: "stretch", sm: "flex-start" }}
-                    gap="3"
-                  >
-                    <Box minW="0">
-                      <Heading as="h2" fontSize="lg" fontWeight="600" overflowWrap="anywhere">
-                        {item.name}
-                      </Heading>
-                      <Text color="fg.muted" fontSize="sm">
-                        基準: {item.nutritionBasisAmount} {item.baseUnit} · {item.baseDimension}
-                        {item.gramPerUnit !== null ? ` · 1単位 ${item.gramPerUnit} g` : ""}
-                      </Text>
-                    </Box>
-                    <Button variant="outline" onClick={() => startEdit(item)}>
-                      編集
-                    </Button>
-                  </Stack>
-                  <Text fontSize="sm" color="fg">
-                    {item.nutritionPerBasis.caloriesKcal} kcal · P {item.nutritionPerBasis.proteinG}{" "}
-                    g · F {item.nutritionPerBasis.fatG} g · C {item.nutritionPerBasis.carbohydrateG}{" "}
-                    g · 食物繊維 {item.nutritionPerBasis.fiberG ?? "—"} g · 食塩{" "}
-                    {item.nutritionPerBasis.saltEquivalentG ?? "—"} g
-                  </Text>
-                  {item.nutritionPerBasis.micronutrients.length ? (
-                    <Text fontSize="sm" color="fg.muted">
-                      {item.nutritionPerBasis.micronutrients
-                        .map((micro) => `${micro.label} ${micro.amount} ${micro.unit}`)
-                        .join(" · ")}
+              <ListItem key={item.id}>
+                <Stack
+                  direction={{ base: "column", sm: "row" }}
+                  justify="space-between"
+                  align={{ base: "stretch", sm: "flex-start" }}
+                  gap="3"
+                >
+                  <Box minW="0">
+                    <Text as="h2" textStyle="heading.sm">
+                      {item.name}
                     </Text>
-                  ) : null}
-                  <Text fontSize="sm" color="fg.muted">
-                    最新価格:{" "}
-                    {item.latestUnitPriceYen === null ? "未取得" : `¥${item.latestUnitPriceYen}`} ·{" "}
-                    {item.latestPriceUpdatedAt
-                      ? new Date(item.latestPriceUpdatedAt).toLocaleString()
-                      : "更新日時なし"}{" "}
-                    · Inventia ID: {item.inventiaItemId ?? "未連携"}
+                    <Text textStyle="caption">
+                      基準: {item.nutritionBasisAmount} {item.baseUnit} · {item.baseDimension}
+                      {item.gramPerUnit !== null ? ` · 1単位 ${item.gramPerUnit} g` : ""}
+                    </Text>
+                  </Box>
+                  <Button variant="outline" onClick={() => startEdit(item)}>
+                    編集
+                  </Button>
+                </Stack>
+                <Text textStyle="numeric.sm">
+                  {item.nutritionPerBasis.caloriesKcal} kcal · P {item.nutritionPerBasis.proteinG} g
+                  · F {item.nutritionPerBasis.fatG} g · C {item.nutritionPerBasis.carbohydrateG} g ·
+                  食物繊維 {item.nutritionPerBasis.fiberG ?? "—"} g · 食塩{" "}
+                  {item.nutritionPerBasis.saltEquivalentG ?? "—"} g
+                </Text>
+                {item.nutritionPerBasis.micronutrients.length ? (
+                  <Text textStyle="caption">
+                    {item.nutritionPerBasis.micronutrients
+                      .map((micro) => `${micro.label} ${micro.amount} ${micro.unit}`)
+                      .join(" · ")}
                   </Text>
-                  <Stack
-                    as="form"
-                    onSubmit={searchInventia}
-                    direction={{ base: "column", sm: "row" }}
-                    gap="2"
-                    align={{ base: "stretch", sm: "end" }}
-                  >
-                    <Box flex="1">
-                      <Text as="label" htmlFor={`inventia-query-${item.id}`} fontSize="sm">
-                        Inventia 品目検索
-                      </Text>
-                      <Input
-                        id={`inventia-query-${item.id}`}
-                        value={inventiaQuery}
-                        onChange={(event) => setInventiaQuery(event.target.value)}
-                        placeholder={item.name}
-                      />
-                    </Box>
-                    <Button type="submit" variant="outline">
-                      品目を検索
-                    </Button>
-                  </Stack>
-                  {matches.length ? (
+                ) : null}
+                <Text textStyle="numeric.xs">
+                  最新価格:{" "}
+                  {item.latestUnitPriceYen === null ? "未取得" : `¥${item.latestUnitPriceYen}`} ·{" "}
+                  {item.latestPriceUpdatedAt
+                    ? new Date(item.latestPriceUpdatedAt).toLocaleString()
+                    : "更新日時なし"}{" "}
+                  · Inventia ID: {item.inventiaItemId ?? "未連携"}
+                </Text>
+                {item.inventiaItemId ? (
+                  <Stack as="section" aria-label={`${item.name} の在庫`} gap="2">
+                    <Text textStyle="caption">
+                      在庫:{" "}
+                      {stock[item.id]
+                        ? stock[item.id].found
+                          ? `${stock[item.id].currentQuantity ?? "—"} ${stock[item.id].baseUnit ?? item.baseUnit}`
+                          : "取得できません（検索結果に紐付け品目なし）"
+                        : "未取得"}
+                    </Text>
                     <Stack
                       direction={{ base: "column", sm: "row" }}
                       gap="2"
                       align={{ base: "stretch", sm: "end" }}
                     >
-                      <Box flex="1">
-                        <Text as="label" htmlFor={`inventia-match-${item.id}`} fontSize="sm">
-                          検索結果から選択
-                        </Text>
-                        <select
-                          id={`inventia-match-${item.id}`}
-                          value={selectedMatch}
-                          onChange={(event) => setSelectedMatch(event.target.value)}
-                          style={{
-                            width: "100%",
-                            minHeight: "40px",
-                            border: "1px solid #d4d4d8",
-                            padding: "8px",
-                            background: "white",
-                          }}
-                        >
-                          <option value="">品目を選択</option>
-                          {matches.map((match) => (
-                            <option key={match.id} value={match.id}>
-                              {match.name} · {match.baseUnit} · 在庫 {match.currentQuantity}
-                            </option>
-                          ))}
-                        </select>
-                      </Box>
                       <Button
-                        colorPalette="red"
-                        onClick={() => void syncInventia(item)}
-                        disabled={!selectedMatch}
+                        variant="outline"
+                        onClick={() => void readStock(item)}
                         loading={busyId === item.id}
                       >
-                        価格を同期
+                        在庫を確認
+                      </Button>
+                      <Field label={`消費量（${stock[item.id]?.baseUnit ?? item.baseUnit}）`}>
+                        <NativeInput
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={stockAmount[item.id] ?? ""}
+                          onChange={(event) =>
+                            setStockAmount((current) => ({
+                              ...current,
+                              [item.id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </Field>
+                      <Button
+                        variant="outline"
+                        onClick={() => void consumeStock(item)}
+                        loading={busyId === item.id}
+                      >
+                        在庫を消費
                       </Button>
                     </Stack>
-                  ) : null}
-                  {item.memo ? (
-                    <Text fontSize="sm" color="fg.muted">
-                      メモ: {item.memo}
-                    </Text>
-                  ) : null}
+                  </Stack>
+                ) : null}
+                <Stack
+                  as="form"
+                  onSubmit={searchInventia}
+                  direction={{ base: "column", sm: "row" }}
+                  gap="2"
+                  align={{ base: "stretch", sm: "end" }}
+                >
+                  <Field label="Inventia 品目検索" htmlFor={`inventia-query-${item.id}`}>
+                    <NativeInput
+                      id={`inventia-query-${item.id}`}
+                      value={inventiaQuery}
+                      onChange={(event) => setInventiaQuery(event.target.value)}
+                      placeholder={item.name}
+                    />
+                  </Field>
+                  <Button type="submit" variant="outline">
+                    品目を検索
+                  </Button>
                 </Stack>
-              </Box>
+                {matches.length ? (
+                  <Stack
+                    direction={{ base: "column", sm: "row" }}
+                    gap="2"
+                    align={{ base: "stretch", sm: "end" }}
+                  >
+                    <Field label="検索結果から選択" htmlFor={`inventia-match-${item.id}`}>
+                      <NativeSelect
+                        id={`inventia-match-${item.id}`}
+                        value={selectedMatch}
+                        onChange={(event) => setSelectedMatch(event.target.value)}
+                      >
+                        <option value="">品目を選択</option>
+                        {matches.map((match) => (
+                          <option key={match.id} value={match.id}>
+                            {match.name} · {match.baseUnit} · 在庫 {match.currentQuantity}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </Field>
+                    <Button
+                      colorPalette="red"
+                      onClick={() => void syncInventia(item)}
+                      disabled={!selectedMatch}
+                      loading={busyId === item.id}
+                    >
+                      価格を同期
+                    </Button>
+                  </Stack>
+                ) : null}
+                {item.memo ? <Text textStyle="caption">メモ: {item.memo}</Text> : null}
+              </ListItem>
             ))}
-          </Stack>
+          </List>
         )}
-      </Stack>
-      <Box
-        as="section"
-        aria-labelledby="ingredient-form-heading"
-        borderTopWidth="1px"
-        borderColor="border"
-        pt="6"
-      >
-        <Heading id="ingredient-form-heading" as="h2" fontSize="xl" fontWeight="600" mb="5">
-          {editing ? "材料を編集" : "材料を登録"}
-        </Heading>
+      </Section>
+      <Section title={editing ? "材料を編集" : "材料を登録"} label="材料の登録・編集">
         <Box as="form" onSubmit={save}>
           <Stack gap="5">
-            <Field label="材料名" id="ingredient-name">
-              <Input
+            <Field label="材料名" htmlFor="ingredient-name">
+              <NativeInput
                 id="ingredient-name"
                 required
                 maxLength={120}
@@ -524,8 +602,8 @@ function IngredientsPage() {
               />
             </Field>
             <Stack direction={{ base: "column", sm: "row" }} gap="4">
-              <Field label="次元" id="dimension">
-                <select
+              <Field label="次元" htmlFor="dimension">
+                <NativeSelect
                   id="dimension"
                   value={form.baseDimension}
                   onChange={(e) => {
@@ -539,15 +617,14 @@ function IngredientsPage() {
                     setMatches([]);
                     setSelectedMatch("");
                   }}
-                  style={selectStyle}
                 >
                   <option value="mass">質量</option>
                   <option value="volume">体積</option>
                   <option value="count">個数</option>
-                </select>
+                </NativeSelect>
               </Field>
-              <Field label="基準単位" id="base-unit">
-                <Input
+              <Field label="基準単位" htmlFor="base-unit">
+                <NativeInput
                   id="base-unit"
                   required
                   maxLength={50}
@@ -556,11 +633,11 @@ function IngredientsPage() {
                   readOnly={form.baseDimension !== "count"}
                 />
               </Field>
-              <Field label="栄養価の基準量" id="basis">
-                <Input id="basis" type="number" value={form.nutritionBasisAmount} readOnly />
+              <Field label="栄養価の基準量" htmlFor="basis">
+                <NativeInput id="basis" type="number" value={form.nutritionBasisAmount} readOnly />
               </Field>
-              <Field label="1単位あたりのグラム数（任意）" id="gram-unit">
-                <Input
+              <Field label="1単位あたりのグラム数（任意）" htmlFor="gram-unit">
+                <NativeInput
                   id="gram-unit"
                   type="number"
                   min="0.001"
@@ -570,17 +647,7 @@ function IngredientsPage() {
                 />
               </Field>
             </Stack>
-            <Stack
-              as="section"
-              aria-labelledby="nutrition-heading"
-              gap="3"
-              borderTopWidth="1px"
-              borderColor="border"
-              pt="4"
-            >
-              <Heading id="nutrition-heading" as="h3" fontSize="md" fontWeight="600">
-                基準量あたりの栄養価
-              </Heading>
+            <Section level={3} title="基準量あたりの栄養価">
               <Button
                 type="button"
                 variant="outline"
@@ -601,8 +668,8 @@ function IngredientsPage() {
                     ["saltEquivalentG", "食塩相当量 (g)"],
                   ] as const
                 ).map(([key, label]) => (
-                  <Field key={key} label={label} id={`nutrition-${key}`}>
-                    <Input
+                  <Field key={key} label={label} htmlFor={`nutrition-${key}`}>
+                    <NativeInput
                       id={`nutrition-${key}`}
                       type="number"
                       min="0"
@@ -619,84 +686,76 @@ function IngredientsPage() {
                   align={{ base: "stretch", sm: "center" }}
                   justify="space-between"
                 >
-                  <Text fontWeight="600">微量栄養素</Text>
+                  <Text textStyle="label">微量栄養素</Text>
                   <Button type="button" variant="outline" onClick={addMicro}>
                     項目を追加
                   </Button>
                 </Stack>
-                {form.micronutrients.map((micro, index) => (
-                  <Stack
-                    key={`${index}-${micro.key}`}
-                    direction={{ base: "column", md: "row" }}
-                    gap="3"
-                    align={{ base: "stretch", md: "end" }}
-                    borderBottomWidth="1px"
-                    borderColor="border"
-                    pb="3"
-                  >
-                    <Field label="キー" id={`micro-key-${index}`}>
-                      <Input
-                        id={`micro-key-${index}`}
-                        value={micro.key}
-                        onChange={(e) => updateMicro(index, "key", e.target.value)}
-                        required
-                      />
-                    </Field>
-                    <Field label="表示名" id={`micro-label-${index}`}>
-                      <Input
-                        id={`micro-label-${index}`}
-                        value={micro.label}
-                        onChange={(e) => updateMicro(index, "label", e.target.value)}
-                        required
-                      />
-                    </Field>
-                    <Field label="量" id={`micro-amount-${index}`}>
-                      <Input
-                        id={`micro-amount-${index}`}
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={micro.amount}
-                        onChange={(e) => updateMicro(index, "amount", e.target.value)}
-                        required
-                      />
-                    </Field>
-                    <Field label="単位" id={`micro-unit-${index}`}>
-                      <select
-                        id={`micro-unit-${index}`}
-                        value={micro.unit}
-                        onChange={(e) => updateMicro(index, "unit", e.target.value)}
-                        style={selectStyle}
+                <List>
+                  {form.micronutrients.map((micro, index) => (
+                    <ListItem layout="row" key={`${index}-${micro.key}`}>
+                      <Field label="キー" htmlFor={`micro-key-${index}`}>
+                        <NativeInput
+                          id={`micro-key-${index}`}
+                          value={micro.key}
+                          onChange={(e) => updateMicro(index, "key", e.target.value)}
+                          required
+                        />
+                      </Field>
+                      <Field label="表示名" htmlFor={`micro-label-${index}`}>
+                        <NativeInput
+                          id={`micro-label-${index}`}
+                          value={micro.label}
+                          onChange={(e) => updateMicro(index, "label", e.target.value)}
+                          required
+                        />
+                      </Field>
+                      <Field label="量" htmlFor={`micro-amount-${index}`}>
+                        <NativeInput
+                          id={`micro-amount-${index}`}
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={micro.amount}
+                          onChange={(e) => updateMicro(index, "amount", e.target.value)}
+                          required
+                        />
+                      </Field>
+                      <Field label="単位" htmlFor={`micro-unit-${index}`}>
+                        <NativeSelect
+                          id={`micro-unit-${index}`}
+                          value={micro.unit}
+                          onChange={(e) => updateMicro(index, "unit", e.target.value)}
+                        >
+                          <option value="g">g</option>
+                          <option value="mg">mg</option>
+                          <option value="ug">µg</option>
+                          <option value="kcal">kcal</option>
+                        </NativeSelect>
+                      </Field>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          setField(
+                            "micronutrients",
+                            form.micronutrients.filter((_, i) => i !== index),
+                          )
+                        }
                       >
-                        <option value="g">g</option>
-                        <option value="mg">mg</option>
-                        <option value="ug">µg</option>
-                        <option value="kcal">kcal</option>
-                      </select>
-                    </Field>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        setField(
-                          "micronutrients",
-                          form.micronutrients.filter((_, i) => i !== index),
-                        )
-                      }
-                    >
-                      削除
-                    </Button>
-                  </Stack>
-                ))}
+                        削除
+                      </Button>
+                    </ListItem>
+                  ))}
+                </List>
               </Stack>
-            </Stack>
-            <Field label="メモ" id="ingredient-memo">
-              <textarea
+            </Section>
+            <Field label="メモ" htmlFor="ingredient-memo">
+              <NativeTextArea
                 id="ingredient-memo"
                 maxLength={2000}
                 value={form.memo}
                 onChange={(e) => setField("memo", e.target.value)}
-                style={{ ...selectStyle, minHeight: "88px", resize: "vertical" }}
               />
             </Field>
             <Stack direction={{ base: "column", sm: "row" }} gap="3">
@@ -711,25 +770,7 @@ function IngredientsPage() {
             </Stack>
           </Stack>
         </Box>
-      </Box>
-    </Stack>
-  );
-}
-
-const selectStyle: React.CSSProperties = {
-  width: "100%",
-  minHeight: "40px",
-  border: "1px solid #d4d4d8",
-  padding: "8px",
-  background: "white",
-};
-function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {
-  return (
-    <Stack gap="1" flex="1" minW={{ base: "0", sm: "10rem" }}>
-      <Text as="label" htmlFor={id} fontSize="sm" fontWeight="600">
-        {label}
-      </Text>
-      {children}
-    </Stack>
+      </Section>
+    </Page>
   );
 }
