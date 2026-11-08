@@ -62,6 +62,44 @@ pnpm deploy
 
 Cloudflare 設定は `app/wrangler.jsonc` にあり、Static Assets (`ASSETS`)、D1 (`DB`)、R2 (`IMAGES_BUCKET`) を使用します。`<D1_DATABASE_ID>` はデプロイ環境で `CLOUDFLARE_DATABASE_ID` から解決し、実 ID をリポジトリに保存しません。Production workflow は deploy 前に `wrangler d1 migrations apply DB --remote` を実行します。PR Check は一時 UUID を設定したローカル Wrangler SQLite DB に `--local` で migrations を適用し、production DB には接続しません。
 
+### D1 スキーマの現状と移行
+
+production D1 (`cho`) は廃止したレシピ/調理記録スキーマから引き継いでおり、2026-11-08 時点の読み取り専用診断で次を確認しています。
+
+- 存在する: `ingredients`（旧スキーマ。`owner_id`、`grams_per_milliliter`、`inventory_item_id`、`note` を持ち、`user` を参照）、`user`、`session`、`account`、`verification`、`recipes`、`recipe_*`、`cook_*`、`ingredient_conversions`、`d1_migrations`
+- 存在しない: `media_images`、`dishes`、`dish_ingredients`、`meal_logs`、`meal_log_items`、`app_settings`
+
+このため `app/migrations/` は 2 段構えです。
+
+- `0000_initial.sql`: 旧 `ingredients` の実形状（production と同一）を表すベースライン。新規 DB ではこれを作成し、production では形状が一致することを確認して `d1_migrations` に適用済みとして記録するだけで、実行しません。
+- `0001_reconcile_legacy_schema.sql`: 旧 `ingredients` を `ingredients_legacy_v0` にリネームして行を保持し、`app/src/db/schema.ts` の形で `ingredients` を作り直して旧行を `INSERT ... SELECT` で移行します（密度がある行は `volume`/`mL`/100、それ以外は `count`/`個`/1、栄養価は 0 で `memo` に確認が必要な旨を記録、`inventory_item_id` は `inventia_item_id` へ）。続けて不足している 6 テーブルを `0000_initial.sql` と同じ DDL で作成します。
+
+production への適用は明示的な運用承認が必要です。承認後に、実 ID を一時 config にだけ展開して次を実行します（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_DATABASE_ID` は環境変数で渡し、値を表示しない）。
+
+```bash
+cfg=".wrangler-operator.$$.jsonc"
+sed "s/<D1_DATABASE_ID>/${CLOUDFLARE_DATABASE_ID}/" app/wrangler.jsonc >"app/$cfg"
+
+# 1) 形状を読み取り専用で確認する（sqlite_master と PRAGMA table_info(ingredients)）
+pnpm --dir app exec wrangler d1 execute DB --remote --config "$cfg" --json \
+  --command "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table','index') ORDER BY type, name;"
+
+# 2) ベースラインを適用済みとして記録する（production への書き込み。承認後にのみ実行）
+pnpm --dir app exec wrangler d1 execute DB --remote --config "$cfg" \
+  --command "INSERT INTO d1_migrations (name) VALUES ('0000_initial.sql');"
+
+# 3) 0001 を適用し、Wrangler が 0001 を記録する
+pnpm --dir app exec wrangler d1 migrations apply DB --remote --config "$cfg"
+
+rm "app/$cfg"
+```
+
+3 が失敗した場合は `DELETE FROM d1_migrations WHERE name = '0000_initial.sql';` で 2 の記録を戻し、読み取り専用診断からやり直します。2 と 3 の完了までは `main` の deploy は 0000 の `CREATE TABLE` で停止し、意図せず古い形のまま進むことはありません。適用後は `ingredients_legacy_v0` に旧行がそのまま残るため、旧 `note` や密度は参照できます。
+
+ローカルの Wrangler D1 に旧 `0000_initial.sql`（7 テーブル版）を適用済みの場合は、`0001` と形状が合わないため local state を削除してから `pnpm dev` を再実行してください。`pnpm smoke:worker` は毎回一時 DB を使うため影響を受けません。
+
+プレビューは production D1 を共有するため、上の移行が終わるまで `/api/settings/integrations` などの D1 依存 API は 500 になります。preview workflow は移行前に読み取り専用チェックで停止します。
+
 `main` への push と手動実行は `.github/workflows/deploy.yml`、Pull Request のプレビューは `.github/workflows/preview.yml` が担当します。GitHub Actions repository secrets に次を設定してください:
 
 - Cloudflare: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`
@@ -85,7 +123,7 @@ Cho の Cloudflare Access 認証は変更しません。Inventia 連携のため
 
 `GET /api/settings/integrations` は暗号化キーがなくても公開設定と状態を返します。`configured` は暗号化済み認証情報が D1 に保存されていることを表します。`usable` と `capabilities.readItems` は、Worker 内で復号と設定検証ができることを表します。これらは Inventia への実通信成功を保証しません。利用できない理由は `issue` に返します。D1 のテーブル不足などの保存先エラーは、未設定状態に置き換えずエラーとして返します。
 
-本番は `INVENTIA_STOCK_WRITES_ENABLED: "true"` を明示し、有効な Provider ID がある場合に在庫消費を許可します。PR preview は同じ値を `"false"` にして在庫消費を禁止します。品目参照には `INVENTIA_BASE_URL`、有効な保存済みトークン、対応する `SETTINGS_ENCRYPTION_KEY` が必要です。preview にこれらを渡さない場合、画面に設定不足を表示し、Inventia のデータは参照できません。preview の read-only 制限は Inventia の在庫変更に対する制限です。Cho の production D1 に対する既存の書き込み権限は変更しません。
+`INVENTIA_STOCK_WRITES_ENABLED` は `app/wrangler.jsonc` に置きません。未設定時はアプリ側で在庫消費を拒否します。production の deploy step だけが `wrangler deploy --var INVENTIA_STOCK_WRITES_ENABLED:true` で有効化し、有効な Provider ID がある場合に在庫消費を許可します。手動の `wrangler deploy` でも var を渡さない限り在庫消費は無効のままです。PR preview は生成 config で同じ値を明示的に `"false"` にします。CI の config 書き換えがスキップされた場合も、preview にはこの var が無いため stock writes は既定で無効のままです。品目参照には `INVENTIA_BASE_URL`、有効な保存済みトークン、対応する `SETTINGS_ENCRYPTION_KEY` が必要です。preview にこれらを渡さない場合、画面に設定不足を表示し、Inventia のデータは参照できません。preview の read-only 制限は Inventia の在庫変更に対する制限です。Cho の production D1 に対する既存の書き込み権限は変更しません。
 
 Inventia API が Cloudflare Access の保護対象である環境では、許可された `CLOUDFLARE_ACCESS_CLIENT_ID` と `CLOUDFLARE_ACCESS_CLIENT_SECRET` も必要です。API トークンの代わりにはなりません。
 
