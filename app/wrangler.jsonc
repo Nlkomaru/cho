@@ -36,6 +36,5 @@
   ],
   "vars": {
     "INVENTIA_BASE_URL": "https://inventia.nikomaru.dev",
-    "INVENTIA_STOCK_WRITES_ENABLED": "true",
   },
 }

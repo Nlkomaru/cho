@@ -104,6 +104,10 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          # `INVENTIA_STOCK_WRITES_ENABLED` is deliberately absent from
+          # app/wrangler.jsonc so a preview can never inherit production stock
+          # writes. Only this production step enables it; every other build
+          # (including PR previews, which force "false") stays default-deny.
+          command: "deploy --var INVENTIA_STOCK_WRITES_ENABLED:true"
           secrets: ${{ secrets.SETTINGS_ENCRYPTION_KEY != '' && 'SETTINGS_ENCRYPTION_KEY' || '' }}
           workingDirectory: app
