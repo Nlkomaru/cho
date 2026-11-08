@@ -1,5 +1,10 @@
 import type { Ingredient } from "../domain/ingredient";
-import type { InventiaItemDto, InventiaPriceRecordDto } from "./inventia-client";
+import type {
+  InventiaItemDto,
+  InventiaPriceRecordDto,
+  InventiaStockAdjustRequest,
+  InventiaStockOperationResult,
+} from "./inventia-client";
 
 export interface IngredientRepository {
   list(): Promise<Ingredient[]>;
@@ -11,16 +16,27 @@ export interface IngredientRepository {
 export interface IngredientInventiaClient {
   searchItems(query: string): Promise<InventiaItemDto[]>;
   getItemPrices(id: string): Promise<InventiaPriceRecordDto[]>;
+  adjustStock(id: string, input: InventiaStockAdjustRequest): Promise<InventiaStockOperationResult>;
 }
 export type IngredientServiceOptions = {
   repository: IngredientRepository;
   inventiaClient?: IngredientInventiaClient;
+  providerId?: string;
+};
+export type IngredientStockResult = {
+  found: boolean;
+  currentQuantity: number | null;
+  baseUnit: string | null;
 };
 export type IngredientPriceSyncResult =
   | { synced: true; ingredient: Ingredient; unitPriceYen: number }
   | { synced: false; reason: "no_price_records"; ingredient: Ingredient };
 
-export function createIngredientService({ repository, inventiaClient }: IngredientServiceOptions) {
+export function createIngredientService({
+  repository,
+  inventiaClient,
+  providerId,
+}: IngredientServiceOptions) {
   function requireInventiaClient(): IngredientInventiaClient {
     if (!inventiaClient) throw new Error("Inventia client is not configured");
     return inventiaClient;
@@ -49,6 +65,34 @@ export function createIngredientService({ repository, inventiaClient }: Ingredie
     delete: (id: string) => repository.delete(id),
     searchInventiaItems(query: string) {
       return requireInventiaClient().searchItems(query);
+    },
+    async inventiaStock(ingredientId: string): Promise<IngredientStockResult> {
+      const client = requireInventiaClient();
+      const ingredient = await repository.getById(ingredientId);
+      if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
+      if (!ingredient.inventiaItemId)
+        return { found: false, currentQuantity: null, baseUnit: null };
+      const items = await client.searchItems(ingredient.name);
+      const match = items.find((item) => item.id === ingredient.inventiaItemId);
+      return match
+        ? { found: true, currentQuantity: match.currentQuantity, baseUnit: match.baseUnit }
+        : { found: false, currentQuantity: null, baseUnit: null };
+    },
+    async adjustInventiaStock(ingredientId: string, amount: number) {
+      const client = requireInventiaClient();
+      if (!providerId) throw new Error("Inventia providerId is not configured");
+      const ingredient = await repository.getById(ingredientId);
+      if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
+      if (!ingredient.inventiaItemId)
+        throw new Error(`Ingredient is not linked to Inventia: ${ingredientId}`);
+      return client.adjustStock(ingredient.inventiaItemId, {
+        delta: -Math.round(amount),
+        reason: "consume",
+        idempotencyKey: `cho:ingredient-stock:${ingredient.id}:${crypto.randomUUID()}`,
+        note: `Cho: 在庫消費 ${ingredient.name}`,
+        externalProviderId: providerId,
+        externalId: ingredient.id,
+      });
     },
     async syncInventiaPrice(
       ingredientId: string,

@@ -1,6 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { createMealLogService, type MealLogRepository } from "./meal-log";
-import type { Dish, Ingredient, MealLog } from "../domain/ingredient";
+import { mealLogSchema, type Dish, type Ingredient, type MealLog } from "../domain/ingredient";
 import { recipeSchema } from "../domain/recipe";
 import { validateRecipeDag } from "../domain/recipe-scheduler";
 
@@ -228,4 +228,120 @@ test("marks consumption failed and rethrows an adjustment rejection", async () =
   });
   await expect(service.consumeStock("meal-1")).rejects.toBe(failure);
   expect(state.statuses).toEqual(["pending", "failed"]);
+});
+
+const listMeal = (
+  id: string,
+  eatenAt: string,
+  priceYen: number,
+  caloriesKcal: number,
+  mealTiming: MealLog["mealTiming"] = "lunch",
+): MealLog =>
+  mealLogSchema.parse({
+    id,
+    eatenAt,
+    mealTiming,
+    sourceType: "other",
+    title: id,
+    totalPriceYen: priceYen,
+    totalNutrition: { ...facts, caloriesKcal },
+    items: [
+      {
+        id: `item-${id}`,
+        name: id,
+        priceYen,
+        nutrition: { ...facts, caloriesKcal },
+        estimationSource: "manual",
+      },
+    ],
+  });
+
+function summaryService(meals: MealLog[]) {
+  const filters: unknown[] = [];
+  const repository: MealLogRepository = {
+    list: async (filter) => {
+      filters.push(filter);
+      return meals;
+    },
+    getById: async () => null,
+    create: async (value) => value,
+    update: async () => null,
+    delete: async () => null,
+    setInventiaConsumptionStatus: async () => false,
+  };
+  return {
+    filters,
+    service: createMealLogService({
+      repository,
+      dishRepository: { getById: async () => null },
+      ingredientRepository: { getById: async () => null },
+    }),
+  };
+}
+
+test("summarises day, week, and month totals in JST and honours date/type/timing/text filters", async () => {
+  const meals = [
+    listMeal("today", "2026-01-02T03:00:00.000Z", 500, 600),
+    listMeal("week", "2026-01-01T03:00:00.000Z", 300, 400),
+    listMeal("last-month", "2025-12-20T03:00:00.000Z", 100, 100),
+    listMeal("future", "2026-01-03T00:00:00.000Z", 999, 999),
+  ];
+  const { filters, service } = summaryService(meals);
+  const result = await service.list(
+    { date: "2026-01-02", sourceType: "other", mealTiming: "lunch", q: "Ramen" },
+    new Date("2026-01-02T03:30:00.000Z"),
+  );
+  expect(result.meals).toStrictEqual(meals);
+  expect(result.summary.day.priceYen).toBe(500);
+  expect(result.summary.day.caloriesKcal).toBe(600);
+  expect(result.summary.week.priceYen).toBe(800);
+  expect(result.summary.week.caloriesKcal).toBe(1000);
+  expect(result.summary.month.priceYen).toBe(800);
+  expect(result.summary.month.caloriesKcal).toBe(1000);
+  expect(filters).toEqual([
+    {
+      from: "2026-01-01T15:00:00.000Z",
+      to: "2026-01-02T14:59:59.999Z",
+      sourceType: "other",
+      mealTiming: "lunch",
+      q: "Ramen",
+    },
+  ]);
+});
+
+test("createWithStock consumes stock during creation and reports a failure without losing the meal", async () => {
+  const state = fixture(ingredient(100, "inventia-tomato"));
+  const created = await state.service.createWithStock(mealInput);
+  expect(created.stockConsumption.status).toBe("succeeded");
+  expect(created.stockConsumption.results).toHaveLength(1);
+  expect(created.stockConsumption.error).toBeNull();
+  expect(created.meal.id).toBe("meal-1");
+  expect(created.meal.inventiaConsumptionStatus).toBe("succeeded");
+  expect(state.statuses).toEqual(["pending", "succeeded"]);
+
+  const failing = createMealLogService({
+    repository: {
+      list: async () => [],
+      getById: async () => state.service.get("meal-1"),
+      create: async (value) => value,
+      update: async () => null,
+      delete: async () => null,
+      setInventiaConsumptionStatus: async (_id, status) => {
+        state.statuses.push(status);
+        return true;
+      },
+    },
+    dishRepository: { getById: async () => dish },
+    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
+    providerId: "provider-7",
+    inventiaClient: {
+      adjustStock: async () => {
+        throw new Error("stock unavailable");
+      },
+    },
+  });
+  const failed = await failing.createWithStock(mealInput);
+  expect(failed.meal.id).toBe("meal-1");
+  expect(failed.stockConsumption.status).toBe("failed");
+  expect(failed.stockConsumption.error).toBe("stock unavailable");
 });

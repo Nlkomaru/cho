@@ -1,11 +1,17 @@
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, or } from "drizzle-orm";
 import { mealLogSchema, type MealLog } from "../domain/ingredient";
 import type { createDbClient } from "../db/client";
 import { mealLogItems, mealLogs, mediaImages } from "../db/schema";
 
 type Database = ReturnType<typeof createDbClient>;
 type MealLogChanges = Partial<Omit<MealLog, "id">>;
-type MealLogFilter = { from?: string; to?: string; sourceType?: MealLog["sourceType"] };
+type MealLogFilter = {
+  from?: string;
+  to?: string;
+  sourceType?: MealLog["sourceType"];
+  mealTiming?: NonNullable<MealLog["mealTiming"]>;
+  q?: string;
+};
 type InventiaConsumptionStatus = MealLog["inventiaConsumptionStatus"];
 
 function parseJson(value: string | null): unknown {
@@ -128,6 +134,12 @@ export function createMealLogRepository(db: Database) {
       if (filter.from) conditions.push(gte(mealLogs.eatenAt, filter.from));
       if (filter.to) conditions.push(lte(mealLogs.eatenAt, filter.to));
       if (filter.sourceType) conditions.push(eq(mealLogs.sourceType, filter.sourceType));
+      if (filter.mealTiming) conditions.push(eq(mealLogs.mealTiming, filter.mealTiming));
+      if (filter.q) {
+        const pattern = `%${filter.q}%`;
+        const text = or(like(mealLogs.title, pattern), like(mealLogs.placeName, pattern));
+        if (text) conditions.push(text);
+      }
       const rows = await db
         .select()
         .from(mealLogs)

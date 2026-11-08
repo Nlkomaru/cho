@@ -1,9 +1,13 @@
 import {
+  mealListSchema,
   mealLogSchema,
   type Dish,
   type Ingredient,
+  type MealList,
   type MealLog,
   type MealLogItem,
+  type MealPeriodTotals,
+  type MealSummary,
 } from "../domain/ingredient";
 import { calculateIngredientCost, calculateIngredientNutrition } from "../domain/ingredient";
 import { scaleNutritionFacts, sumNutritionFacts } from "../domain/nutrition";
@@ -15,6 +19,8 @@ export interface MealLogRepository {
     from?: string;
     to?: string;
     sourceType?: MealLog["sourceType"];
+    mealTiming?: NonNullable<MealLog["mealTiming"]>;
+    q?: string;
   }): Promise<MealLog[]>;
   getById(id: string): Promise<MealLog | null>;
   create(input: MealLog): Promise<MealLog>;
@@ -49,6 +55,99 @@ type MealChanges = Partial<Omit<MealLog, "id" | "items" | "inventiaConsumptionSt
   items?: MealInput["items"];
 };
 const newId = () => crypto.randomUUID();
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+type MealPeriod = keyof MealSummary;
+export type MealListFilter = {
+  from?: string;
+  to?: string;
+  sourceType?: MealLog["sourceType"];
+  mealTiming?: NonNullable<MealLog["mealTiming"]>;
+  q?: string;
+  date?: string;
+};
+
+function jstDayRange(date: string): { from: string; to: string } {
+  const start = Date.parse(`${date}T00:00:00+09:00`);
+  if (!Number.isFinite(start)) throw new TypeError(`Invalid date filter: ${date}`);
+  return { from: new Date(start).toISOString(), to: new Date(start + DAY_MS - 1).toISOString() };
+}
+
+function periodStart(period: MealPeriod, nowMs: number): number {
+  const shifted = new Date(nowMs + JST_OFFSET_MS);
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth();
+  const day = shifted.getUTCDate();
+  if (period === "day") return Date.UTC(year, month, day) - JST_OFFSET_MS;
+  if (period === "week")
+    return Date.UTC(year, month, day - ((shifted.getUTCDay() + 6) % 7)) - JST_OFFSET_MS;
+  return Date.UTC(year, month, 1) - JST_OFFSET_MS;
+}
+
+export function summarizeMeals(
+  meals: readonly MealLog[],
+  period: MealPeriod,
+  now: Date = new Date(),
+): MealPeriodTotals {
+  const nowMs = now.getTime();
+  const start = periodStart(period, nowMs);
+  let priceYen = 0;
+  let caloriesKcal = 0;
+  let proteinG = 0;
+  let fatG = 0;
+  let carbohydrateG = 0;
+  let fiberG = 0;
+  let saltEquivalentG = 0;
+  let nutritionComplete = true;
+  let fiberComplete = true;
+  let saltComplete = true;
+  for (const meal of meals) {
+    const eaten = Date.parse(meal.eatenAt);
+    if (!Number.isFinite(eaten) || eaten < start || eaten > nowMs) continue;
+    priceYen += meal.totalPriceYen ?? 0;
+    const facts = meal.totalNutrition;
+    if (!facts) {
+      nutritionComplete = false;
+      continue;
+    }
+    caloriesKcal += facts.caloriesKcal;
+    proteinG += facts.proteinG;
+    fatG += facts.fatG;
+    carbohydrateG += facts.carbohydrateG;
+    if (facts.fiberG === null) fiberComplete = false;
+    else fiberG += facts.fiberG;
+    if (facts.saltEquivalentG === null) saltComplete = false;
+    else saltEquivalentG += facts.saltEquivalentG;
+  }
+  return {
+    priceYen,
+    caloriesKcal: nutritionComplete ? caloriesKcal : null,
+    proteinG: nutritionComplete ? proteinG : null,
+    fatG: nutritionComplete ? fatG : null,
+    carbohydrateG: nutritionComplete ? carbohydrateG : null,
+    fiberG: nutritionComplete && fiberComplete ? fiberG : null,
+    saltEquivalentG: nutritionComplete && saltComplete ? saltEquivalentG : null,
+  };
+}
+
+function mergeRange(
+  filter: MealListFilter,
+  range: { from: string; to: string },
+): { from?: string; to?: string } {
+  return {
+    from: filter.from && filter.from > range.from ? filter.from : range.from,
+    to: filter.to && filter.to < range.to ? filter.to : range.to,
+  };
+}
+
+export type MealCreationResult = {
+  meal: MealLog;
+  stockConsumption: {
+    status: "succeeded" | "failed" | "skipped";
+    results: InventiaStockOperationResult[];
+    error: string | null;
+  };
+};
 
 export function createMealLogService({
   repository,
@@ -158,13 +257,93 @@ export function createMealLogService({
         (items.every((item) => item.nutrition !== null) ? sumNutritionFacts(nutritionItems) : null),
     });
   }
+  async function consumeStock(logId: string): Promise<InventiaStockOperationResult[]> {
+    if (!inventiaClient) throw new Error("Inventia client is not configured");
+    if (!providerId) throw new Error("Inventia providerId is not configured");
+    const log = await repository.getById(logId);
+    if (!log) throw new Error(`Meal log not found: ${logId}`);
+    if (log.sourceType !== "self_cooked") return [];
+    if (!(await repository.setInventiaConsumptionStatus(logId, "pending")))
+      throw new Error(`Meal log not found: ${logId}`);
+    const results: InventiaStockOperationResult[] = [];
+    try {
+      for (const item of log.items) {
+        if (!item.dishId) continue;
+        const dish = await dishRepository.getById(item.dishId);
+        if (!dish) throw new Error(`Unknown dish: ${item.dishId}`);
+        const amountsByIngredient = new Map<string, number>();
+        for (const entry of dish.recipe.ingredients)
+          amountsByIngredient.set(
+            entry.ingredientId,
+            (amountsByIngredient.get(entry.ingredientId) ?? 0) + entry.amount,
+          );
+        for (const [ingredientId, totalAmount] of amountsByIngredient) {
+          const ingredient = await ingredientRepository.getById(ingredientId);
+          if (!ingredient) throw new Error(`Unknown ingredient: ${ingredientId}`);
+          if (!ingredient.inventiaItemId) continue;
+          const body: InventiaStockAdjustRequest = {
+            delta: -Math.round((totalAmount / dish.servings) * item.servingsFactor),
+            reason: "consume",
+            idempotencyKey: `cho:meal:${log.id}:item:${item.id}:ing:${ingredient.id}`,
+            note: `Cho: ${dish.name}`,
+            externalProviderId: providerId,
+            externalId: log.id,
+          };
+          results.push(await inventiaClient.adjustStock(ingredient.inventiaItemId, body));
+        }
+      }
+      await repository.setInventiaConsumptionStatus(logId, "succeeded");
+      return results;
+    } catch (error) {
+      await repository.setInventiaConsumptionStatus(logId, "failed");
+      throw error;
+    }
+  }
+  async function createWithStock(input: MealInput): Promise<MealCreationResult> {
+    const meal = await repository.create(await build(input));
+    if (meal.sourceType !== "self_cooked")
+      return { meal, stockConsumption: { status: "skipped", results: [], error: null } };
+    if (!inventiaClient || !providerId)
+      return {
+        meal,
+        stockConsumption: { status: "failed", results: [], error: "Inventia is not configured." },
+      };
+    try {
+      const results = await consumeStock(meal.id);
+      const refreshed = (await repository.getById(meal.id)) ?? meal;
+      return { meal: refreshed, stockConsumption: { status: "succeeded", results, error: null } };
+    } catch (error) {
+      const refreshed = (await repository.getById(meal.id)) ?? meal;
+      return {
+        meal: refreshed,
+        stockConsumption: {
+          status: "failed",
+          results: [],
+          error: error instanceof Error ? error.message : "在庫消費に失敗しました。",
+        },
+      };
+    }
+  }
   return {
-    list: (filter?: { from?: string; to?: string; sourceType?: MealLog["sourceType"] }) =>
-      repository.list(filter),
+    async list(filter: MealListFilter = {}, now = new Date()): Promise<MealList> {
+      const { date, ...rest } = filter;
+      const meals = await repository.list(
+        date ? { ...rest, ...mergeRange(rest, jstDayRange(date)) } : rest,
+      );
+      return mealListSchema.parse({
+        meals,
+        summary: {
+          day: summarizeMeals(meals, "day", now),
+          week: summarizeMeals(meals, "week", now),
+          month: summarizeMeals(meals, "month", now),
+        },
+      });
+    },
     get: (id: string) => repository.getById(id),
     async create(input: MealInput) {
       return repository.create(await build(input));
     },
+    createWithStock,
     async update(id: string, changes: MealChanges): Promise<MealLog | null> {
       const current = await repository.getById(id);
       if (!current) return null;
@@ -185,47 +364,6 @@ export function createMealLogService({
       });
     },
     delete: (id: string) => repository.delete(id),
-    async consumeStock(logId: string): Promise<InventiaStockOperationResult[]> {
-      if (!inventiaClient) throw new Error("Inventia client is not configured");
-      if (!providerId) throw new Error("Inventia providerId is not configured");
-      const log = await repository.getById(logId);
-      if (!log) throw new Error(`Meal log not found: ${logId}`);
-      if (log.sourceType !== "self_cooked") return [];
-      if (!(await repository.setInventiaConsumptionStatus(logId, "pending")))
-        throw new Error(`Meal log not found: ${logId}`);
-      const results: InventiaStockOperationResult[] = [];
-      try {
-        for (const item of log.items) {
-          if (!item.dishId) continue;
-          const dish = await dishRepository.getById(item.dishId);
-          if (!dish) throw new Error(`Unknown dish: ${item.dishId}`);
-          const amountsByIngredient = new Map<string, number>();
-          for (const entry of dish.recipe.ingredients)
-            amountsByIngredient.set(
-              entry.ingredientId,
-              (amountsByIngredient.get(entry.ingredientId) ?? 0) + entry.amount,
-            );
-          for (const [ingredientId, totalAmount] of amountsByIngredient) {
-            const ingredient = await ingredientRepository.getById(ingredientId);
-            if (!ingredient) throw new Error(`Unknown ingredient: ${ingredientId}`);
-            if (!ingredient.inventiaItemId) continue;
-            const body: InventiaStockAdjustRequest = {
-              delta: -Math.round((totalAmount / dish.servings) * item.servingsFactor),
-              reason: "consume",
-              idempotencyKey: `cho:meal:${log.id}:item:${item.id}:ing:${ingredient.id}`,
-              note: `Cho: ${dish.name}`,
-              externalProviderId: providerId,
-              externalId: log.id,
-            };
-            results.push(await inventiaClient.adjustStock(ingredient.inventiaItemId, body));
-          }
-        }
-        await repository.setInventiaConsumptionStatus(logId, "succeeded");
-        return results;
-      } catch (error) {
-        await repository.setInventiaConsumptionStatus(logId, "failed");
-        throw error;
-      }
-    },
+    consumeStock,
   };
 }

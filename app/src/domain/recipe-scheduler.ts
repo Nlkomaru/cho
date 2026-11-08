@@ -98,6 +98,7 @@ export function validateRecipeDag(input: unknown): RecipeDagValidation {
   }
   const ratios = new Map<string, number>();
   const used = new Set<string>();
+  const grouped = new Set<string>();
   for (const step of recipe.steps)
     for (const input of step.inputs) {
       if (input.type === "ingredient" && entries.has(input.ingredientEntryId)) {
@@ -110,12 +111,13 @@ export function validateRecipeDag(input: unknown): RecipeDagValidation {
         const group = groups.get(input.groupId);
         for (const entryId of group?.ingredientEntryIds ?? []) {
           used.add(entryId);
-          ratios.set(entryId, (ratios.get(entryId) ?? 0) + 1);
+          grouped.add(entryId);
         }
       }
     }
   for (const entry of recipe.ingredients) {
     if (!used.has(entry.id)) errors.push(`Ingredient ${entry.id} is never used`);
+    if (grouped.has(entry.id)) continue;
     const ratio = ratios.get(entry.id) ?? 0;
     if (
       used.has(entry.id) &&

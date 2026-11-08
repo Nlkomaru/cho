@@ -279,6 +279,98 @@ ingredientRoutes.openapi(syncInventiaRoute, async (context) => {
   }
 });
 
+const stockResultSchema = z
+  .object({
+    found: z.boolean(),
+    currentQuantity: z.number().nullable(),
+    baseUnit: z.string().nullable(),
+  })
+  .strict();
+const adjustStockRequestSchema = z.object({ amount: z.number().positive() }).strict();
+
+const ingredientStockRoute = createRoute({
+  method: "get",
+  path: "/api/ingredients/{id}/stock",
+  summary: "Read Inventia stock for a linked ingredient",
+  request: { params: z.object({ id: ingredientSchema.shape.id }).strict() },
+  responses: {
+    200: {
+      description: "Current Inventia quantity for the linked item.",
+      content: { "application/json": { schema: stockResultSchema } },
+    },
+    404: {
+      description: "Ingredient not found.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+    409: {
+      description: "Inventia is not configured.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+    502: {
+      description: "Inventia stock lookup failed.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+  },
+});
+ingredientRoutes.openapi(ingredientStockRoute, async (context) => {
+  const { id } = context.req.valid("param");
+  const { service, inventiaConfigured } = await createInventiaContext(context.env);
+  if (!(await service.get(id))) return context.json({ error: "Ingredient not found." }, 404);
+  if (!inventiaConfigured) return context.json({ error: "Inventia is not configured." }, 409);
+  try {
+    return context.json(await service.inventiaStock(id), 200);
+  } catch {
+    return context.json({ error: "Inventia stock lookup failed." }, 502);
+  }
+});
+
+const ingredientAdjustStockRoute = createRoute({
+  method: "post",
+  path: "/api/ingredients/{id}/stock",
+  summary: "Consume Inventia stock for an ingredient",
+  request: {
+    params: z.object({ id: ingredientSchema.shape.id }).strict(),
+    body: {
+      required: true,
+      content: { "application/json": { schema: adjustStockRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Stock adjustment result.",
+      content: { "application/json": { schema: z.unknown() } },
+    },
+    400: {
+      description: "Invalid adjustment input.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+    404: {
+      description: "Ingredient not found.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+    409: {
+      description: "Inventia is not configured.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+    502: {
+      description: "Inventia stock adjustment failed.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+  },
+});
+ingredientRoutes.openapi(ingredientAdjustStockRoute, async (context) => {
+  const { id } = context.req.valid("param");
+  const { amount } = context.req.valid("json");
+  const { service, inventiaConfigured } = await createInventiaContext(context.env);
+  if (!(await service.get(id))) return context.json({ error: "Ingredient not found." }, 404);
+  if (!inventiaConfigured) return context.json({ error: "Inventia is not configured." }, 409);
+  try {
+    return context.json(await service.adjustInventiaStock(id, amount), 200);
+  } catch {
+    return context.json({ error: "Inventia stock adjustment failed." }, 502);
+  }
+});
+
 function createIngredientContext(env: ApiBindings) {
   const repository = createIngredientRepository(createDbClient(env.DB));
   return {
@@ -289,11 +381,14 @@ function createIngredientContext(env: ApiBindings) {
 
 async function createInventiaContext(env: ApiBindings) {
   const { repository } = createIngredientContext(env);
-  const client = await getInventiaClient(env);
+  const inventia = await getInventiaClient(env);
   return {
     repository,
-    service: createIngredientService({ repository, ...(client ? { inventiaClient: client } : {}) }),
-    inventiaConfigured: client !== null,
+    service: createIngredientService({
+      repository,
+      ...(inventia ? { inventiaClient: inventia.client, providerId: inventia.providerId } : {}),
+    }),
+    inventiaConfigured: inventia !== null,
   };
 }
 
@@ -307,18 +402,21 @@ async function getInventiaClient(env: ApiBindings) {
       settings.encryptedPayload,
       env.SETTINGS_ENCRYPTION_KEY,
     );
-    return createInventiaClient({
-      baseUrl: env.INVENTIA_BASE_URL,
-      decryptedToken,
-      cloudflareAccessClientId: env.CLOUDFLARE_ACCESS_CLIENT_ID,
-      cloudflareAccessClientSecret: env.CLOUDFLARE_ACCESS_CLIENT_SECRET,
-    });
+    return {
+      client: createInventiaClient({
+        baseUrl: env.INVENTIA_BASE_URL,
+        decryptedToken,
+        cloudflareAccessClientId: env.CLOUDFLARE_ACCESS_CLIENT_ID,
+        cloudflareAccessClientSecret: env.CLOUDFLARE_ACCESS_CLIENT_SECRET,
+      }),
+      providerId: settings.publicConfig.providerId,
+    };
   } catch {
     return null;
   }
 }
 
-function hasProviderConfig(publicConfig: unknown): boolean {
+function hasProviderConfig(publicConfig: unknown): publicConfig is { providerId: string } {
   return (
     typeof publicConfig === "object" &&
     publicConfig !== null &&

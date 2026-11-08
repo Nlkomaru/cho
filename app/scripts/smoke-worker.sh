@@ -79,7 +79,9 @@ status="$(request GET /api/meals "$meals_body")"
 assert_status "$status" 200 /api/meals
 node --input-type=module - "$meals_body" <<'NODE'
 import { readFile } from "node:fs/promises";
-if (!Array.isArray(JSON.parse(await readFile(process.argv[2], "utf8")))) throw new Error("GET /api/meals did not return an array");
+const body = JSON.parse(await readFile(process.argv[2], "utf8"));
+if (!Array.isArray(body.meals) || typeof body.summary?.day?.priceYen !== "number")
+  throw new Error("GET /api/meals did not return meals with a summary");
 NODE
 
 post_body="$PERSIST_DIR/created-meal.json"

@@ -69,6 +69,33 @@ test("validates bidirectional group membership and rejects one-sided links", () 
   expect(validateRecipeDag(invalid).success).toBe(false);
 });
 
+test("does not double-count group membership against individual ratios", () => {
+  const groupedIngredient = { ...ingredient, groupId: "group-a" };
+  const group = { id: "group-a", symbol: "A", label: "Group", ingredientEntryIds: ["ing-main"] };
+  const mixed = recipe(
+    [
+      step("direct", {
+        inputs: [{ type: "ingredient", ingredientEntryId: "ing-main", amountRatio: 0.5 }],
+      }),
+      step("grouped", {
+        stepNumber: 2,
+        inputs: [{ type: "group", groupId: "group-a" }],
+      }),
+    ],
+    [groupedIngredient],
+    [group],
+  );
+  expect(validateRecipeDag(mixed).success).toBe(true);
+  const individualOnly = recipe([
+    step("direct", {
+      inputs: [{ type: "ingredient", ingredientEntryId: "ing-main", amountRatio: 0.5 }],
+    }),
+  ]);
+  expect(
+    validateRecipeDag(individualOnly).errors.some((error) => error.includes("usage ratios total")),
+  ).toBeTruthy();
+});
+
 test("rejects unused ingredients, accepts the ratio tolerance boundary, and rejects excess usage", () => {
   const unused = recipe([step("empty")]);
   expect(

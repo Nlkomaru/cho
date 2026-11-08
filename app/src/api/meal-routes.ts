@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { mealLogItemBaseSchema, mealLogSchema } from "../domain/ingredient";
+import { mealListSchema, mealLogItemBaseSchema, mealLogSchema } from "../domain/ingredient";
 import { createDbClient } from "../db/client";
 import { createDishRepository } from "../repositories/dish-repository";
 import { createIngredientRepository } from "../repositories/ingredient-repository";
@@ -17,18 +17,41 @@ const itemRequestSchema = mealLogItemBaseSchema
   .omit({ id: true })
   .extend({ id: z.string().trim().min(1).max(128).optional() })
   .strict();
+const stockOperationResultSchema = z
+  .object({
+    currentQuantity: z.number(),
+    allocations: z.array(z.unknown()),
+  })
+  .strict();
+const stockConsumptionSchema = z
+  .object({
+    status: z.enum(["succeeded", "failed", "skipped"]),
+    results: z.array(stockOperationResultSchema).default([]),
+    error: z.string().nullable().default(null),
+  })
+  .strict();
 const createMealSchema = mealLogSchema
   .omit({ id: true, inventiaConsumptionStatus: true })
   .extend({
     id: z.string().trim().min(1).max(128).optional(),
     items: z.array(itemRequestSchema).min(1),
+    consumeStock: z.boolean().optional(),
   })
+  .strict();
+const createMealResponseSchema = mealLogSchema
+  .extend({ stockConsumption: stockConsumptionSchema.optional() })
   .strict();
 const listQuerySchema = z
   .object({
     from: z.string().optional(),
     to: z.string().optional(),
     sourceType: mealLogSchema.shape.sourceType.optional(),
+    mealTiming: z.enum(["breakfast", "lunch", "dinner", "snack", "late_snack"]).optional(),
+    q: z.string().trim().max(160).optional(),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
   })
   .strict();
 
@@ -49,8 +72,8 @@ const listMealsRoute = createRoute({
   request: { query: listQuerySchema },
   responses: {
     200: {
-      description: "Meals matching the filters.",
-      content: { "application/json": { schema: z.array(mealLogSchema) } },
+      description: "Meals matching the filters with day/week/month aggregates.",
+      content: { "application/json": { schema: mealListSchema } },
     },
     400: {
       description: "Invalid query parameters.",
@@ -82,8 +105,8 @@ const createMealRoute = createRoute({
   },
   responses: {
     201: {
-      description: "Meal created with item snapshots.",
-      content: { "application/json": { schema: mealLogSchema } },
+      description: "Meal created with item snapshots and optional stock outcome.",
+      content: { "application/json": { schema: createMealResponseSchema } },
     },
     400: {
       description: "Invalid meal input or referenced item.",
@@ -98,9 +121,18 @@ const createMealRoute = createRoute({
 
 mealRoutes.openapi(createMealRoute, async (context) => {
   try {
-    const input = context.req.valid("json");
-    const meal = await createMealService(context.env).create(input);
-    return context.json(meal, 201);
+    const { consumeStock, ...input } = context.req.valid("json");
+    const inventia =
+      consumeStock && input.sourceType === "self_cooked"
+        ? await createMealInventiaContext(context.env)
+        : null;
+    const service = createMealService(context.env, inventia ?? undefined);
+    if (!consumeStock) {
+      const meal = await service.create(input);
+      return context.json(meal, 201);
+    }
+    const { meal, stockConsumption } = await service.createWithStock(input);
+    return context.json({ ...meal, stockConsumption }, 201);
   } catch (error) {
     if (isInputError(error)) return context.json({ error: "Invalid meal input." }, 400);
     return context.json({ error: "Unable to create meal." }, 500);
@@ -195,12 +227,6 @@ const deleteMealRoute = createRoute({
   },
 });
 
-const stockOperationResultSchema = z
-  .object({
-    currentQuantity: z.number(),
-    allocations: z.array(z.unknown()),
-  })
-  .strict();
 const consumeStockRoute = createRoute({
   method: "post",
   path: "/api/meals/{id}/consume-stock",

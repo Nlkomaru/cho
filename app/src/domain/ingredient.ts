@@ -178,3 +178,28 @@ export const mealLogSchema = z
   })
   .strict();
 export type MealLog = z.infer<typeof mealLogSchema>;
+
+export const mealPeriodTotalsSchema = z
+  .object({
+    priceYen: z.number(),
+    caloriesKcal: z.number().nullable(),
+    proteinG: z.number().nullable(),
+    fatG: z.number().nullable(),
+    carbohydrateG: z.number().nullable(),
+    fiberG: z.number().nullable(),
+    saltEquivalentG: z.number().nullable(),
+  })
+  .strict();
+export type MealPeriodTotals = z.infer<typeof mealPeriodTotalsSchema>;
+export const mealSummarySchema = z
+  .object({
+    day: mealPeriodTotalsSchema,
+    week: mealPeriodTotalsSchema,
+    month: mealPeriodTotalsSchema,
+  })
+  .strict();
+export type MealSummary = z.infer<typeof mealSummarySchema>;
+export const mealListSchema = z
+  .object({ meals: z.array(mealLogSchema), summary: mealSummarySchema })
+  .strict();
+export type MealList = z.infer<typeof mealListSchema>;
