@@ -87,6 +87,73 @@ jobs:
       - name: Install
         run: pnpm install
 
+      # Read-only: the preview Worker talks to the production database, so a
+      # missing migration shows up as a 500 from routes such as
+      # /api/settings/integrations. Inspect the schema before uploading and
+      # never apply migrations (or read any settings values) from CI.
+      - name: Check production D1 schema (read-only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set."
+            exit 1
+          fi
+
+          query() {
+            pnpm --dir app exec wrangler d1 execute DB --remote --json \
+              --config wrangler.jsonc --command "$1"
+          }
+
+          migrate_hint() {
+            echo "::error::Apply the pending migration once, with operator approval, from the repository root:"
+            echo "::error::  pnpm --dir app exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc"
+          }
+
+          tables_json="$(mktemp)"
+          if ! query "SELECT name FROM sqlite_master WHERE type = 'table';" >"$tables_json"; then
+            echo "::error::Read-only D1 schema query failed; refusing to upload a preview against an unverified database."
+            exit 1
+          fi
+
+          tables="$(jq -r '.[].results[]?.name' "$tables_json")"
+          missing_tables=()
+          for table in ingredients media_images dishes dish_ingredients meal_logs meal_log_items app_settings; do
+            if ! grep -qxF "$table" <<<"$tables"; then
+              missing_tables+=("$table")
+            fi
+          done
+          if (( ${#missing_tables[@]} > 0 )); then
+            echo "::error::Production D1 database is missing required table(s): ${missing_tables[*]}."
+            migrate_hint
+            exit 1
+          fi
+
+          columns_json="$(mktemp)"
+          if ! query "PRAGMA table_info(app_settings);" >"$columns_json"; then
+            echo "::error::Read-only D1 column query failed for app_settings."
+            exit 1
+          fi
+
+          column_names="$(jq -r '.[].results[]?.name' "$columns_json")"
+          column_metadata="$(jq -r '[.[].results[]? | "\(.name):\(.type)"] | join(", ")' "$columns_json")"
+          missing_columns=()
+          for column in key encrypted_payload public_config_json updated_at; do
+            if ! grep -qxF "$column" <<<"$column_names"; then
+              missing_columns+=("$column")
+            fi
+          done
+          if (( ${#missing_columns[@]} > 0 )); then
+            echo "::error::app_settings is missing required column(s): ${missing_columns[*]}."
+            migrate_hint
+            exit 1
+          fi
+
+          echo "Production D1 schema OK: 7 required tables present."
+          echo "app_settings columns: ${column_metadata}"
+
       - name: Set deployment metadata
         run: echo "VITE_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_ENV"
 
