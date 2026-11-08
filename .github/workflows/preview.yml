@@ -87,10 +87,7 @@ jobs:
       - name: Install
         run: pnpm install
 
-      # Read-only: the preview Worker talks to the production database, so a
-      # missing migration shows up as a 500 from routes such as
-      # /api/settings/integrations. Inspect the schema before uploading and
-      # never apply migrations (or read any settings values) from CI.
+      # Preview shares production D1; schema changes require operator-approved deployment.
       - name: Check production D1 schema (read-only)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -115,6 +112,8 @@ jobs:
           tables_json="$(mktemp)"
           if ! query "SELECT name FROM sqlite_master WHERE type = 'table';" >"$tables_json"; then
             echo "::error::Read-only D1 schema query failed; refusing to upload a preview against an unverified database."
+            # With --json, wrangler prints API errors to stdout; surface them.
+            jq -c '.error? // .errors? // .' "$tables_json" 2>/dev/null || cat "$tables_json"
             exit 1
           fi
 
@@ -134,6 +133,7 @@ jobs:
           columns_json="$(mktemp)"
           if ! query "PRAGMA table_info(app_settings);" >"$columns_json"; then
             echo "::error::Read-only D1 column query failed for app_settings."
+            jq -c '.error? // .errors? // .' "$columns_json" 2>/dev/null || cat "$columns_json"
             exit 1
           fi
 
@@ -167,11 +167,13 @@ jobs:
 
           const configPath = "app/dist/server/wrangler.json";
           const config = JSON.parse(await readFile(configPath, "utf8"));
+          // Keep production R2 out of previews, but keep INVENTIA_BASE_URL so
+          // read-only Inventia lookups still work. Stock mutations stay off.
           delete config.r2_buckets;
-          if (config.vars) {
-            delete config.vars.INVENTIA_BASE_URL;
-            if (Object.keys(config.vars).length === 0) delete config.vars;
-          }
+          config.vars = {
+            ...(config.vars ?? {}),
+            INVENTIA_STOCK_WRITES_ENABLED: "false",
+          };
           config.workers_dev = true;
           config.preview_urls = true;
           await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
@@ -221,17 +223,42 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
           PR_NUMBER: ${{ github.event.number }}
+          SETTINGS_ENCRYPTION_KEY: ${{ secrets.SETTINGS_ENCRYPTION_KEY }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
+
+          # Forward optional secrets as a version-scoped secrets file. wrangler
+          # applies them additively and never deletes inherited secrets, so a
+          # missing value leaves existing ciphertext/credentials untouched.
+          # Values are never printed.
+          secrets_file=""
+          if [[ -n "${SETTINGS_ENCRYPTION_KEY:-}${CLOUDFLARE_ACCESS_CLIENT_ID:-}${CLOUDFLARE_ACCESS_CLIENT_SECRET:-}" ]]; then
+            secrets_file="$(mktemp)"
+            chmod 600 "$secrets_file"
+            jq -n \
+              --arg settings "${SETTINGS_ENCRYPTION_KEY:-}" \
+              --arg accessId "${CLOUDFLARE_ACCESS_CLIENT_ID:-}" \
+              --arg accessSecret "${CLOUDFLARE_ACCESS_CLIENT_SECRET:-}" \
+              '{SETTINGS_ENCRYPTION_KEY: $settings, CLOUDFLARE_ACCESS_CLIENT_ID: $accessId, CLOUDFLARE_ACCESS_CLIENT_SECRET: $accessSecret}
+               | with_entries(select(.value != ""))' >"$secrets_file"
+            echo "Adding repository secrets to the preview version: $(jq -r 'keys | join(", ")' "$secrets_file")."
+            trap 'rm -f "$secrets_file"' EXIT
+          else
+            echo "No settings/Inventia Access secrets configured; preview versions inherit existing Worker secrets."
+          fi
+
           upload() {
             local alias="$1" message="$2" attempt log rc
+            local -a args=(--config dist/server/wrangler.json --preview-alias "$alias" --message "$message")
+            if [[ -n "$secrets_file" ]]; then
+              args+=(--secrets-file "$secrets_file")
+            fi
             for attempt in 1 2 3 4; do
               log="$(mktemp)"
               set +e
-              pnpm --dir app exec wrangler versions upload \
-                --config dist/server/wrangler.json \
-                --preview-alias "$alias" \
-                --message "$message" >"$log" 2>&1
+              pnpm --dir app exec wrangler versions upload "${args[@]}" >"$log" 2>&1
               rc=$?
               set -e
               cat "$log"
