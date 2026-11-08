@@ -15,7 +15,9 @@ concurrency:
 env:
   AWS_DEFAULT_REGION: auto
   AWS_EC2_METADATA_DISABLED: true
-  PREVIEW_BASE_URL: https://ci.nikomaru.dev/cho
+  # Public base URL serving the QR artifacts from R2. Override it with the
+  # PREVIEW_BASE_URL repository variable instead of editing the workflow.
+  PREVIEW_BASE_URL: ${{ vars.PREVIEW_BASE_URL || 'https://ci.nikomaru.dev/cho' }}
   AWS_REGION: auto
   WORKER_NAME: cho
   WORKER_SUBDOMAIN: nikomaru.workers.dev
@@ -114,35 +116,89 @@ jobs:
           sha="${{ github.event.pull_request.head.sha || github.sha }}"
           echo "commit_sha=${sha:0:8}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload stable preview alias
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --config dist/server/wrangler.json --preview-alias preview --message "PR #${{ github.event.number }} preview alias"
-          workingDirectory: app
+      - name: Check Cloudflare API access to the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set."
+            exit 1
+          fi
 
-      - name: Upload pull request preview alias
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --config dist/server/wrangler.json --preview-alias pr${{ github.event.number }} --message "PR #${{ github.event.number }} preview alias"
-          workingDirectory: app
+          # `wrangler versions upload` starts with this exact request; failing here
+          # keeps the diagnostic readable instead of an opaque wrangler error.
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/services/${WORKER_NAME}"
+          status=""
+          body="$(mktemp)"
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS --max-time 30 -o "$body" -w '%{http_code}' \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "$url" || true)"
+            if [ "$status" = "200" ]; then
+              echo "Cloudflare API can read Worker ${WORKER_NAME}."
+              exit 0
+            fi
+            echo "::warning::GET /accounts/{account_id}/workers/services/${WORKER_NAME} returned HTTP ${status:-no response} (attempt ${attempt})."
+            sleep $((attempt * 10))
+          done
 
-      - name: Upload commit preview alias
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload --config dist/server/wrangler.json --preview-alias ${{ steps.vars.outputs.commit_sha }} --message "PR #${{ github.event.number }} commit preview alias"
-          workingDirectory: app
+          echo "Last Cloudflare API response:"
+          jq -c '.errors // .' "$body" || cat "$body"
+          echo "::error::Cloudflare API rejected the Worker lookup with HTTP ${status}. The token needs the 'Workers Scripts:Edit' permission for this account (dash.cloudflare.com/profile/api-tokens), and CLOUDFLARE_ACCOUNT_ID must be the account that owns ${WORKER_NAME}."
+          exit 1
+
+      - name: Upload preview aliases
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          upload() {
+            local alias="$1" message="$2" attempt log rc
+            for attempt in 1 2 3 4; do
+              log="$(mktemp)"
+              set +e
+              pnpm --dir app exec wrangler versions upload \
+                --config dist/server/wrangler.json \
+                --preview-alias "$alias" \
+                --message "$message" >"$log" 2>&1
+              rc=$?
+              set -e
+              cat "$log"
+              if [ "$rc" -eq 0 ]; then
+                rm -f "$log"
+                echo "Uploaded preview alias ${alias}."
+                return 0
+              fi
+              # Cloudflare intermittently answers 403 "No access to the specified
+              # service." for this lookup even with a valid token; retry those.
+              if grep -qiE 'No access to the specified service|A request to the Cloudflare API|Internal Server Error|HTTP 5[0-9][0-9]' "$log"; then
+                echo "::warning::Cloudflare API refused the upload for alias ${alias} (attempt ${attempt}); retrying."
+                rm -f "$log"
+                sleep $((attempt * 15))
+                continue
+              fi
+              rm -f "$log"
+              echo "::error::wrangler versions upload failed for alias ${alias}."
+              return 1
+            done
+            echo "::error::wrangler versions upload failed for alias ${alias} after 4 attempts."
+            return 1
+          }
+
+          upload preview "PR #${PR_NUMBER} preview alias"
+          upload "pr${PR_NUMBER}" "PR #${PR_NUMBER} preview alias"
+          upload "$COMMIT_SHORT_SHA" "PR #${PR_NUMBER} commit preview alias"
 
       - name: Verify preview aliases and Storybook
         env:
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
+          set -euo pipefail
           urls=(
             "https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
             "https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
@@ -151,8 +207,23 @@ jobs:
           for url in "${urls[@]}"; do
             for path in / /storybook/; do
               target="${url}${path}"
-              curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --max-time 30 "$target" --output /dev/null
-              echo "Verified $target"
+              status=""
+              for attempt in 1 2 3 4 5; do
+                status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$target" || true)"
+                # 2xx serves the Worker; 302 means Cloudflare Access guards the
+                # hostname. Anything else means the alias is not serving yet.
+                if [[ "$status" =~ ^[23] ]]; then break; fi
+                sleep $((attempt * 3))
+              done
+              if [[ ! "$status" =~ ^[23] ]]; then
+                echo "::error::${target} returned HTTP ${status:-no response}."
+                exit 1
+              fi
+              if [ "$status" = "302" ]; then
+                echo "Verified $target (HTTP 302; Cloudflare Access sign-in required)."
+              else
+                echo "Verified $target (HTTP $status)."
+              fi
             done
           done
 
@@ -174,82 +245,96 @@ jobs:
           version: 10.33.3
           run_install: false
 
-      - name: Render and upload QR codes
-        id: qr
-        timeout-minutes: 5
+      - name: Render preview comment
+        timeout-minutes: 8
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_DEFAULT_REGION: auto
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           S3_URL: ${{ secrets.R2_S3_ENDPOINT }}
-          APP_PREVIEW_AVAILABLE: ${{ needs.deploy-app-preview.result == 'success' }}
+          DEPLOY_PREVIEW_RESULT: ${{ needs.deploy-app-preview.result }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
-          upload_qr() {
-            name="$1"
-            url="$2"
-            [ -n "$url" ] || return 0
+          set -euo pipefail
+          preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+          pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+          sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
 
-            if ! pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "$name.png" -- "$url"; then
-              echo "::warning::failed to render the $name QR code"
-              return 0
-            fi
-            if ! aws s3 cp "$name.png" \
-              "s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}/qr/$name.png" \
-              --endpoint-url "$S3_URL" \
-              --content-type image/png \
-              --only-show-errors; then
-              echo "::warning::failed to upload the $name QR code"
-              return 0
-            fi
-
-            echo "${name//-/_}_qr_url=${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/$name.png" >> "$GITHUB_OUTPUT"
+          # Probe every advertised target so the comment never links a dead URL.
+          reachable() {
+            local url="$1" status=""
+            for attempt in 1 2 3; do
+              status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
+              if [[ "$status" =~ ^[23] ]]; then return 0; fi
+              sleep $((attempt * 3))
+            done
+            echo "${status:-no response}"
+            return 1
           }
 
-          if [ "$APP_PREVIEW_AVAILABLE" = "true" ]; then
-            preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            upload_qr app-preview "$preview_url"
-            upload_qr storybook-preview "${preview_url}/storybook/"
-            upload_qr app-pr "$pr_url"
-            upload_qr storybook-pr "${pr_url}/storybook/"
-            upload_qr app-commit "$sha_url"
-            upload_qr storybook-commit "${sha_url}/storybook/"
-          fi
+          # GitHub renders <img> tags through an anonymous fetch, so a QR code is
+          # only usable when its public URL is readable without credentials.
+          # The R2 artifact is preferred; when it cannot be read anonymously the
+          # encoded URL is sent to a public QR rendering service, so the private
+          # image bucket never has to be made public.
+          public_qr_url() {
+            local url="$1" encoded candidate response status type
+            encoded="$(jq -rn --arg u "$url" '$u|@uri')"
+            for candidate in \
+              "https://quickchart.io/qr?text=${encoded}&size=240&margin=1&format=png" \
+              "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encoded}"; do
+              response="$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$candidate" || true)"
+              status="${response%% *}"
+              type="${response#* }"
+              if [[ "$status" =~ ^2 && "$type" == image/png* ]]; then
+                printf '%s' "$candidate"
+                return 0
+              fi
+              echo "::warning::QR service ${candidate%%\?*} returned HTTP ${status:-no response} (${type:-no content type})." >&2
+            done
+            return 1
+          }
 
-      - name: Create preview comment
-        env:
-          APP_PREVIEW_AVAILABLE: ${{ needs.deploy-app-preview.result == 'success' }}
-          APP_PREVIEW_QR_URL: ${{ steps.qr.outputs.app_preview_qr_url }}
-          STORYBOOK_PREVIEW_QR_URL: ${{ steps.qr.outputs.storybook_preview_qr_url }}
-          APP_PR_QR_URL: ${{ steps.qr.outputs.app_pr_qr_url }}
-          STORYBOOK_PR_QR_URL: ${{ steps.qr.outputs.storybook_pr_qr_url }}
-          APP_COMMIT_QR_URL: ${{ steps.qr.outputs.app_commit_qr_url }}
-          STORYBOOK_COMMIT_QR_URL: ${{ steps.qr.outputs.storybook_commit_qr_url }}
-          COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
-          PR_NUMBER: ${{ github.event.number }}
-        run: |
-          preview_url=""
-          pr_url=""
-          sha_url=""
-          if [ "$APP_PREVIEW_AVAILABLE" = "true" ]; then
-            preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-          fi
+          qr_url() {
+            local name="$1" url="$2" artifact status="" type="" response qr=""
+            artifact="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/${name}.png"
+            if pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "/tmp/${name}.png" -- "$url" >/dev/null &&
+              aws s3 cp "/tmp/${name}.png" \
+                "s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}/qr/${name}.png" \
+                --endpoint-url "$S3_URL" \
+                --content-type image/png \
+                --only-show-errors; then
+              for attempt in 1 2 3; do
+                response="$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$artifact" || true)"
+                status="${response%% *}"
+                type="${response#* }"
+                if [[ "$status" =~ ^2 && "$type" == image/png* ]]; then
+                  printf '%s' "$artifact"
+                  return 0
+                fi
+                sleep 5
+              done
+              echo "::warning::Uploaded ${artifact} but it returned HTTP ${status:-no response} (${type:-no content type}); the comment will use a public QR service. Fix the QR artifact host or set the PREVIEW_BASE_URL repository variable." >&2
+            else
+              echo "::warning::Failed to render or upload the ${name} QR artifact; the comment will use a public QR service." >&2
+            fi
+            if qr="$(public_qr_url "$url")"; then
+              printf '%s' "$qr"
+              return 0
+            fi
+            echo "::warning::No QR code could be rendered for the ${name} target." >&2
+            return 1
+          }
 
           row() {
-            label="$1"
-            url="$2"
-            qr="$3"
-            if [ -z "$url" ]; then
-              printf '| %s | Not available | — |\n' "$label" >> comment.md
+            local label="$1" url="$2" name="$3" status="" qr=""
+            if ! status="$(reachable "$url")"; then
+              printf '| %s | Not available (HTTP %s) | — |\n' "$label" "$status" >> comment.md
               return
             fi
-            if [ -n "$qr" ]; then
+            if qr="$(qr_url "$name" "$url")"; then
               printf '| %s | <%s> | <img src="%s" width="120" height="120" alt="%s preview QR code"> |\n' \
                 "$label" "$url" "$qr" "$label" >> comment.md
             else
@@ -257,23 +342,21 @@ jobs:
             fi
           }
 
-          cat << 'EOF' > comment.md
-          ## Deploy preview
+          printf '## Deploy preview\n\n| Target | URL | QR |\n| --- | --- | --- |\n' > comment.md
+          row "App preview" "$preview_url" app-preview
+          row "Storybook preview" "$preview_url/storybook/" storybook-preview
+          row "PR #${PR_NUMBER} App" "$pr_url" app-pr
+          row "PR #${PR_NUMBER} Storybook" "$pr_url/storybook/" storybook-pr
+          row "Commit ${COMMIT_SHORT_SHA} App" "$sha_url" app-commit
+          row "Commit ${COMMIT_SHORT_SHA} Storybook" "$sha_url/storybook/" storybook-commit
 
-          | Target | URL | QR |
-          | --- | --- | --- |
-          EOF
-          row "App preview" "$preview_url" "$APP_PREVIEW_QR_URL"
-          row "Storybook preview" "${preview_url:+$preview_url/storybook/}" "$STORYBOOK_PREVIEW_QR_URL"
-          row "PR #${PR_NUMBER} App" "$pr_url" "$APP_PR_QR_URL"
-          row "PR #${PR_NUMBER} Storybook" "${pr_url:+$pr_url/storybook/}" "$STORYBOOK_PR_QR_URL"
-          row "Commit ${COMMIT_SHORT_SHA} App" "$sha_url" "$APP_COMMIT_QR_URL"
-          row "Commit ${COMMIT_SHORT_SHA} Storybook" "${sha_url:+$sha_url/storybook/}" "$STORYBOOK_COMMIT_QR_URL"
-          if [ "$APP_PREVIEW_AVAILABLE" != "true" ]; then
-            echo "Preview URLs unavailable because App Worker deployment failed; see the Deploy App Preview job."
+          printf '\n' >> comment.md
+          if [ "$DEPLOY_PREVIEW_RESULT" = "success" ]; then
+            printf 'All aliases serve the same preview build. App API writes to production D1; preview hostnames are gated by Cloudflare Access. Production R2 and Inventia integrations are omitted.\n' >> comment.md
           else
-            echo "All aliases serve the same preview build. App API writes to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized."
-          fi >> comment.md
+            printf 'The Deploy App Preview job ended with `%s`; targets may be missing or stale, and rows marked _Not available_ were unreachable when this comment was written.\n' "$DEPLOY_PREVIEW_RESULT" >> comment.md
+          fi
+          printf 'Preview hostnames sit behind Cloudflare Access, so opening them requires a signed-in browser.\n' >> comment.md
 
       - name: Create PR comment
         run: |
