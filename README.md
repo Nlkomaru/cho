@@ -76,7 +76,7 @@ openssl rand -base64 32 | gh secret set SETTINGS_ENCRYPTION_KEY
 
 未設定でもデプロイと PR チェックは成功しますが、integration settings の認証情報保存・利用、AI 連携、署名付き画像 URL は利用できません。GitHub Actions は未設定時に警告します。PR プレビューにこの secret は渡しません。
 
-Storybook の PR preview は R2 に配置します。App の PR preview は `workers.dev` version URL で公開し、production D1 (`DB`) に直接接続します。プレビューには `SETTINGS_ENCRYPTION_KEY` やその他のアプリ資格情報を渡しません。API は認証なしで、production D1 に対する `POST/PATCH/DELETE /api/meals`、`POST/PATCH/DELETE /api/dishes`、`POST/PATCH /api/ingredients`、`POST /api/ingredients/sync-inventia` などの書き込みが可能です。`POST /api/images/upload` は production R2 へアップロードできます。信頼できる利用者に限って共有し、production データを変更・削除し得ることに注意してください。PR comment は App/Storybook URL と QR を掲載します。
+Storybook の PR preview は R2 に配置します。App の PR preview は公開 `workers.dev` version URL で production D1 (`DB`) に直接接続します。D1 の API は認証なしで、`POST/PATCH/DELETE /api/meals`、`POST/PATCH/DELETE /api/dishes`、`POST/PATCH /api/ingredients` や `PUT /api/settings/integrations` などの production データを書き換えられます。production R2 (`IMAGES_BUCKET`) と Inventia (`INVENTIA_BASE_URL`) は App preview の Worker config から除き、画像ストレージおよび Inventia 連携・在庫操作は利用できません。`SETTINGS_ENCRYPTION_KEY` やアプリ資格情報も preview に渡しません。信頼できる利用者に限って共有し、production D1 の変更・削除に注意してください。PR comment は App/Storybook URL と QR を掲載します。
 
 ## Theme and styling
 

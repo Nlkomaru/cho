@@ -92,6 +92,23 @@ jobs:
       - name: Build app
         run: pnpm run build
 
+      - name: Restrict preview Worker bindings
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from "node:fs/promises";
+
+          const configPath = "app/dist/server/wrangler.json";
+          const config = JSON.parse(await readFile(configPath, "utf8"));
+          delete config.r2_buckets;
+          if (config.vars) {
+            delete config.vars.INVENTIA_BASE_URL;
+            if (Object.keys(config.vars).length === 0) delete config.vars;
+          }
+          config.workers_dev = true;
+          config.preview_urls = true;
+          await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
       - name: Upload App preview version
         id: deploy-preview
         uses: cloudflare/wrangler-action@v3
@@ -273,7 +290,7 @@ jobs:
           row Storybook "$storybook_preview_url" "$STORYBOOK_QR_URL"
           cat << 'EOF' >> comment.md
 
-          App preview is publicly accessible and writes directly to production D1; use only if authorized. Storybook preview is available.
+          App preview can write to production D1 without authentication; production R2 and Inventia integrations are omitted. Use only if authorized. Storybook preview is available.
           EOF
 
       - name: Create PR comment
