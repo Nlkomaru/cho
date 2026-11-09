@@ -14,6 +14,7 @@ import {
   deleteRecipeInputSchema,
   deleteResultSchema,
   purchaseListResultSchema,
+  updateIngredientInputSchema,
   type McpToolName,
 } from "../domain/mcp";
 import { calculatePurchaseList } from "../domain/purchase-list";
@@ -31,9 +32,12 @@ const ingredientInput = ingredientObjectSchema
   .omit({
     id: true,
     normalizedName: true,
-    inventiaItemId: true,
     latestUnitPriceYen: true,
     latestPriceUpdatedAt: true,
+  })
+  .extend({
+    inventiaItemId: z.string().trim().min(1).max(128).nullable().optional(),
+    inventia_item_id: z.string().trim().min(1).max(128).nullable().optional(),
   })
   .strict();
 const recipeInput = z
@@ -111,8 +115,51 @@ export function createMcpServer(
         outputSchema: output.ingredient,
       },
       async (input) => {
-        const ingredient = ingredientSchema.parse({ ...input, id: crypto.randomUUID() });
+        const inventiaItemId =
+          input.inventiaItemId !== undefined
+            ? input.inventiaItemId
+            : (input.inventia_item_id ?? null);
+        const ingredient = ingredientSchema.parse({
+          ...input,
+          inventiaItemId,
+          id: crypto.randomUUID(),
+        });
         return mcpSuccess({ ingredient: await ingredientService.create(ingredient) });
+      },
+    );
+  if (allowed.has("update_ingredient"))
+    server.registerTool(
+      "update_ingredient",
+      {
+        title: "Update an ingredient",
+        description: "Update an existing ingredient in Cho, such as setting its Inventia item ID.",
+        inputSchema: updateIngredientInputSchema,
+        outputSchema: output.ingredient,
+      },
+      async (input) => {
+        const targetId = input.id ?? input.ingredientId;
+        if (!targetId) {
+          throw new Error("Missing ingredient ID");
+        }
+        const inventiaItemId =
+          input.inventiaItemId !== undefined ? input.inventiaItemId : input.inventia_item_id;
+        const changes: Partial<Omit<Ingredient, "id">> = {};
+        if (inventiaItemId !== undefined) changes.inventiaItemId = inventiaItemId;
+        if (input.name !== undefined) changes.name = input.name;
+        if (input.baseDimension !== undefined) changes.baseDimension = input.baseDimension;
+        if (input.baseUnit !== undefined) changes.baseUnit = input.baseUnit;
+        if (input.nutritionBasisAmount !== undefined)
+          changes.nutritionBasisAmount = input.nutritionBasisAmount;
+        if (input.nutritionPerBasis !== undefined)
+          changes.nutritionPerBasis = input.nutritionPerBasis;
+        if (input.gramPerUnit !== undefined) changes.gramPerUnit = input.gramPerUnit;
+        if (input.memo !== undefined) changes.memo = input.memo;
+
+        const updated = await ingredientService.update(targetId, changes);
+        if (!updated) {
+          throw new Error(`Ingredient not found: ${targetId}`);
+        }
+        return mcpSuccess({ ingredient: updated });
       },
     );
   if (allowed.has("delete_ingredient"))

@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { nutritionFactsSchema } from "./nutrition";
 import { recipeSchema } from "./recipe";
 
 export const mcpToolNames = [
   "list_ingredients",
   "create_ingredient",
+  "update_ingredient",
   "delete_ingredient",
   "list_recipes",
   "create_recipe",
@@ -14,6 +16,27 @@ export const mcpToolNames = [
 
 export const mcpToolNameSchema = z.enum(mcpToolNames);
 export type McpToolName = z.infer<typeof mcpToolNameSchema>;
+
+export const updateIngredientInputSchema = z
+  .object({
+    id: z.string().trim().min(1).optional(),
+    ingredientId: z.string().trim().min(1).optional(),
+    inventiaItemId: z.string().trim().min(1).max(128).nullable().optional(),
+    inventia_item_id: z.string().trim().min(1).max(128).nullable().optional(),
+    name: z.string().trim().min(1).max(120).optional(),
+    baseDimension: z.enum(["mass", "volume", "count"]).optional(),
+    baseUnit: z.string().trim().min(1).max(50).optional(),
+    nutritionBasisAmount: z.number().positive().optional(),
+    nutritionPerBasis: nutritionFactsSchema.optional(),
+    gramPerUnit: z.number().positive().nullable().optional(),
+    memo: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict()
+  .refine((data) => Boolean(data.id || data.ingredientId), {
+    message: "Either id or ingredientId must be provided",
+  });
+
+export type UpdateIngredientInput = z.infer<typeof updateIngredientInputSchema>;
 
 export const deleteRecipeInputSchema = z
   .object({
