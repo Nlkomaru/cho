@@ -2,7 +2,7 @@ import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AppDatabase } from "../db/client";
-import { mcpToolNameSchema, type McpToolName } from "../domain/mcp";
+import { mcpToolNameSchema, mcpToolNames, type McpToolName } from "../domain/mcp";
 import { mcpApiTokens, mcpToolUsageDaily } from "../db/schema";
 
 export type McpTokenRecord = {
@@ -21,6 +21,14 @@ export type McpTokenSummary = Pick<
   McpTokenRecord,
   "id" | "name" | "prefix" | "allowedTools" | "createdAt" | "expiresAt" | "revokedAt" | "lastUsedAt"
 >;
+
+export type McpUsageSummary = {
+  periodDays: 30;
+  totalCalls: number;
+  activeTokens: number;
+  tools: { toolName: string; totalCalls: number; lastUsedDate: string | null }[];
+  activity: { utcDate: string; callCount: number }[];
+};
 type Database = AppDatabase;
 
 function parseToken(row: typeof mcpApiTokens.$inferSelect): McpTokenRecord {
@@ -73,6 +81,43 @@ export function createMcpTokenRepository(db: Database) {
         createdAt: input.createdAt,
         expiresAt: input.expiresAt,
       });
+    },
+    async upsert(input: {
+      id: string;
+      name: string;
+      ownerSubject: string;
+      prefix: string;
+      secretHash: string;
+      allowedTools: readonly string[];
+      createdAt: string;
+      expiresAt: string | null;
+      lastUsedAt?: string | null;
+    }): Promise<void> {
+      await db
+        .insert(mcpApiTokens)
+        .values({
+          id: input.id,
+          name: input.name,
+          ownerSubject: input.ownerSubject,
+          prefix: input.prefix,
+          secretHash: input.secretHash,
+          allowedTools: JSON.stringify(input.allowedTools),
+          createdAt: input.createdAt,
+          expiresAt: input.expiresAt,
+          lastUsedAt: input.lastUsedAt ?? null,
+        })
+        .onConflictDoUpdate({
+          target: mcpApiTokens.id,
+          set: {
+            name: input.name,
+            expiresAt: input.expiresAt,
+            allowedTools: JSON.stringify(input.allowedTools),
+          },
+        });
+    },
+    async getById(id: string): Promise<McpTokenRecord | null> {
+      const [row] = await db.select().from(mcpApiTokens).where(eq(mcpApiTokens.id, id)).limit(1);
+      return row ? parseToken(row) : null;
     },
     async getByHash(secretHash: string): Promise<McpTokenRecord | null> {
       const [row] = await db
@@ -138,6 +183,72 @@ export function createMcpTokenRepository(db: Database) {
           };
         }),
       );
+    },
+    async usageSummary(now = new Date()): Promise<McpUsageSummary> {
+      const today = now.toISOString().slice(0, 10);
+      const todayDate = new Date(`${today}T00:00:00.000Z`);
+      const startDate = new Date(todayDate.getTime() - 29 * 86400000).toISOString().slice(0, 10);
+
+      const [dailyRows, allTokens] = await Promise.all([
+        db
+          .select({
+            tokenId: mcpToolUsageDaily.tokenId,
+            toolName: mcpToolUsageDaily.toolName,
+            utcDate: mcpToolUsageDaily.utcDate,
+            callCount: mcpToolUsageDaily.callCount,
+          })
+          .from(mcpToolUsageDaily)
+          .where(
+            and(gte(mcpToolUsageDaily.utcDate, startDate), lte(mcpToolUsageDaily.utcDate, today)),
+          ),
+        db.select().from(mcpApiTokens),
+      ]);
+
+      const nowIso = now.toISOString();
+      const activeTokens = allTokens.filter(
+        (t) => t.revokedAt === null && (!t.expiresAt || t.expiresAt > nowIso),
+      ).length;
+
+      const dailyTotals = new Map<string, number>();
+      for (const row of dailyRows) {
+        dailyTotals.set(row.utcDate, (dailyTotals.get(row.utcDate) ?? 0) + row.callCount);
+      }
+
+      const activity = Array.from({ length: 30 }, (_, index) => {
+        const d = new Date(todayDate.getTime() - (29 - index) * 86400000)
+          .toISOString()
+          .slice(0, 10);
+        return { utcDate: d, callCount: dailyTotals.get(d) ?? 0 };
+      });
+
+      const toolMap = new Map<string, { totalCalls: number; lastUsedDate: string | null }>();
+      for (const tool of mcpToolNames) {
+        toolMap.set(tool, { totalCalls: 0, lastUsedDate: null });
+      }
+      for (const row of dailyRows) {
+        const item = toolMap.get(row.toolName) ?? { totalCalls: 0, lastUsedDate: null };
+        item.totalCalls += row.callCount;
+        if (!item.lastUsedDate || row.utcDate > item.lastUsedDate) {
+          item.lastUsedDate = row.utcDate;
+        }
+        toolMap.set(row.toolName, item);
+      }
+
+      const tools = [...toolMap.entries()].map(([toolName, data]) => ({
+        toolName,
+        totalCalls: data.totalCalls,
+        lastUsedDate: data.lastUsedDate,
+      }));
+
+      const totalCalls = dailyRows.reduce((sum, row) => sum + row.callCount, 0);
+
+      return {
+        periodDays: 30,
+        totalCalls,
+        activeTokens,
+        tools,
+        activity,
+      };
     },
     async markUsed(id: string, lastUsedAt: string, olderThan: string): Promise<void> {
       await db

@@ -1,7 +1,14 @@
+import { apiKey } from "@better-auth/api-key";
+import { betterAuth, type SecondaryStorage } from "better-auth";
 import { z } from "zod";
 
-import { mcpToolNameSchema, type McpToolName } from "../domain/mcp";
-import { createMcpTokenRepository } from "../repositories/mcp-token-repository";
+import { mcpToolNameSchema, mcpToolNames, type McpToolName } from "../domain/mcp";
+import {
+  createMcpTokenRepository,
+  type McpTokenRecord,
+  type McpUsageSummary,
+} from "../repositories/mcp-token-repository";
+export type { McpUsageSummary };
 import type { AppDatabase } from "../db/client";
 
 export const issueMcpTokenSchema = z
@@ -29,90 +36,243 @@ export type McpPrincipal = {
 type Database = AppDatabase;
 const MANAGEMENT_OWNER_SUBJECT = "cho-management-operator";
 
-export type McpManagementPrincipal = { kind: "operator" };
-
-export async function verifyMcpManagementBearer(
-  authorization: string | undefined,
-  configuredHash: string | undefined,
-): Promise<McpManagementPrincipal | null> {
-  const match = authorization?.match(/^Bearer (.+)$/i);
-  if (
-    !match ||
-    !/^cho_mgr_[0-9a-f]{64}$/.test(match[1]) ||
-    !configuredHash ||
-    !/^[0-9a-f]{64}$/.test(configuredHash)
-  )
-    return null;
-  const digest = await hashSecret(match[1]);
-  let difference = 0;
-  for (let index = 0; index < 64; index++)
-    difference |= digest.charCodeAt(index) ^ configuredHash.charCodeAt(index);
-  return difference === 0 ? { kind: "operator" } : null;
-}
-
 export function isMcpManagementEnabled(value: string | undefined): boolean {
-  return value === "true";
+  return value !== "false";
 }
 
 function encodeHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function hashSecret(secret: string): Promise<string> {
+async function hashSecretHex(secret: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
   return encodeHex(new Uint8Array(digest));
 }
 
+function serializeRowToApiKey(row: McpTokenRecord & { ownerSubject?: string }): string {
+  return JSON.stringify({
+    configId: "mcp",
+    id: row.id,
+    name: row.name,
+    prefix: "cho_mcp_",
+    start: row.prefix,
+    key: row.secretHash,
+    enabled: row.revokedAt === null,
+    expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
+    referenceId:
+      "ownerSubject" in row && row.ownerSubject ? row.ownerSubject : MANAGEMENT_OWNER_SUBJECT,
+    lastRefillAt: null,
+    lastRequest: row.lastUsedAt ? new Date(row.lastUsedAt).toISOString() : null,
+    metadata: { allowedTools: row.allowedTools },
+    rateLimitMax: 10,
+    rateLimitTimeWindow: 86400000,
+    remaining: null,
+    refillAmount: null,
+    refillInterval: null,
+    rateLimitEnabled: false,
+    requestCount: 0,
+    permissions: null,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.lastUsedAt ?? row.createdAt).toISOString(),
+  });
+}
+
 export function createMcpTokenService(db: Database) {
   const repository = createMcpTokenRepository(db);
-  async function issue(input: IssueMcpTokenInput, now: Date) {
-    if (input.expiresAt && Date.parse(input.expiresAt) <= now.getTime())
+
+  const customStorage: SecondaryStorage = {
+    async get(key: string): Promise<string | null> {
+      if (key.startsWith("api-key:by-id:")) {
+        const id = key.slice("api-key:by-id:".length);
+        const row = await repository.getById(id);
+        if (!row || row.revokedAt !== null) return null;
+        return serializeRowToApiKey(row);
+      }
+      if (key.startsWith("api-key:")) {
+        const secretHash = key.slice("api-key:".length);
+        const row = await repository.getByHash(secretHash);
+        if (!row || row.revokedAt !== null) return null;
+        return serializeRowToApiKey(row);
+      }
+      return null;
+    },
+    async set(key: string, value: string): Promise<void> {
+      if (key.startsWith("api-key:by-id:") || key.startsWith("api-key:")) {
+        let data: {
+          id?: string;
+          name?: string;
+          referenceId?: string;
+          start?: string;
+          prefix?: string;
+          key?: string;
+          metadata?: { allowedTools?: McpToolName[] };
+          createdAt?: string;
+          expiresAt?: string | null;
+          lastRequest?: string | null;
+        };
+        try {
+          data = JSON.parse(value);
+        } catch {
+          return;
+        }
+        if (!data?.id || !data?.key) return;
+        const allowedTools = data.metadata?.allowedTools ?? [...mcpToolNames];
+        const prefix =
+          data.start ?? (typeof data.key === "string" ? data.key.slice(0, 16) : "cho_mcp_");
+        const createdAt = data.createdAt
+          ? new Date(data.createdAt).toISOString()
+          : new Date().toISOString();
+        const expiresAt = data.expiresAt ? new Date(data.expiresAt).toISOString() : null;
+
+        await repository.upsert({
+          id: data.id,
+          name: data.name ?? "MCP Client",
+          ownerSubject: data.referenceId ?? MANAGEMENT_OWNER_SUBJECT,
+          prefix,
+          secretHash: data.key,
+          allowedTools,
+          createdAt,
+          expiresAt,
+        });
+      }
+    },
+    async delete(key: string): Promise<void> {
+      const now = new Date().toISOString();
+      if (key.startsWith("api-key:by-id:")) {
+        const id = key.slice("api-key:by-id:".length);
+        await repository.revokeRoot(id, now);
+      } else if (key.startsWith("api-key:")) {
+        const secretHash = key.slice("api-key:".length);
+        const row = await repository.getByHash(secretHash);
+        if (row) {
+          await repository.revokeRoot(row.id, now);
+        }
+      }
+    },
+  };
+
+  const auth = betterAuth({
+    secret: "cho-mcp-internal-auth-secret-key-salt-32chars",
+    baseURL: "https://cho.local",
+    logger: { disabled: true },
+    plugins: [
+      apiKey({
+        configId: "mcp",
+        references: "user",
+        storage: "secondary-storage",
+        customStorage,
+        defaultPrefix: "cho_mcp_",
+        defaultKeyLength: 64,
+        startingCharactersConfig: {
+          shouldStore: true,
+          charactersLength: 16,
+        },
+        keyExpiration: {
+          minExpiresIn: 0,
+          maxExpiresIn: 3650,
+        },
+        customKeyGenerator: ({ prefix }) => {
+          const bytes = crypto.getRandomValues(new Uint8Array(32));
+          const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+          return `${prefix ?? "cho_mcp_"}${hex}`;
+        },
+        enableMetadata: true,
+        rateLimit: { enabled: false },
+      }),
+    ],
+  });
+
+  async function issue(input: IssueMcpTokenInput, now: Date): Promise<IssuedMcpToken> {
+    if (input.expiresAt && Date.parse(input.expiresAt) <= now.getTime()) {
       throw new RangeError("Token expiry must be in the future");
-    const random = crypto.getRandomValues(new Uint8Array(32));
-    const secret = `cho_mcp_${encodeHex(random)}`;
-    const id = crypto.randomUUID();
+    }
+    const expiresInSeconds = input.expiresAt
+      ? Math.max(1, Math.floor((Date.parse(input.expiresAt) - now.getTime()) / 1000))
+      : undefined;
+    const allowedTools = [...new Set(input.allowedTools)];
+
+    const created = await auth.api.createApiKey({
+      body: {
+        configId: "mcp",
+        name: input.name,
+        userId: MANAGEMENT_OWNER_SUBJECT,
+        expiresIn: expiresInSeconds,
+        metadata: { allowedTools },
+      },
+    });
+
     const createdAt = now.toISOString();
     const expiresAt = input.expiresAt ?? null;
-    const allowedTools = [...new Set(input.allowedTools)];
-    await repository.create({
-      id,
+    const prefix = created.key.slice(0, 16);
+
+    const storedRow = await repository.getById(created.id);
+    await repository.upsert({
+      id: created.id,
       name: input.name,
       ownerSubject: MANAGEMENT_OWNER_SUBJECT,
-      prefix: secret.slice(0, 16),
-      secretHash: await hashSecret(secret),
+      prefix,
+      secretHash: storedRow?.secretHash ?? created.key,
       allowedTools,
       createdAt,
       expiresAt,
     });
+
     return {
-      id,
+      id: created.id,
       name: input.name,
-      prefix: secret.slice(0, 16),
-      secret,
+      prefix,
+      secret: created.key,
       allowedTools,
       createdAt,
       expiresAt,
     };
   }
+
   return {
     issueRoot: (input: IssueMcpTokenInput, now = new Date()) => issue(input, now),
     async authenticate(secret: string, now = new Date()): Promise<McpPrincipal | null> {
-      const token = await repository.getByHash(await hashSecret(secret));
+      let principalToken: McpTokenRecord | null = null;
+
+      try {
+        const verified = await auth.api.verifyApiKey({
+          body: {
+            configId: "mcp",
+            key: secret,
+          },
+        });
+        if (verified?.valid && verified.key) {
+          if (verified.key.expiresAt && verified.key.expiresAt.getTime() <= now.getTime()) {
+            return null;
+          }
+          principalToken = await repository.getById(verified.key.id);
+        }
+      } catch {
+        // Fall back to direct hash lookup if verify threw
+      }
+
+      if (!principalToken) {
+        const digest = await hashSecretHex(secret);
+        principalToken = await repository.getByHash(digest);
+      }
+
       if (
-        !token ||
-        token.revokedAt ||
-        (token.expiresAt && Date.parse(token.expiresAt) <= now.getTime())
-      )
+        !principalToken ||
+        principalToken.revokedAt ||
+        (principalToken.expiresAt && Date.parse(principalToken.expiresAt) <= now.getTime())
+      ) {
         return null;
+      }
+
       const timestamp = now.toISOString();
       const cutoff = new Date(now.getTime() - 5 * 60_000).toISOString();
-      await repository.markUsed(token.id, timestamp, cutoff);
-      return { id: token.id, allowedTools: token.allowedTools };
+      await repository.markUsed(principalToken.id, timestamp, cutoff);
+      return { id: principalToken.id, allowedTools: principalToken.allowedTools };
     },
     listRoot: () => repository.listAll(),
     revokeRoot: (id: string, now = new Date()) => repository.revokeRoot(id, now.toISOString()),
     usageRoot: (tokenId?: string, interval?: { from?: string; to?: string }) =>
       repository.usageRoot(tokenId, interval),
+    usageSummary: (now = new Date()) => repository.usageSummary(now),
     recordToolCall: (tokenId: string, toolName: McpToolName, now = new Date()) =>
       repository.recordToolCall(tokenId, toolName, now.toISOString().slice(0, 10)),
   };

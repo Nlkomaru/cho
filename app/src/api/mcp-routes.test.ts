@@ -253,50 +253,45 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
     const persisted = sqlite.prepare("SELECT * FROM mcp_api_tokens WHERE id = ?").get(issued.id);
     expect(JSON.stringify(persisted)).not.toContain(marker);
 
-    const managerToken = `cho_mgr_${"a".repeat(64)}`;
-    const managerHash = Array.from(
-      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(managerToken))),
-      (byte) => byte.toString(16).padStart(2, "0"),
-    ).join("");
-    const managerEnv = {
-      ...env,
-      MCP_MANAGEMENT_ENABLED: "true",
-      MCP_MANAGEMENT_TOKEN_HASH: managerHash,
-    };
-    const missingConfiguration = await api.fetch(
+    // Preview environment guard test: disabled when MCP_MANAGEMENT_ENABLED is "false"
+    const previewEnv = { ...env, MCP_MANAGEMENT_ENABLED: "false" };
+    const previewGetTokens = await api.fetch(
       new Request("http://localhost/api/mcp/tokens"),
-      env,
+      previewEnv,
     );
-    expect(missingConfiguration.headers.get("Cache-Control")).toBe("no-store");
-    const malformedConfiguration = await api.fetch(new Request("http://localhost/api/mcp/tokens"), {
-      ...managerEnv,
-      MCP_MANAGEMENT_TOKEN_HASH: "malformed",
+    expect(previewGetTokens.status).toBe(503);
+    expect(previewGetTokens.headers.get("Cache-Control")).toBe("no-store");
+    expect(await previewGetTokens.json()).toEqual({
+      error: "MCP management is disabled in preview",
     });
-    expect(malformedConfiguration.status).toBe(503);
-    const missingBearer = await api.fetch(
-      new Request("http://localhost/api/mcp/tokens"),
-      managerEnv,
-    );
-    expect(missingBearer.headers.get("Cache-Control")).toBe("no-store");
-    const invalidBearer = await api.fetch(
+
+    const previewPostTokens = await api.fetch(
       new Request("http://localhost/api/mcp/tokens", {
-        headers: { Authorization: `Bearer ${managerToken.slice(0, -1)}b` },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Preview token", allowedTools: ["list_ingredients"] }),
       }),
-      managerEnv,
+      previewEnv,
     );
-    expect(invalidBearer.status).toBe(401);
-    const clientBearer = await api.fetch(
-      new Request("http://localhost/api/mcp/tokens", {
-        headers: { Authorization: `Bearer ${issued.secret}` },
-      }),
-      managerEnv,
+    expect(previewPostTokens.status).toBe(503);
+
+    const previewDeleteTokens = await api.fetch(
+      new Request(`http://localhost/api/mcp/tokens/${issued.id}`, { method: "DELETE" }),
+      previewEnv,
     );
-    expect(clientBearer.status).toBe(401);
+    expect(previewDeleteTokens.status).toBe(503);
+
+    const previewGetUsage = await api.fetch(
+      new Request("http://localhost/api/mcp/usage"),
+      previewEnv,
+    );
+    expect(previewGetUsage.status).toBe(503);
+
+    // Normal access (protected by Cloudflare Access at edge, direct access internally)
     const issueResponse = await api.fetch(
       new Request("http://localhost/api/mcp/tokens", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${managerToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -304,9 +299,10 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
           allowedTools: ["list_ingredients"],
         }),
       }),
-      managerEnv,
+      env,
     );
     expect(issueResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(issueResponse.status).toBe(201);
     const managedToken = (await issueResponse.json()) as { id: string; secret: string };
     expect(managedToken.secret).toMatch(/^cho_mcp_[0-9a-f]{64}$/);
     const newOwner = sqlite
@@ -317,14 +313,10 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
     sqlite
       .prepare("UPDATE mcp_api_tokens SET owner_subject = ? WHERE id = ?")
       .run("legacy-owner-from-access", issued.id);
-    const caseInsensitiveBearer = await api.fetch(
-      new Request("http://localhost/api/mcp/tokens", {
-        headers: { Authorization: `bEaReR ${managerToken}` },
-      }),
-      managerEnv,
-    );
-    expect(caseInsensitiveBearer.headers.get("Cache-Control")).toBe("no-store");
-    const listedTokens = await caseInsensitiveBearer.json();
+    const listResponse = await api.fetch(new Request("http://localhost/api/mcp/tokens"), env);
+    expect(listResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(listResponse.status).toBe(200);
+    const listedTokens = await listResponse.json();
     expect(listedTokens).toMatchObject({
       tokens: expect.arrayContaining([
         expect.objectContaining({ id: issued.id, name: "Integration test client" }),
@@ -339,12 +331,15 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
     const usageResponse = await api.fetch(
       new Request(
         `http://localhost/api/mcp/usage?tokenId=${issued.id}&from=${todayUtc}&to=${todayUtc}`,
-        { headers: { Authorization: `Bearer ${managerToken}` } },
       ),
-      managerEnv,
+      env,
     );
     expect(usageResponse.headers.get("Cache-Control")).toBe("no-store");
-    const usageBody = await usageResponse.json();
+    expect(usageResponse.status).toBe(200);
+    const usageBody = (await usageResponse.json()) as {
+      usage: unknown[];
+      summary: { periodDays: number; totalCalls: number; activeTokens: number };
+    };
     expect(usageBody).toMatchObject({
       usage: [
         expect.objectContaining({
@@ -355,25 +350,39 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
           ]),
         }),
       ],
+      summary: expect.objectContaining({
+        periodDays: 30,
+        totalCalls: 6,
+        activeTokens: 2,
+      }),
     });
     expect(JSON.stringify(usageBody)).not.toContain(issued.secret);
 
     const revoked = await api.fetch(
       new Request(`http://localhost/api/mcp/tokens/${issued.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${managerToken}` },
       }),
-      managerEnv,
+      env,
     );
     expect(revoked.headers.get("Cache-Control")).toBe("no-store");
+    expect(revoked.status).toBe(204);
     const repeatedRevoke = await api.fetch(
       new Request(`http://localhost/api/mcp/tokens/${issued.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${managerToken}` },
       }),
-      managerEnv,
+      env,
     );
     expect(repeatedRevoke.headers.get("Cache-Control")).toBe("no-store");
+    expect(repeatedRevoke.status).toBe(204);
+
+    const nonExistentRevoke = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens/non-existent-id", {
+        method: "DELETE",
+      }),
+      env,
+    );
+    expect(nonExistentRevoke.headers.get("Cache-Control")).toBe("no-store");
+    expect(nonExistentRevoke.status).toBe(404);
     const preservedOwner = sqlite
       .prepare("SELECT owner_subject FROM mcp_api_tokens WHERE id = ?")
       .get(issued.id) as { owner_subject: string };

@@ -2,11 +2,10 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import { createDbClient } from "../db/client";
-import { issueMcpTokenSchema, createMcpTokenService } from "../services/mcp-tokens";
 import {
+  issueMcpTokenSchema,
+  createMcpTokenService,
   isMcpManagementEnabled,
-  verifyMcpManagementBearer,
-  type McpManagementPrincipal,
 } from "../services/mcp-tokens";
 import type { ApiBindings } from "./index";
 
@@ -25,32 +24,10 @@ const usageQuerySchema = z
   .strict()
   .refine((query) => !query.from || !query.to || query.from <= query.to);
 
-async function requireManagement(request: Request, env: ApiBindings) {
-  if (
-    !isMcpManagementEnabled(env.MCP_MANAGEMENT_ENABLED) ||
-    !env.MCP_MANAGEMENT_TOKEN_HASH ||
-    !/^[0-9a-f]{64}$/.test(env.MCP_MANAGEMENT_TOKEN_HASH)
-  )
-    return 503;
-  return (
-    (await verifyMcpManagementBearer(
-      request.headers.get("Authorization") ?? undefined,
-      env.MCP_MANAGEMENT_TOKEN_HASH,
-    )) ?? 401
-  );
-}
-
-function isPrincipal(value: number | McpManagementPrincipal): value is McpManagementPrincipal {
-  return typeof value !== "number";
-}
-
 mcpTokenRoutes.post("/api/mcp/tokens", async (context) => {
-  const principal = await requireManagement(context.req.raw, context.env);
-  if (!isPrincipal(principal))
-    return context.json(
-      { error: principal === 503 ? "MCP management is not configured" : "Unauthorized" },
-      principal,
-    );
+  if (!isMcpManagementEnabled(context.env.MCP_MANAGEMENT_ENABLED)) {
+    return context.json({ error: "MCP management is disabled in preview" }, 503);
+  }
   let body: unknown;
   try {
     body = await context.req.json();
@@ -69,23 +46,17 @@ mcpTokenRoutes.post("/api/mcp/tokens", async (context) => {
 });
 
 mcpTokenRoutes.get("/api/mcp/tokens", async (context) => {
-  const principal = await requireManagement(context.req.raw, context.env);
-  if (!isPrincipal(principal))
-    return context.json(
-      { error: principal === 503 ? "MCP management is not configured" : "Unauthorized" },
-      principal,
-    );
+  if (!isMcpManagementEnabled(context.env.MCP_MANAGEMENT_ENABLED)) {
+    return context.json({ error: "MCP management is disabled in preview" }, 503);
+  }
   const tokens = await createMcpTokenService(createDbClient(context.env.DB)).listRoot();
   return context.json({ tokens }, 200);
 });
 
 mcpTokenRoutes.delete("/api/mcp/tokens/:id", async (context) => {
-  const principal = await requireManagement(context.req.raw, context.env);
-  if (!isPrincipal(principal))
-    return context.json(
-      { error: principal === 503 ? "MCP management is not configured" : "Unauthorized" },
-      principal,
-    );
+  if (!isMcpManagementEnabled(context.env.MCP_MANAGEMENT_ENABLED)) {
+    return context.json({ error: "MCP management is disabled in preview" }, 503);
+  }
   const id = idSchema.safeParse(context.req.param("id"));
   if (!id.success) return context.json({ error: "Invalid token ID" }, 400);
   const revoked = await createMcpTokenService(createDbClient(context.env.DB)).revokeRoot(id.data);
@@ -93,17 +64,18 @@ mcpTokenRoutes.delete("/api/mcp/tokens/:id", async (context) => {
 });
 
 mcpTokenRoutes.get("/api/mcp/usage", async (context) => {
-  const principal = await requireManagement(context.req.raw, context.env);
-  if (!isPrincipal(principal))
-    return context.json(
-      { error: principal === 503 ? "MCP management is not configured" : "Unauthorized" },
-      principal,
-    );
+  if (!isMcpManagementEnabled(context.env.MCP_MANAGEMENT_ENABLED)) {
+    return context.json({ error: "MCP management is disabled in preview" }, 503);
+  }
   const query = usageQuerySchema.safeParse(context.req.query());
   if (!query.success) return context.json({ error: "Invalid usage query" }, 400);
-  const usage = await createMcpTokenService(createDbClient(context.env.DB)).usageRoot(
-    query.data.tokenId,
-    { from: query.data.from, to: query.data.to },
-  );
-  return context.json({ usage }, 200);
+  const tokenService = createMcpTokenService(createDbClient(context.env.DB));
+  const [usage, summary] = await Promise.all([
+    tokenService.usageRoot(query.data.tokenId, {
+      from: query.data.from,
+      to: query.data.to,
+    }),
+    tokenService.usageSummary(),
+  ]);
+  return context.json({ usage, summary }, 200);
 });

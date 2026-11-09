@@ -3,7 +3,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { expect, test } from "vite-plus/test";
 
 import { createDbClient } from "../db/client";
-import { createMcpTokenService } from "./mcp-tokens";
+import { createMcpTokenService, isMcpManagementEnabled } from "./mcp-tokens";
 
 function database() {
   const sqlite = new DatabaseSync(":memory:");
@@ -123,7 +123,25 @@ test("MCP tokens expire and revoke, and root usage totals respect the interval",
     expect(await service.listRoot()).toEqual([
       expect.objectContaining({ id: issued.id, revokedAt: "2026-11-09T12:00:00.000Z" }),
     ]);
+
+    // Test usageSummary
+    const summary = await service.usageSummary(new Date("2026-11-10T12:00:00.000Z"));
+    expect(summary.periodDays).toBe(30);
+    expect(summary.activity).toHaveLength(30);
+    expect(summary.activity[summary.activity.length - 1]?.utcDate).toBe("2026-11-10");
+    expect(summary.activeTokens).toBe(0); // issued token is revoked
+    expect(summary.totalCalls).toBeGreaterThanOrEqual(5);
+    const listIngredientsTool = summary.tools.find((t) => t.toolName === "list_ingredients");
+    expect(listIngredientsTool?.totalCalls).toBe(3);
+    expect(listIngredientsTool?.lastUsedDate).toBe("2026-11-08");
   } finally {
     sqlite.close();
   }
+});
+
+test("isMcpManagementEnabled enables by default and disables only on explicit 'false'", () => {
+  expect(isMcpManagementEnabled(undefined)).toBe(true);
+  expect(isMcpManagementEnabled("")).toBe(true);
+  expect(isMcpManagementEnabled("true")).toBe(true);
+  expect(isMcpManagementEnabled("false")).toBe(false);
 });

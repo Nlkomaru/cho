@@ -17,6 +17,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.7.5",
     "@chakra-ui/react": "^3.31.0",
     "@emotion/react": "^11.14.0",
     "@fontsource/jetbrains-mono": "^5.2.6",
@@ -31,6 +32,7 @@
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
+    "better-auth": "1.7.5",
     "drizzle-orm": "^0.44.7",
     "hono": "^4.11.4",
     "jose": "^6.2.16",

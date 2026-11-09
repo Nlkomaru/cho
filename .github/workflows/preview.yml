@@ -13,12 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_DEFAULT_REGION: auto
-  AWS_EC2_METADATA_DISABLED: true
-  # Public base URL serving the QR artifacts from R2. Override it with the
-  # PREVIEW_BASE_URL repository variable instead of editing the workflow.
-  PREVIEW_BASE_URL: ${{ vars.PREVIEW_BASE_URL || 'https://ci.nikomaru.dev/cho' }}
-  AWS_REGION: auto
   WORKER_NAME: cho
   WORKER_SUBDOMAIN: nikomaru.workers.dev
 
@@ -388,42 +382,37 @@ jobs:
             return 1
           }
 
-          upload preview "PR #${PR_NUMBER} preview alias"
           upload "pr${PR_NUMBER}" "PR #${PR_NUMBER} preview alias"
           upload "$COMMIT_SHORT_SHA" "PR #${PR_NUMBER} commit preview alias"
 
-      - name: Verify preview aliases and Storybook
+      - name: Verify preview aliases
         env:
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
           urls=(
-            "https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            "https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
-            "https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
+            "https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}/"
+            "https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}/"
           )
-          for url in "${urls[@]}"; do
-            for path in / /storybook/; do
-              target="${url}${path}"
-              status=""
-              for attempt in 1 2 3 4 5; do
-                status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$target" || true)"
-                # 2xx serves the Worker; 302 means Cloudflare Access guards the
-                # hostname. Anything else means the alias is not serving yet.
-                if [[ "$status" =~ ^[23] ]]; then break; fi
-                sleep $((attempt * 3))
-              done
-              if [[ ! "$status" =~ ^[23] ]]; then
-                echo "::error::${target} returned HTTP ${status:-no response}."
-                exit 1
-              fi
-              if [ "$status" = "302" ]; then
-                echo "Verified $target (HTTP 302; Cloudflare Access sign-in required)."
-              else
-                echo "Verified $target (HTTP $status)."
-              fi
+          for target in "${urls[@]}"; do
+            status=""
+            for attempt in 1 2 3 4 5; do
+              status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$target" || true)"
+              # 2xx serves the Worker; 302 means Cloudflare Access guards the
+              # hostname. Anything else means the alias is not serving yet.
+              if [[ "$status" =~ ^[23] ]]; then break; fi
+              sleep $((attempt * 3))
             done
+            if [[ ! "$status" =~ ^[23] ]]; then
+              echo "::error::${target} returned HTTP ${status:-no response}."
+              exit 1
+            fi
+            if [ "$status" = "302" ]; then
+              echo "Verified $target (HTTP 302; Cloudflare Access sign-in required)."
+            else
+              echo "Verified $target (HTTP $status)."
+            fi
           done
 
   comment:
@@ -431,33 +420,22 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     name: Comment Preview URLs
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Set short commit SHA
         id: vars
         run: |
           sha="${{ github.event.pull_request.head.sha || github.sha }}"
           echo "commit_sha=${sha:0:8}" >> "$GITHUB_OUTPUT"
-      - uses: pnpm/action-setup@v6
-        name: Install pnpm
-        with:
-          version: 10.33.3
-          run_install: false
 
       - name: Render preview comment
-        timeout-minutes: 8
+        timeout-minutes: 3
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_DEFAULT_REGION: auto
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          S3_URL: ${{ secrets.R2_S3_ENDPOINT }}
           DEPLOY_PREVIEW_RESULT: ${{ needs.deploy-app-preview.result }}
           COMMIT_SHORT_SHA: ${{ steps.vars.outputs.commit_sha }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
-          preview_url="https://preview-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
           pr_url="https://pr${PR_NUMBER}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
           sha_url="https://${COMMIT_SHORT_SHA}-${WORKER_NAME}.${WORKER_SUBDOMAIN}"
 
@@ -473,81 +451,18 @@ jobs:
             return 1
           }
 
-          # GitHub renders <img> tags through an anonymous fetch, so a QR code is
-          # only usable when its public URL is readable without credentials.
-          # The R2 artifact is preferred; when it cannot be read anonymously the
-          # encoded URL is sent to a public QR rendering service, so the private
-          # image bucket never has to be made public.
-          public_qr_url() {
-            local url="$1" encoded candidate response status type
-            encoded="$(jq -rn --arg u "$url" '$u|@uri')"
-            for candidate in \
-              "https://quickchart.io/qr?text=${encoded}&size=240&margin=1&format=png" \
-              "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encoded}"; do
-              response="$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$candidate" || true)"
-              status="${response%% *}"
-              type="${response#* }"
-              if [[ "$status" =~ ^2 && "$type" == image/png* ]]; then
-                printf '%s' "$candidate"
-                return 0
-              fi
-              echo "::warning::QR service ${candidate%%\?*} returned HTTP ${status:-no response} (${type:-no content type})." >&2
-            done
-            return 1
-          }
-
-          qr_url() {
-            local name="$1" url="$2" artifact status="" type="" response qr=""
-            artifact="${PREVIEW_BASE_URL}/${COMMIT_SHORT_SHA}/qr/${name}.png"
-            if pnpm dlx qrcode@1.5.4 -t png -s 6 -q 2 -o "/tmp/${name}.png" -- "$url" >/dev/null &&
-              aws s3 cp "/tmp/${name}.png" \
-                "s3://${BUCKET_NAME}/cho/${COMMIT_SHORT_SHA}/qr/${name}.png" \
-                --endpoint-url "$S3_URL" \
-                --content-type image/png \
-                --only-show-errors; then
-              for attempt in 1 2 3; do
-                response="$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$artifact" || true)"
-                status="${response%% *}"
-                type="${response#* }"
-                if [[ "$status" =~ ^2 && "$type" == image/png* ]]; then
-                  printf '%s' "$artifact"
-                  return 0
-                fi
-                sleep 5
-              done
-              echo "::warning::Uploaded ${artifact} but it returned HTTP ${status:-no response} (${type:-no content type}); the comment will use a public QR service. Fix the QR artifact host or set the PREVIEW_BASE_URL repository variable." >&2
-            else
-              echo "::warning::Failed to render or upload the ${name} QR artifact; the comment will use a public QR service." >&2
-            fi
-            if qr="$(public_qr_url "$url")"; then
-              printf '%s' "$qr"
-              return 0
-            fi
-            echo "::warning::No QR code could be rendered for the ${name} target." >&2
-            return 1
-          }
-
           row() {
-            local label="$1" url="$2" name="$3" status="" qr=""
+            local label="$1" url="$2" status=""
             if ! status="$(reachable "$url")"; then
-              printf '| %s | Not available (HTTP %s) | — |\n' "$label" "$status" >> comment.md
+              printf '| %s | Not available (HTTP %s) |\n' "$label" "$status" >> comment.md
               return
             fi
-            if qr="$(qr_url "$name" "$url")"; then
-              printf '| %s | <%s> | <img src="%s" width="120" height="120" alt="%s preview QR code"> |\n' \
-                "$label" "$url" "$qr" "$label" >> comment.md
-            else
-              printf '| %s | <%s> | — |\n' "$label" "$url" >> comment.md
-            fi
+            printf '| %s | <%s> |\n' "$label" "$url" >> comment.md
           }
 
-          printf '## Deploy preview\n\n| Target | URL | QR |\n| --- | --- | --- |\n' > comment.md
-          row "App preview" "$preview_url" app-preview
-          row "Storybook preview" "$preview_url/storybook/" storybook-preview
-          row "PR #${PR_NUMBER} App" "$pr_url" app-pr
-          row "PR #${PR_NUMBER} Storybook" "$pr_url/storybook/" storybook-pr
-          row "Commit ${COMMIT_SHORT_SHA} App" "$sha_url" app-commit
-          row "Commit ${COMMIT_SHORT_SHA} Storybook" "$sha_url/storybook/" storybook-commit
+          printf '## Deploy preview\n\n| Target | URL |\n| --- | --- |\n' > comment.md
+          row "PR #${PR_NUMBER}" "$pr_url"
+          row "Commit ${COMMIT_SHORT_SHA}" "$sha_url"
 
           printf '\n' >> comment.md
           if [ "$DEPLOY_PREVIEW_RESULT" = "success" ]; then
