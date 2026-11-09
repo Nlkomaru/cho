@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { ingredientSchema } from "../domain/ingredient";
+import { ingredientSchema, inventiaItemIdSchema } from "../domain/ingredient";
 import { nutritionFactsSchema } from "../domain/nutrition";
 import { createDbClient } from "../db/client";
 import { createIngredientRepository } from "../repositories/ingredient-repository";
@@ -66,7 +66,7 @@ const inventiaSearchRequestSchema = z.object({ query: z.string().trim().min(1).m
 const inventiaSyncRequestSchema = z
   .object({
     ingredientId: ingredientSchema.shape.id,
-    itemId: z.string().trim().min(1).max(128),
+    itemId: inventiaItemIdSchema,
   })
   .strict();
 const inventiaItemSchema = z.object({

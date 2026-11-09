@@ -3,7 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AppShell } from "@/components/layout/app-shell";
 import { DishDetailView } from "@/routes/_app/dishes/$dishId/-components/dish-detail-view";
 
-import { curryDish, currySchedule, gratinDish, gratinSchedule, ingredientById } from "./fixtures";
+import {
+  curryDish,
+  curryDishWithImages,
+  currySchedule,
+  gratinDish,
+  gratinSchedule,
+  ingredientById,
+} from "./fixtures";
 
 /**
  * レシピ詳細画面の本文 (データ取得なし)。工程表 → 材料 → 手順、lg 以上は右に栄養価と補足。
@@ -39,4 +46,15 @@ export const InProgress: Story = {
 export const Gratin: Story = {
   args: { dish: gratinDish, schedule: gratinSchedule },
   globals: { viewport: { value: "desktop", isRotated: false } },
+};
+
+/** 表紙は見出しと工程表の間、手順の写真は本文の下。写真を押すと拡大する。 */
+export const WithImages: Story = {
+  args: { dish: curryDishWithImages },
+  globals: { viewport: { value: "desktop", isRotated: false } },
+};
+
+export const WithImagesMobile: Story = {
+  args: { dish: curryDishWithImages },
+  globals: { viewport: { value: "mobile", isRotated: false } },
 };

@@ -71,6 +71,7 @@ function buildValidRecipe(
         outputs: [{ id: "out-1", label: "完成品" }],
         completionCue: "全体に火が通った状態",
         cautions: [],
+        imageIds: [],
       },
     ],
     globalCautions: [],

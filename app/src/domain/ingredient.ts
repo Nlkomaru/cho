@@ -5,7 +5,12 @@ import {
   sumNutritionFacts,
   type NutritionFacts,
 } from "./nutrition";
-import { recipeSchema } from "./recipe";
+import { imageIdSchema, recipeSchema } from "./recipe";
+
+export const inventiaItemIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_-]{1,128}$/, "Inventia item ID may only contain letters, digits, - and _");
 
 export const ingredientObjectSchema = z
   .object({
@@ -17,7 +22,7 @@ export const ingredientObjectSchema = z
     nutritionBasisAmount: z.number().positive(),
     nutritionPerBasis: nutritionFactsSchema,
     gramPerUnit: z.number().positive().nullable().default(null),
-    inventiaItemId: z.string().trim().min(1).max(128).nullable().default(null),
+    inventiaItemId: inventiaItemIdSchema.nullable().default(null),
     latestUnitPriceYen: z.number().min(0).nullable().default(null),
     latestPriceUpdatedAt: z.string().datetime().nullable().default(null),
     memo: z.string().max(2000).nullable().default(null),
@@ -87,7 +92,7 @@ export const dishSchema = z
     recipe: recipeSchema,
     totalNutrition: nutritionFactsSchema.nullable().default(null),
     totalCostYen: z.number().min(0).nullable().default(null),
-    coverImageId: z.string().trim().min(1).max(128).nullable().default(null),
+    coverImageId: imageIdSchema.nullable().default(null),
     notes: z.string().max(4000).nullable().default(null),
   })
   .strict();
@@ -148,7 +153,7 @@ export const mealLogItemBaseSchema = z
     servingsFactor: z.number().positive().default(1),
     priceYen: z.number().min(0).nullable().default(null),
     nutrition: nutritionFactsSchema.nullable().default(null),
-    ingredientCostBreakdown: z.array(ingredientCostBreakdownEntrySchema).default([]),
+    ingredientCostBreakdown: z.array(ingredientCostBreakdownEntrySchema).max(100).default([]),
     estimationSource: z.enum(["manual", "recipe", "ingredient", "ai", "unknown"]).default("manual"),
     sortOrder: z.int().min(0).default(0),
   })
@@ -175,7 +180,7 @@ export const mealLogSchema = z
     memo: z.string().max(4000).nullable().default(null),
     inventiaConsumptionStatus: z.enum(["pending", "succeeded", "failed"]).nullable().default(null),
     imageIds: z.array(z.string().trim().min(1).max(128)).default([]),
-    items: z.array(mealLogItemSchema).min(1),
+    items: z.array(mealLogItemSchema).min(1).max(100),
   })
   .strict();
 export type MealLog = z.infer<typeof mealLogSchema>;

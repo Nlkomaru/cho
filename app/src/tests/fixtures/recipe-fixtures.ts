@@ -440,6 +440,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "玉ねぎが薄切りにされマカロニが茹で上がった状態",
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-cook",
@@ -512,6 +513,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "なめらかなホワイトソースが完成した状態",
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-assemble",
@@ -560,6 +562,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "耐熱皿にチーズが均等に散らされた状態",
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-finish",
@@ -602,6 +605,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "チーズがこんがりと焼け香ばしい香りが立つ状態",
           cautions: [],
+          imageIds: [],
         },
       ],
       globalCautions: [],

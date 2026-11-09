@@ -2,9 +2,11 @@ import { Stack } from "@chakra-ui/react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
+import { ImageUpload, type ImageUploadItem } from "@/components/ui/image-upload";
 import type { RecipeStep } from "@/domain/recipe";
 import { StepEditor } from "@/routes/_app/dishes/new/-components/step-editor";
 
+import { sampleImageIds, sampleImageSrc } from "../fixtures/images";
 import { curryDraft } from "./fixtures";
 
 const { recipe } = curryDraft;
@@ -14,11 +16,14 @@ function StepEditorDemo({
   initiallyExpanded,
   errors,
   errorCount,
+  photos,
 }: {
   stepIndex: number;
   initiallyExpanded: boolean;
   errors?: Record<string, string>;
   errorCount?: number;
+  /** 写真の欄に並べる画像。 */
+  photos?: ImageUploadItem[];
 }) {
   const [steps, setSteps] = useState<RecipeStep[]>(recipe.steps);
   const [expanded, setExpanded] = useState(initiallyExpanded);
@@ -34,6 +39,19 @@ function StepEditorDemo({
         onExpandedChange={setExpanded}
         errors={errors}
         errorCount={errorCount}
+        photos={
+          photos ? (
+            <ImageUpload
+              variant="tiles"
+              max={4}
+              label={`手順${step.stepNumber} の写真`}
+              items={photos}
+              onAdd={() => undefined}
+              onRemove={() => undefined}
+              onRetry={() => undefined}
+            />
+          ) : undefined
+        }
         onChange={(patch) =>
           setSteps((current) =>
             current.map((item) => (item.id === step.id ? { ...item, ...patch } : item)),
@@ -98,4 +116,24 @@ export const Mobile: Story = {
 
 export const WithIngredientInputs: Story = {
   args: { stepIndex: 1 },
+};
+
+/** 手順本文の下に写真の欄。アップロード中の画像は薄く表示してスピナーを重ねる。 */
+export const WithPhotos: Story = {
+  args: {
+    stepIndex: 2,
+    photos: [
+      {
+        key: sampleImageIds.currySaute1,
+        id: sampleImageIds.currySaute1,
+        src: sampleImageSrc(sampleImageIds.currySaute1),
+        status: "ready",
+      },
+      {
+        key: "upload-1",
+        src: sampleImageSrc(sampleImageIds.currySaute2),
+        status: "uploading",
+      },
+    ],
+  },
 };

@@ -2,7 +2,9 @@ import { ChakraProvider } from "@chakra-ui/react";
 import type { Preview } from "@storybook/react-vite";
 
 import "../../app/src/styles.css";
+import { ImageSourceContext } from "../../app/src/lib/images";
 import { system } from "../../app/theme";
+import { sampleImageSrc } from "../src/fixtures/images";
 import { withRouter } from "./with-router";
 
 const preview: Preview = {
@@ -10,7 +12,9 @@ const preview: Preview = {
     withRouter,
     (Story) => (
       <ChakraProvider value={system}>
-        <Story />
+        <ImageSourceContext.Provider value={(id) => sampleImageSrc(id)}>
+          <Story />
+        </ImageSourceContext.Provider>
       </ChakraProvider>
     ),
   ],

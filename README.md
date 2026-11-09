@@ -139,6 +139,9 @@ Cho は Inventia の設計に倣い、設定画面および管理 API（`/api/mc
 Cloudflare Access のバイパス対象には、MCP ランタイムエンドポイントのみを設定してください。
 
 - `/api/mcp`
+- `/api/mcp/uploads/*`（`create_image_upload` が発行する署名付き画像アップロード URL。署名と有効期限で認可するため MCP トークンは不要）
+
+`/api/mcp/uploads/*` を含まないと、エージェントが `curl` で PUT するとき Access のサインイン画面で失敗します。本番の Access ポリシーでサブパスが対象になっているか、デプロイ前に確認してください。
 
 `/api/mcp/tokens` や `/api/mcp/usage`、`/api/*` 全体をバイパスしてはいけません。キー管理 API や設定、AI、品目、料理、食事、画像、在庫など他の API はアプリ側の Bearer 認証を持たず、全体バイパスすると保護されなくなります。画面やキー管理 API は引き続き Cloudflare Access で保護します。
 

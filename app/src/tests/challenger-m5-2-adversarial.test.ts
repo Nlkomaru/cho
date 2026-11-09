@@ -59,6 +59,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
         outputs: [{ id: "out-1", label: "下準備完了" }],
         completionCue: null,
         cautions: [],
+        imageIds: [],
       },
     ];
 
@@ -860,6 +861,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
           outputs: [{ id: "out-1", label: "Out 1" }],
           completionCue: null,
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-2",
@@ -884,6 +886,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
           outputs: [{ id: "out-2", label: "Out 2" }],
           completionCue: null,
           cautions: [],
+          imageIds: [],
         },
       ];
 

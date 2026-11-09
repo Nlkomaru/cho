@@ -25,6 +25,8 @@ export interface DishFields {
 }
 
 export interface RecipeDraft extends DishFields {
+  /** 表紙画像の ID。 */
+  coverImageId: string | null;
   recipe: RecipeJson;
 }
 
@@ -45,6 +47,7 @@ export const blankDraft = (): RecipeDraft => ({
   name: "",
   category: "",
   servings: "2",
+  coverImageId: null,
   recipe: blankRecipe(),
 });
 
@@ -71,6 +74,7 @@ export const emptyStep = (number: number): RecipeStep => ({
   outputs: [],
   completionCue: null,
   cautions: [],
+  imageIds: [],
 });
 
 export const emptyEntry = (): RecipeIngredientEntry => ({

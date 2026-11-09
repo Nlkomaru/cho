@@ -9,7 +9,8 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import type { ReactNode } from "react";
+import { CookingPot } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   DataTable,
@@ -21,6 +22,7 @@ import type { Dish } from "@/domain/ingredient";
 import type { NutritionFacts } from "@/domain/nutrition";
 import { computeRecipeGanttSchedule } from "@/domain/recipe-scheduler";
 import { formatMinutes, formatFixed, formatNumber, formatYen } from "@/lib/format";
+import { useImageSrc } from "@/lib/images";
 
 /** 一覧表示用に整えたレシピ 1 行分。 */
 export interface DishRow {
@@ -28,6 +30,8 @@ export interface DishRow {
   name: string;
   category: string | null;
   servings: number;
+  /** 表紙画像の ID。 */
+  coverImageId: string | null;
   /** 並行作業を考慮した所要時間 (秒)。DAG が不正なら null。 */
   durationSec: number | null;
   ingredientCount: number;
@@ -51,6 +55,7 @@ export const toDishRow = (dish: Dish): DishRow => ({
   name: dish.name,
   category: dish.category,
   servings: dish.servings,
+  coverImageId: dish.coverImageId,
   durationSec: durationOf(dish.recipe),
   ingredientCount: dish.recipe.ingredients.length,
   facts: dish.totalNutrition,
@@ -73,6 +78,39 @@ const unit = (text: string) => (
   </chakra.span>
 );
 
+/** 料理名の左に置く正方形のサムネイル。画像が無いか読み込めなければ鍋のアイコン。 */
+function DishThumb({ imageId }: { imageId: string | null }) {
+  const resolveSrc = useImageSrc();
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [imageId]);
+  return (
+    <Box
+      boxSize="10"
+      flexShrink="0"
+      bg="bg.muted"
+      color="navy.400"
+      overflow="hidden"
+      display="flex"
+      alignItems="center"
+      justifyContent="center"
+    >
+      {imageId && !broken ? (
+        <chakra.img
+          src={resolveSrc(imageId)}
+          alt=""
+          w="full"
+          h="full"
+          objectFit="cover"
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <CookingPot size={16} strokeWidth={1.75} aria-hidden="true" />
+      )}
+    </Box>
+  );
+}
+
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
     header: ({ column }) => (
@@ -83,20 +121,23 @@ const columns = columnHelper.columns([
       />
     ),
     cell: ({ row }) => (
-      <Box minW="0">
-        <chakra.span
-          asChild
-          color="fg.strong"
-          fontWeight="500"
-          _hover={{ textDecoration: "underline", textUnderlineOffset: "3px" }}
-        >
-          <Link to="/dishes/$dishId" params={{ dishId: row.original.id }}>
-            {row.original.name}
-          </Link>
-        </chakra.span>
-        <Text textStyle="caption" color="fg.subtle">
-          {[row.original.category, `${row.original.servings}人前`].filter(Boolean).join(" · ")}
-        </Text>
+      <Box display="flex" alignItems="center" gap="3" minW="0">
+        <DishThumb imageId={row.original.coverImageId} />
+        <Box minW="0">
+          <chakra.span
+            asChild
+            color="fg.strong"
+            fontWeight="500"
+            _hover={{ textDecoration: "underline", textUnderlineOffset: "3px" }}
+          >
+            <Link to="/dishes/$dishId" params={{ dishId: row.original.id }}>
+              {row.original.name}
+            </Link>
+          </chakra.span>
+          <Text textStyle="caption" color="fg.subtle">
+            {[row.original.category, `${row.original.servings}人前`].filter(Boolean).join(" · ")}
+          </Text>
+        </Box>
       </Box>
     ),
   }),

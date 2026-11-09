@@ -8,6 +8,7 @@ import type { RecipeGanttBar } from "@/domain/recipe-scheduler";
 import { formatClock, formatMinutes } from "@/lib/format";
 
 import type { StepInputLine } from "./build-ingredient-items";
+import { StepImages } from "./recipe-image";
 import { heatLevelLabel } from "./recipe-labels";
 
 export interface StepItemProps {
@@ -129,6 +130,10 @@ export const StepItem = forwardRef<HTMLLIElement, StepItemProps>(function StepIt
         <chakra.p textStyle="body.lg" color={completed ? "fg.muted" : "fg"} maxW="68ch">
           {step.instruction}
         </chakra.p>
+
+        {step.imageIds.length ? (
+          <StepImages imageIds={step.imageIds} stepNumber={step.stepNumber} />
+        ) : null}
 
         {inputs.length ? (
           <chakra.p textStyle="body.sm" color={completed ? "fg.muted" : "fg"}>

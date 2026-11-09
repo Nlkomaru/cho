@@ -1,6 +1,6 @@
 import { Box, chakra, Grid, Stack } from "@chakra-ui/react";
 import { ChevronsDownUp, ChevronsUpDown, Plus, Sparkles } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Page } from "@/components/layout/page";
 import { PageHeader } from "@/components/layout/page-header";
@@ -8,13 +8,16 @@ import { Section } from "@/components/layout/section";
 import { GanttChart } from "@/components/recipe/gantt-chart";
 import { Button } from "@/components/ui/button";
 import { Feedback } from "@/components/ui/feedback";
+import { ImageUpload, useImageUploads } from "@/components/ui/image-upload";
 import { toaster } from "@/components/ui/toaster";
 import {
+  MAX_STEP_IMAGES,
   recipeSchema,
   type RecipeIngredientEntry,
   type RecipeJson,
   type RecipeStep,
 } from "@/domain/recipe";
+import { useImageSrc, type UploadedImage } from "@/lib/images";
 
 import { AiStructureDialog } from "./ai-structure-dialog";
 import { BasicInfo } from "./basic-info";
@@ -45,6 +48,8 @@ export interface RecipeSavePayload {
   name: string;
   category: string | null;
   servings: number;
+  /** 表紙画像の ID。外したら null。 */
+  coverImageId: string | null;
   recipe: RecipeJson;
 }
 
@@ -68,6 +73,8 @@ export interface RecipeEditorProps {
   onCancel(): void;
   /** 保存バーを画面下に固定する (Storybook では false)。 */
   fixedActionBar?: boolean;
+  /** 画像のアップロード。既定は画像 API (Storybook で差し替える)。 */
+  uploadImage?(file: File, signal: AbortSignal): Promise<UploadedImage>;
 }
 
 const sections = [
@@ -76,6 +83,9 @@ const sections = [
   { id: "recipe-steps", label: "手順" },
   { id: "recipe-cautions", label: "注意事項" },
 ] as const;
+
+const COVER_SLOT = "cover";
+const stepSlot = (stepId: string) => `step:${stepId}`;
 
 const fieldMessage = (message: string) => message.replace(/^[^:：]+: /, "");
 
@@ -111,6 +121,7 @@ export function RecipeEditor({
   onStructure,
   onCancel,
   fixedActionBar = true,
+  uploadImage,
 }: RecipeEditorProps) {
   const [draft, setDraft] = useState(initial);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -122,6 +133,27 @@ export function RecipeEditor({
   const [aiError, setAiError] = useState("");
   const activeSection = useActiveSection(sections.map((section) => section.id));
   const { recipe } = draft;
+  const resolveSrc = useImageSrc();
+  const coverRef = useRef(draft.coverImageId);
+  coverRef.current = draft.coverImageId;
+  const images = useImageUploads({
+    upload: uploadImage,
+    onUploaded(slot, id, release) {
+      if (slot === COVER_SLOT) {
+        // 差し替えた前の表紙がこの画面でアップロードしたものなら消す
+        if (coverRef.current) release(coverRef.current);
+        setDraft((current) => ({ ...current, coverImageId: id }));
+        return;
+      }
+      const stepId = slot.slice(stepSlot("").length);
+      changeRecipe((current) => ({
+        ...current,
+        steps: current.steps.map((step) =>
+          step.id === stepId ? { ...step, imageIds: [...step.imageIds, id] } : step,
+        ),
+      }));
+    },
+  });
 
   const check = useMemo(() => (submitted ? checkDraft(draft) : null), [submitted, draft]);
   const issues: readonly DraftIssue[] = check && !check.success ? check.issues : [];
@@ -210,7 +242,21 @@ export function RecipeEditor({
             .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
             .join("\n"),
         );
-      setDraft((current) => ({ ...current, recipe: checked.data }));
+      // AI の結果は画像を持たない。同じ手順 ID が残っていれば今の写真を引き継ぐ
+      const kept = new Map(recipe.steps.map((step) => [step.id, step.imageIds]));
+      for (const step of recipe.steps)
+        if (!checked.data.steps.some((next) => next.id === step.id))
+          images.dropSlot(stepSlot(step.id), step.imageIds);
+      setDraft((current) => ({
+        ...current,
+        recipe: {
+          ...checked.data,
+          steps: checked.data.steps.map((step) => ({
+            ...step,
+            imageIds: kept.get(step.id) ?? [],
+          })),
+        },
+      }));
       setExpanded(new Set());
       setAiOpen(false);
       toaster.create({ type: "success", title: "手順を作成しました" });
@@ -231,12 +277,14 @@ export function RecipeEditor({
       reveal(first.fieldId, first.stepId);
       return;
     }
+    if (images.uploading || images.failed) return;
     setSaving(true);
     try {
       await onSave({
         name: draft.name.trim(),
         category: draft.category.trim() || null,
         servings: Number(draft.servings),
+        coverImageId: draft.coverImageId,
         recipe: result.recipe,
       });
     } catch (cause) {
@@ -299,6 +347,28 @@ export function RecipeEditor({
                 summary={recipe.summary}
                 equipment={recipe.equipment}
                 errors={errors}
+                cover={
+                  <ImageUpload
+                    variant="cover"
+                    max={1}
+                    label="表紙画像"
+                    items={images.itemsFor(
+                      COVER_SLOT,
+                      draft.coverImageId ? [draft.coverImageId] : [],
+                      resolveSrc,
+                    )}
+                    onAdd={(files) => images.add(COVER_SLOT, files.slice(0, 1))}
+                    onRetry={images.retry}
+                    onRemove={(key) => {
+                      if (images.isPending(key)) {
+                        images.cancel(key);
+                        return;
+                      }
+                      images.release(key);
+                      setDraft((current) => ({ ...current, coverImageId: null }));
+                    }}
+                  />
+                }
                 onFieldsChange={(patch) =>
                   setDraft((current) => ({
                     ...current,
@@ -427,7 +497,30 @@ export function RecipeEditor({
                         errors={errors}
                         errorCount={expanded.has(step.id) ? 0 : stepErrorCount(step.id)}
                         onChange={(patch) => updateStep(step.id, patch)}
-                        onRemove={() => changeRecipe((current) => removeStep(current, step.id))}
+                        photos={
+                          <ImageUpload
+                            variant="tiles"
+                            max={MAX_STEP_IMAGES}
+                            label={`手順${step.stepNumber} の写真`}
+                            items={images.itemsFor(stepSlot(step.id), step.imageIds, resolveSrc)}
+                            onAdd={(files) => images.add(stepSlot(step.id), files)}
+                            onRetry={images.retry}
+                            onRemove={(key) => {
+                              if (images.isPending(key)) {
+                                images.cancel(key);
+                                return;
+                              }
+                              images.release(key);
+                              updateStep(step.id, {
+                                imageIds: step.imageIds.filter((id) => id !== key),
+                              });
+                            }}
+                          />
+                        }
+                        onRemove={() => {
+                          images.dropSlot(stepSlot(step.id), step.imageIds);
+                          changeRecipe((current) => removeStep(current, step.id));
+                        }}
                       />
                     ))}
                   </Stack>
@@ -460,6 +553,13 @@ export function RecipeEditor({
           issues={issues}
           error={saveError}
           busy={saving}
+          blocked={
+            images.uploading
+              ? "画像のアップロード中です"
+              : images.failed
+                ? "アップロードに失敗した画像があります。やり直すか外してください"
+                : undefined
+          }
           submitLabel="保存"
           onCancel={onCancel}
           onIssueSelect={(issue) => reveal(issue.fieldId, issue.stepId)}

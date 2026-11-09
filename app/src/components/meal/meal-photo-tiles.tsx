@@ -2,6 +2,8 @@ import { Box, SimpleGrid, chakra } from "@chakra-ui/react";
 import { ImagePlus, X } from "lucide-react";
 import { useId } from "react";
 
+import { acceptedImageTypes } from "@/lib/images";
+
 export interface MealPhoto {
   key: string;
   /** 表示用 URL (アップロード済みの画像 URL か、選択中ファイルの object URL)。 */
@@ -18,7 +20,7 @@ export interface MealPhotoTilesProps {
   label?: string;
 }
 
-export const acceptedImageTypes = "image/jpeg,image/png,image/webp,image/gif,image/avif";
+export { acceptedImageTypes };
 
 /**
  * 写真の選択。正方形のタイルを 4 列に並べ、最後に破線の追加タイルを置く。

@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { ingredientSchema, type Ingredient } from "../domain/ingredient";
 import type { createDbClient } from "../db/client";
 import { ingredients } from "../db/schema";
@@ -52,6 +52,18 @@ export function createIngredientRepository(db: Database) {
     async getById(id: string): Promise<Ingredient | null> {
       const [row] = await db.select().from(ingredients).where(eq(ingredients.id, id)).limit(1);
       return row ? fromRow(row) : null;
+    },
+    async getByIds(ids: readonly string[]): Promise<Ingredient[]> {
+      const found: Ingredient[] = [];
+      // D1 allows at most 100 bound variables per statement.
+      for (let index = 0; index < ids.length; index += 90) {
+        const rows = await db
+          .select()
+          .from(ingredients)
+          .where(inArray(ingredients.id, ids.slice(index, index + 90)));
+        found.push(...rows.map(fromRow));
+      }
+      return found;
     },
     async create(input: Ingredient): Promise<Ingredient> {
       const value = ingredientSchema.parse(input);

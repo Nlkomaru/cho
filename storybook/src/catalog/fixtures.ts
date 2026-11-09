@@ -6,6 +6,7 @@ import type {
 } from "@/routes/_app/ingredients/-components/inventia-link-panel";
 
 import { buildNutritionFacts } from "../fixtures/food";
+import { sampleImageIds } from "../fixtures/images";
 
 let sequence = 0;
 
@@ -190,6 +191,7 @@ export const buildDishRow = (overrides: Partial<DishRow> = {}): DishRow => {
     name: "ポークカレー",
     category: "主菜",
     servings: 4,
+    coverImageId: null,
     durationSec: 52 * 60,
     ingredientCount: 9,
     facts: buildNutritionFacts(),
@@ -199,10 +201,11 @@ export const buildDishRow = (overrides: Partial<DishRow> = {}): DishRow => {
 };
 
 export const dishRows: readonly DishRow[] = [
-  buildDishRow({ id: "curry", name: "ポークカレー" }),
+  buildDishRow({ id: "curry", name: "ポークカレー", coverImageId: sampleImageIds.curryCover }),
   buildDishRow({
     id: "gratin",
     name: "オニオングラタン",
+    coverImageId: sampleImageIds.gratinCover,
     servings: 2,
     durationSec: 65 * 60,
     ingredientCount: 12,
@@ -217,6 +220,7 @@ export const dishRows: readonly DishRow[] = [
   buildDishRow({
     id: "miso",
     name: "豆腐とわかめの味噌汁",
+    coverImageId: sampleImageIds.misoCover,
     category: "汁物",
     servings: 2,
     durationSec: 12 * 60,

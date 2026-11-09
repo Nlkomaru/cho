@@ -3,7 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AppShell } from "@/components/layout/app-shell";
 import { RecipeEditor } from "@/routes/_app/dishes/new/-components/recipe-editor";
 
-import { blankDraftFixture, curryDraft, editorIngredients, resolveLater } from "./fixtures";
+import {
+  blankDraftFixture,
+  curryDraft,
+  curryDraftWithImages,
+  editorIngredients,
+  fakeUpload,
+  resolveLater,
+} from "./fixtures";
 
 /**
  * レシピ作成・編集画面 (データ取得なし)。lg 以上は左に目次、下に保存バー。
@@ -25,6 +32,7 @@ const meta = {
     onSave: () => resolveLater(undefined),
     onStructure: () => resolveLater(curryDraft.recipe),
     onCancel: () => undefined,
+    uploadImage: fakeUpload,
   },
 } satisfies Meta<typeof RecipeEditor>;
 
@@ -46,5 +54,16 @@ export const CreateDesktop: Story = {
 
 export const CreateMobile: Story = {
   args: { mode: "create", initial: blankDraftFixture, dish: undefined },
+  globals: { viewport: { value: "mobile", isRotated: false } },
+};
+
+/** 表紙と手順の写真がある状態。手順 2・3 を開くと写真の欄が見える。 */
+export const WithImages: Story = {
+  args: { initial: curryDraftWithImages },
+  globals: { viewport: { value: "desktop", isRotated: false } },
+};
+
+export const WithImagesMobile: Story = {
+  args: { initial: curryDraftWithImages },
   globals: { viewport: { value: "mobile", isRotated: false } },
 };

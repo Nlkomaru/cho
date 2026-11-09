@@ -14,6 +14,7 @@ import {
 } from "@/components/recipe/build-ingredient-items";
 import { GanttChart, type GanttChartHandle } from "@/components/recipe/gantt-chart";
 import { IngredientList } from "@/components/recipe/ingredient-list";
+import { RecipeCover } from "@/components/recipe/recipe-image";
 import { RecipeNotes } from "@/components/recipe/recipe-notes";
 import { StepList } from "@/components/recipe/step-list";
 import { Button, IconButton } from "@/components/ui/button";
@@ -44,7 +45,7 @@ const scrollBehavior = (): ScrollBehavior =>
     : "smooth";
 
 /**
- * レシピ詳細の本文。工程表 → 材料 → 手順の順に並べ、lg 以上では右に栄養価と補足の列を置く。
+ * レシピ詳細の本文。表紙画像 (あれば) → 工程表 → 材料 → 手順の順に並べ、lg 以上では右に栄養価と補足の列を置く。
  * データの取得と更新は route 側が持ち、ここでは表示用の状態 (人前・完了・選択中の手順) だけを持つ。
  */
 export function DishDetailView({
@@ -150,6 +151,8 @@ export function DishDetailView({
           </>
         }
       />
+
+      {dish.coverImageId ? <RecipeCover imageId={dish.coverImageId} title={dish.name} /> : null}
 
       <Section title="工程" id="gantt">
         <GanttChart

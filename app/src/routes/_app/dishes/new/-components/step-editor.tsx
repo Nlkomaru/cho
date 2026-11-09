@@ -1,4 +1,4 @@
-import { Badge, Box, chakra, Grid, Input, Stack, Textarea } from "@chakra-ui/react";
+import { Badge, Box, chakra, Grid, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { ChevronDown, CircleAlert, Trash2 } from "lucide-react";
 import { useId, type ReactNode } from "react";
 
@@ -35,6 +35,8 @@ export interface StepEditorProps {
   errors?: Readonly<Record<string, string>>;
   /** この手順の入力エラー件数 (閉じているときに見出しへ出す)。 */
   errorCount?: number;
+  /** 手順の写真の入力 (ImageUpload)。 */
+  photos?: ReactNode;
   onChange(patch: Partial<RecipeStep>): void;
   onRemove(): void;
 }
@@ -62,6 +64,7 @@ export function StepEditor({
   onExpandedChange,
   errors = {},
   errorCount = 0,
+  photos,
   onChange,
   onRemove,
 }: StepEditorProps) {
@@ -147,6 +150,9 @@ export function StepEditor({
             <chakra.span display="flex" flexWrap="wrap" alignItems="center" gap="1.5">
               {active > 0 ? <Badge variant="outline">作業 {formatMinutes(active)}</Badge> : null}
               {passive > 0 ? <Badge variant="outline">待機 {formatMinutes(passive)}</Badge> : null}
+              {step.imageIds.length ? (
+                <Badge variant="outline">写真 {step.imageIds.length}</Badge>
+              ) : null}
               {depNumbers.length ? (
                 <chakra.span textStyle="caption" color="fg.subtle">
                   手順{depNumbers.join("・")}の後
@@ -213,6 +219,14 @@ export function StepEditor({
                 onChange={(event) => onChange({ instruction: event.currentTarget.value })}
               />
             </Field>
+            {photos ? (
+              <Stack gap="1.5" role="group" aria-labelledby={`${bodyId}-photos`}>
+                <Text id={`${bodyId}-photos`} textStyle="label" color="fg">
+                  写真
+                </Text>
+                {photos}
+              </Stack>
+            ) : null}
           </Group>
 
           <Group title="時間">

@@ -272,3 +272,84 @@ test("stock consumption refuses an item whose unit changed after linking", async
   });
   expect(bodies).toEqual([]);
 });
+
+function linkFixture(
+  items: Record<string, { baseDimension: "mass" | "volume"; baseUnit: string }>,
+) {
+  const { repository, getStored } = fixture();
+  const prices: Record<string, number> = { "inventia-flour": 80, "inventia-bread": 120 };
+  const service = createIngredientService({
+    repository,
+    inventiaClient: {
+      searchItems: async () => [],
+      getItem: async (id) => {
+        const item = items[id];
+        return item ? { id, name: id, currentQuantity: 5, ...item } : null;
+      },
+      getItemPrices: async (id) => (prices[id] === undefined ? [] : [{ unitPrice: prices[id] }]),
+      adjustStock: async () => {
+        throw new Error("unused");
+      },
+    },
+  });
+  return { service, getStored };
+}
+
+test("an Inventia link sent together with a unit change survives and is checked against the new unit", async () => {
+  const { service, getStored } = linkFixture({
+    "inventia-oil": { baseDimension: "volume", baseUnit: "mL" },
+  });
+  const updated = await service.update("flour", {
+    baseDimension: "volume",
+    baseUnit: "mL",
+    inventiaItemId: "inventia-oil",
+  });
+  expect(updated).toMatchObject({
+    baseUnit: "mL",
+    inventiaItemId: "inventia-oil",
+    latestUnitPriceYen: null,
+    latestPriceUpdatedAt: null,
+  });
+  expect(getStored()).toEqual(updated);
+});
+
+test("relinking to another item replaces the previous item's price", async () => {
+  const { service } = linkFixture({ "inventia-bread": { baseDimension: "mass", baseUnit: "g" } });
+  const updated = await service.update("flour", { inventiaItemId: "inventia-bread" });
+  expect(updated).toMatchObject({ inventiaItemId: "inventia-bread", latestUnitPriceYen: 120 });
+  expect(updated?.latestPriceUpdatedAt).not.toBe("2026-01-02T03:04:05.000Z");
+});
+
+test("relinking to an item without price records clears the old price instead of keeping it", async () => {
+  const { service } = linkFixture({ "inventia-new": { baseDimension: "mass", baseUnit: "g" } });
+  const updated = await service.update("flour", { inventiaItemId: "inventia-new" });
+  expect(updated).toMatchObject({
+    inventiaItemId: "inventia-new",
+    latestUnitPriceYen: null,
+    latestPriceUpdatedAt: null,
+  });
+});
+
+test("linking a missing or unit-mismatched item is refused and leaves the ingredient untouched", async () => {
+  const { service, getStored } = linkFixture({
+    "inventia-ml": { baseDimension: "volume", baseUnit: "mL" },
+  });
+  await expect(service.update("flour", { inventiaItemId: "nope" })).rejects.toThrow(
+    "no longer exists",
+  );
+  await expect(service.update("flour", { inventiaItemId: "inventia-ml" })).rejects.toThrow();
+  await expect(service.linkInventiaItem("flour", "inventia-ml")).rejects.toThrow();
+  expect(getStored()).toEqual(initialIngredient);
+});
+
+test("unlinking clears the stored price and re-sending the current link does not call Inventia", async () => {
+  const { service } = fixture();
+  const same = await service.update("flour", { inventiaItemId: "inventia-flour", name: "Flour 2" });
+  expect(same).toMatchObject({ inventiaItemId: "inventia-flour", latestUnitPriceYen: 80 });
+  const unlinked = await service.update("flour", { inventiaItemId: null });
+  expect(unlinked).toMatchObject({
+    inventiaItemId: null,
+    latestUnitPriceYen: null,
+    latestPriceUpdatedAt: null,
+  });
+});

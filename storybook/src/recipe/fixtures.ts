@@ -6,6 +6,7 @@ import {
   createTwelveIngredientRecipePayload,
   twelveIngredientsMaster,
 } from "@/tests/fixtures/recipe-fixtures";
+import { sampleImageIds } from "../fixtures/images";
 
 /**
  * レシピ詳細のストーリー用フィクスチャ。
@@ -158,6 +159,7 @@ const step = (
   outputs: [],
   completionCue: null,
   cautions: [],
+  imageIds: [],
   ...value,
 });
 
@@ -361,6 +363,24 @@ export const curryDish: Dish = {
   totalCostYen: null,
   coverImageId: null,
   notes: "隠し味のしょうゆとみりんはルウを溶かした後に加える。",
+};
+
+/** 表紙と手順の写真があるカレー。 */
+const curryStepImages: Record<string, string[]> = {
+  "s-cut": [sampleImageIds.curryCut],
+  "s-saute": [sampleImageIds.currySaute1, sampleImageIds.currySaute2],
+  "s-simmer": [sampleImageIds.currySimmer],
+};
+export const curryDishWithImages: Dish = {
+  ...curryDish,
+  coverImageId: sampleImageIds.curryCover,
+  recipe: {
+    ...curryRecipe,
+    steps: curryRecipe.steps.map((item) => ({
+      ...item,
+      imageIds: curryStepImages[item.id] ?? [],
+    })),
+  },
 };
 
 const gratinPayload = createTwelveIngredientRecipePayload();

@@ -3,25 +3,29 @@ import { z } from "zod";
 
 import { createDbClient } from "../db/client";
 import { createMediaImageRepository } from "../repositories/media-image-repository";
+import { createSignedImageUrl, getImage, verifySignedImageUrl } from "../services/image-storage";
 import {
-  createSignedImageUrl,
-  deleteImage,
-  getImage,
-  putImage,
-  verifySignedImageUrl,
-} from "../services/image-storage";
+  discardUnassignedImage,
+  ImageUploadError,
+  MAX_IMAGE_BYTES,
+  schedulePurge,
+  storeImage,
+} from "../services/media-images";
 import type { ApiBindings } from "./index";
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const SIGNED_URL_LIFETIME_SECONDS = 5 * 60;
 
-const SUPPORTED_IMAGE_TYPES: Record<string, true> = {
-  "image/jpeg": true,
-  "image/png": true,
-  "image/webp": true,
-  "image/gif": true,
-  "image/avif": true,
-};
+/** `executionCtx` throws outside a Worker request (tests); the purge is then skipped. */
+export function waitUntilOf(context: {
+  executionCtx: { waitUntil(promise: Promise<unknown>): void };
+}): ((promise: Promise<unknown>) => void) | undefined {
+  try {
+    const executionContext = context.executionCtx;
+    return (promise) => executionContext.waitUntil(promise);
+  } catch {
+    return undefined;
+  }
+}
 const errorSchema = z.object({ error: z.string() }).strict();
 const uploadResponseSchema = z
   .object({
@@ -39,14 +43,20 @@ const uploadImageRoute = createRoute({
   method: "post",
   path: "/api/images/upload",
   summary: "Upload an image",
-  description: `Upload an image file (maximum ${MAX_IMAGE_BYTES} bytes) to R2.`,
+  description: `Upload an image file (maximum ${MAX_IMAGE_BYTES} bytes) to R2. The type is detected from the file content and must match the declared type. The image stays unassigned until a recipe or meal references it; unassigned images older than 24 hours are deleted.`,
   request: {
     body: {
       required: true,
       content: {
         "multipart/form-data": {
           schema: z.object({
-            file: z.string().openapi({ type: "string", format: "binary" }),
+            // A File, not a string: a string schema made the validator reject every upload.
+            file: z
+              .custom<File>(
+                (value) => value instanceof File,
+                "A multipart file upload is required.",
+              )
+              .openapi({ type: "string", format: "binary" }),
           }),
         },
       },
@@ -86,32 +96,20 @@ imageRoutes.openapi(uploadImageRoute, async (context) => {
   const file = body.file;
   if (!(file instanceof File))
     return context.json({ error: "A multipart file upload is required." }, 400);
-  if (!Object.hasOwn(SUPPORTED_IMAGE_TYPES, file.type.toLowerCase())) {
-    return context.json({ error: "Only JPEG, PNG, WebP, GIF, and AVIF images are accepted." }, 415);
-  }
-  if (file.size === 0) return context.json({ error: "Uploaded file must not be empty." }, 400);
   if (file.size > MAX_IMAGE_BYTES)
     return context.json({ error: "Image exceeds the 10 MiB upload limit." }, 413);
   const encryptionKey = context.env.SETTINGS_ENCRYPTION_KEY;
   if (!encryptionKey) return context.json({ error: "Image signing is not configured." }, 500);
 
-  const id = crypto.randomUUID();
-  const objectKey = `images/${crypto.randomUUID()}`;
   const db = createDbClient(context.env.DB);
-  const repository = createMediaImageRepository(db);
-  let stored = false;
   try {
-    await putImage(context.env.IMAGES_BUCKET, objectKey, file.stream(), file.type);
-    stored = true;
-    const metadata = await repository.create({
-      id,
-      targetType: "unassigned",
-      targetId: "unassigned",
-      objectKey,
-      contentType: file.type,
-      byteSize: file.size,
-      sortOrder: 0,
+    const metadata = await storeImage({
+      db,
+      bucket: context.env.IMAGES_BUCKET,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      declaredType: file.type || null,
     });
+    schedulePurge(db, context.env.IMAGES_BUCKET, waitUntilOf(context));
     const expiresAt = Math.floor(Date.now() / 1000) + SIGNED_URL_LIFETIME_SECONDS;
     const imageUrl = await createSignedImageUrl(
       new URL(context.req.url).origin,
@@ -129,16 +127,44 @@ imageRoutes.openapi(uploadImageRoute, async (context) => {
       },
       201,
     );
-  } catch {
-    if (stored) {
-      try {
-        await deleteImage(context.env.IMAGES_BUCKET, objectKey);
-      } catch {
-        // Preserve the safe upload error response if cleanup also fails.
-      }
-    }
+  } catch (error) {
+    if (error instanceof ImageUploadError && error.status !== 409)
+      return context.json({ error: error.message }, error.status);
     return context.json({ error: "Image upload failed." }, 500);
   }
+});
+
+const deleteImageRoute = createRoute({
+  method: "delete",
+  path: "/api/images/{id}",
+  summary: "Delete an unused image",
+  description:
+    "Delete an uploaded image that is not attached to a recipe or meal. Attached images are released by saving the recipe or meal without them.",
+  request: { params: z.object({ id: z.string().min(1).max(128) }).strict() },
+  responses: {
+    204: { description: "Image deleted." },
+    404: {
+      description: "Image not found.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+    409: {
+      description: "Image is attached to a recipe or meal.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+  },
+});
+
+imageRoutes.openapi(deleteImageRoute, async (context) => {
+  const { id } = context.req.valid("param");
+  const result = await discardUnassignedImage(
+    createDbClient(context.env.DB),
+    context.env.IMAGES_BUCKET,
+    id,
+  );
+  if (result === "not_found") return context.json({ error: "Image not found." }, 404);
+  if (result === "attached")
+    return context.json({ error: "Image is attached to a recipe or meal." }, 409);
+  return context.body(null, 204);
 });
 
 const getImageRoute = createRoute({
@@ -217,6 +243,7 @@ imageRoutes.openapi(getImageRoute, async (context) => {
       headers: {
         "Content-Type": contentType,
         "Content-Length": String(metadata.byteSize),
+        "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
       },
     });

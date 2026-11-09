@@ -68,6 +68,7 @@ function NewDishPage() {
                 name: dish.name,
                 category: dish.category ?? "",
                 servings: String(dish.servings),
+                coverImageId: dish.coverImageId,
                 recipe: dish.recipe,
               }
             : blankDraft(),
@@ -87,7 +88,7 @@ function NewDishPage() {
 
   const save = useCallback(
     async (common: RecipeSavePayload) => {
-      const payload = dishId ? common : { ...common, coverImageId: null, notes: null };
+      const payload = dishId ? common : { ...common, notes: null };
       const dish = await api<Dish>(
         dishId ? `/api/dishes/${encodeURIComponent(dishId)}` : "/api/dishes",
         {

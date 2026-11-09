@@ -2,7 +2,12 @@ import { apiKey } from "@better-auth/api-key";
 import { betterAuth, type SecondaryStorage } from "better-auth";
 import { z } from "zod";
 
-import { mcpToolNameSchema, mcpToolNames, type McpToolName } from "../domain/mcp";
+import {
+  legacyMcpToolNames,
+  mcpToolNameSchema,
+  mcpToolNames,
+  type McpToolName,
+} from "../domain/mcp";
 import {
   createMcpTokenRepository,
   type McpTokenRecord,
@@ -116,7 +121,7 @@ export function createMcpTokenService(db: Database) {
           return;
         }
         if (!data?.id || !data?.key) return;
-        const allowedTools = data.metadata?.allowedTools ?? [...mcpToolNames];
+        const allowedTools = data.metadata?.allowedTools ?? [...legacyMcpToolNames];
         const prefix =
           data.start ?? (typeof data.key === "string" ? data.key.slice(0, 16) : "cho_mcp_");
         const createdAt = data.createdAt

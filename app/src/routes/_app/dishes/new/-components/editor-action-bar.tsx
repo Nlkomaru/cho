@@ -1,4 +1,4 @@
-import { Box, chakra, Flex, HStack, Text } from "@chakra-ui/react";
+import { Box, chakra, Flex, HStack, Spinner, Text } from "@chakra-ui/react";
 import { CircleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ export interface EditorActionBarProps {
   /** 保存 API のエラー。 */
   error?: string;
   busy?: boolean;
+  /** 保存できない理由 (画像のアップロード中など)。あれば保存ボタンを止めて表示する。 */
+  blocked?: string;
   submitLabel: string;
   onCancel(): void;
   onIssueSelect(issue: DraftIssue): void;
@@ -29,6 +31,7 @@ export function EditorActionBar({
   issues,
   error,
   busy,
+  blocked,
   submitLabel,
   onCancel,
   onIssueSelect,
@@ -93,6 +96,13 @@ export function EditorActionBar({
                   確認
                 </chakra.button>
               </HStack>
+            ) : blocked ? (
+              <HStack gap="2" color="fg.muted" minW="0">
+                <Spinner size="xs" color="navy.900" flexShrink={0} />
+                <Text textStyle="body.sm" truncate>
+                  {blocked}
+                </Text>
+              </HStack>
             ) : error ? (
               <HStack gap="2" color="fg.error" minW="0">
                 <CircleAlert
@@ -111,7 +121,7 @@ export function EditorActionBar({
             <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
               キャンセル
             </Button>
-            <Button type="submit" variant="primary" loading={busy}>
+            <Button type="submit" variant="primary" loading={busy} disabled={Boolean(blocked)}>
               {submitLabel}
             </Button>
           </HStack>

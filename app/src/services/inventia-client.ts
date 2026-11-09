@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { inventiaItemIdSchema } from "../domain/ingredient";
+
 export interface InventiaConfig {
   baseUrl: string;
   decryptedToken: string;
@@ -120,6 +122,13 @@ const upstreamFailures: Record<string, InventiaFailure> = {
       "This stock request conflicts with an earlier request that used the same idempotency key. Retry with a new key.",
   },
 };
+
+function isSafeItemId(id: string): boolean {
+  return inventiaItemIdSchema.safeParse(id).success;
+}
+function assertSafeItemId(id: string): void {
+  if (!isSafeItemId(id)) throw new InventiaItemNotFoundError();
+}
 
 export function describeInventiaFailure(error: unknown, fallback: string): InventiaFailure {
   if (error instanceof InventiaAmountError) return { status: 400, error: error.message };
@@ -257,6 +266,7 @@ export function createInventiaClient(config: InventiaConfig): InventiaClient {
       return items;
     },
     async getItem(id: string): Promise<InventiaItemDto | null> {
+      if (!isSafeItemId(id)) return null;
       try {
         return itemSchema.parse(await request<unknown>(`/api/items/${encodeURIComponent(id)}`));
       } catch (error) {
@@ -265,6 +275,7 @@ export function createInventiaClient(config: InventiaConfig): InventiaClient {
       }
     },
     async getItemPrices(id: string): Promise<InventiaPriceRecordDto[]> {
+      assertSafeItemId(id);
       const result = await request<unknown>(`/api/items/${encodeURIComponent(id)}/prices?limit=5`);
       return pricePageSchema.parse(result).items;
     },
@@ -273,6 +284,7 @@ export function createInventiaClient(config: InventiaConfig): InventiaClient {
       input: InventiaStockAdjustRequest,
     ): Promise<InventiaStockOperationResult> {
       if (!config.stockWritesEnabled) throw new Error("Inventia stock writes are disabled");
+      assertSafeItemId(id);
       const body = stockRequestSchema.parse(input);
       const result = await request<unknown>(`/api/items/${encodeURIComponent(id)}/adjustments`, {
         method: "POST",

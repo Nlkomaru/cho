@@ -92,6 +92,7 @@ function buildAdversarialRecipe(
         outputs: [{ id: "out-1", label: "完成料理" }],
         completionCue: "煮込み完了",
         cautions: [],
+        imageIds: [],
       },
     ],
     globalCautions: [],

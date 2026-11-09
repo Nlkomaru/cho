@@ -45,26 +45,70 @@ export function createIngredientService({
     if (!inventiaClient) throw new Error("Inventia client is not configured");
     return inventiaClient;
   }
+  async function resolveLink(
+    ingredient: Pick<Ingredient, "baseDimension" | "baseUnit">,
+    itemId: string,
+  ) {
+    const client = requireInventiaClient();
+    const item = await client.getItem(itemId);
+    if (!item) throw new InventiaItemNotFoundError();
+    assertInventiaUnitMatch(ingredient, item);
+    const latestPrice = (await client.getItemPrices(itemId))[0];
+    return {
+      inventiaItemId: itemId,
+      latestUnitPriceYen: latestPrice?.unitPrice ?? null,
+      latestPriceUpdatedAt: latestPrice ? new Date().toISOString() : null,
+    };
+  }
   return {
     list: () => repository.list(),
     get: (id: string) => repository.getById(id),
-    create: (input: Ingredient) => repository.create(input),
+    async create(input: Ingredient) {
+      if (input.inventiaItemId === null) return repository.create(input);
+      return repository.create({
+        ...input,
+        ...(await resolveLink(input, input.inventiaItemId)),
+      });
+    },
     async update(id: string, changes: Partial<Omit<Ingredient, "id">>) {
       const current = await repository.getById(id);
       if (!current) return null;
       const dimensionChanged =
         changes.baseDimension !== undefined && changes.baseDimension !== current.baseDimension;
       const unitChanged = changes.baseUnit !== undefined && changes.baseUnit !== current.baseUnit;
-      const update =
+      const unitReset =
         dimensionChanged || unitChanged
-          ? {
-              ...changes,
-              inventiaItemId: null,
-              latestUnitPriceYen: null,
-              latestPriceUpdatedAt: null,
-            }
-          : changes;
-      return repository.update(id, update);
+          ? { inventiaItemId: null, latestUnitPriceYen: null, latestPriceUpdatedAt: null }
+          : {};
+      const requested = changes.inventiaItemId;
+      if (requested === undefined) return repository.update(id, { ...changes, ...unitReset });
+      if (requested === null)
+        return repository.update(id, {
+          ...changes,
+          inventiaItemId: null,
+          latestUnitPriceYen: null,
+          latestPriceUpdatedAt: null,
+        });
+      if (requested === current.inventiaItemId && !dimensionChanged && !unitChanged)
+        return repository.update(id, changes);
+      return repository.update(id, {
+        ...changes,
+        ...(await resolveLink({ ...current, ...changes }, requested)),
+      });
+    },
+    /** Links an ingredient to an Inventia item after checking it exists and matches the unit. */
+    async linkInventiaItem(
+      ingredientId: string,
+      itemId: string,
+    ): Promise<IngredientPriceSyncResult & { ingredient: Ingredient }> {
+      const ingredient = await repository.getById(ingredientId);
+      if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
+      const link = await resolveLink(ingredient, itemId);
+      const updated = await repository.update(ingredientId, link);
+      if (!updated) throw new Error(`Ingredient disappeared during linking: ${ingredientId}`);
+      return link.latestUnitPriceYen === null
+        ? { synced: false, reason: "no_price_records", ingredient: updated }
+        : { synced: true, ingredient: updated, unitPriceYen: link.latestUnitPriceYen };
     },
     delete: (id: string) => repository.delete(id),
     searchInventiaItems(query: string) {

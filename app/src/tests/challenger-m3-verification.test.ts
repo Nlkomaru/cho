@@ -64,6 +64,7 @@ describe("Empirical Challenger M3: MCP & REST Purchase List Adversarial Suite", 
         outputs: [{ id: "out-1", label: "Finished" }],
         completionCue: null,
         cautions: [],
+        imageIds: [],
       },
     ];
 

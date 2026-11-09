@@ -4,7 +4,13 @@ import { useState } from "react";
 
 import { StepList, type StepListProps } from "@/components/recipe/step-list";
 
-import { curryRecipe, currySchedule, gratinDish, gratinSchedule } from "./fixtures";
+import {
+  curryDishWithImages,
+  curryRecipe,
+  currySchedule,
+  gratinDish,
+  gratinSchedule,
+} from "./fixtures";
 
 function InteractiveStepList(props: StepListProps) {
   const [completed, setCompleted] = useState(props.completedStepIds);
@@ -61,4 +67,9 @@ export const Active: Story = { args: { activeStepId: "s-simmer" } };
 
 export const Gratin: Story = {
   args: { recipe: gratinDish.recipe, bars: gratinSchedule.bars, scale: 2 },
+};
+
+/** 写真のある手順。サムネイルを押すと拡大する。 */
+export const WithImages: Story = {
+  args: { recipe: curryDishWithImages.recipe },
 };

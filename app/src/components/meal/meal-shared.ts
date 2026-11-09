@@ -157,7 +157,7 @@ export function timingFromDate(date: Date): Timing {
   return "late_snack";
 }
 
-export const imageUrl = (id: string) => `/api/images/${encodeURIComponent(id)}`;
+export { imageUrl } from "@/lib/images";
 
 export const emptyFacts = (): NutritionFacts => ({
   caloriesKcal: 0,

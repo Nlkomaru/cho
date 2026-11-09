@@ -4,14 +4,27 @@ import { mcpToolNameSchema, mcpToolNames, type McpToolName } from "@/domain/mcp"
 
 export const mcpToolLabels: Record<McpToolName, string> = {
   list_ingredients: "材料一覧",
+  get_ingredient: "材料取得",
   create_ingredient: "材料登録",
   update_ingredient: "材料更新",
   delete_ingredient: "材料削除",
+  search_inventia_items: "Inventia 品目検索",
+  link_inventia_item: "Inventia 品目の連携",
+  get_ingredient_stock: "Inventia 在庫取得",
   list_recipes: "レシピ一覧",
+  get_recipe: "レシピ取得",
   create_recipe: "レシピ登録",
+  update_recipe: "レシピ更新",
   delete_recipe: "レシピ削除",
+  upload_image: "画像アップロード",
+  create_image_upload: "画像アップロード URL 発行",
+  set_recipe_images: "レシピ画像設定",
   calculate_purchase_list: "買い物リスト作成",
+  list_meals: "食事一覧",
+  get_meal: "食事取得",
   record_meal: "食事記録",
+  update_meal: "食事更新",
+  delete_meal: "食事削除",
 };
 
 export const mcpTokenSummarySchema = z.object({

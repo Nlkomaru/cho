@@ -1,4 +1,5 @@
-import { Grid, Input, Stack, Textarea } from "@chakra-ui/react";
+import { Grid, Input, Stack, Text, Textarea } from "@chakra-ui/react";
+import type { ReactNode } from "react";
 
 import { Field } from "@/components/ui/field";
 
@@ -10,12 +11,14 @@ export interface BasicInfoProps extends DishFields {
   summary: string | null;
   equipment: readonly string[];
   errors?: Readonly<Record<string, string>>;
+  /** 表紙画像の入力 (ImageUpload)。 */
+  cover?: ReactNode;
   onFieldsChange(patch: Partial<DishFields>): void;
   onSummaryChange(summary: string | null): void;
   onEquipmentChange(equipment: string[]): void;
 }
 
-/** 料理名・カテゴリ・人前・概要・器具。 */
+/** 表紙画像・料理名・カテゴリ・人前・概要・器具。 */
 export function BasicInfo({
   name,
   category,
@@ -23,12 +26,21 @@ export function BasicInfo({
   summary,
   equipment,
   errors = {},
+  cover,
   onFieldsChange,
   onSummaryChange,
   onEquipmentChange,
 }: BasicInfoProps) {
   return (
     <Stack gap="5">
+      {cover ? (
+        <Stack gap="1.5" role="group" aria-labelledby="recipe-cover-label" maxW="480px">
+          <Text id="recipe-cover-label" textStyle="label" color="fg">
+            表紙画像
+          </Text>
+          {cover}
+        </Stack>
+      ) : null}
       <Grid
         templateColumns={{ base: "1fr 1fr", md: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)" }}
         gap="4"

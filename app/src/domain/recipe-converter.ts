@@ -302,6 +302,7 @@ export function convertInventiaToCho(
       ],
       completionCue: `${meta.title}が完了した状態`,
       cautions: [],
+      imageIds: [],
     };
   });
 
