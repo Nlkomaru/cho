@@ -14,7 +14,7 @@ import type { AppDatabase } from "../db/client";
 export const issueMcpTokenSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
-    allowedTools: z.array(mcpToolNameSchema).min(1).max(5),
+    allowedTools: z.array(mcpToolNameSchema).min(1).max(mcpToolNames.length),
     expiresAt: z.iso.datetime().nullable().optional(),
   })
   .strict();
