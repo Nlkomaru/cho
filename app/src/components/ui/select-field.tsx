@@ -12,33 +12,44 @@ export interface SelectFieldProps {
   onChange: (value: string) => void;
   options: readonly SelectOption[];
   placeholder?: string;
+  size?: "sm" | "md";
+  /** ラベルを視覚的に隠す (ツールバーなど)。 */
+  hideLabel?: boolean;
 }
 
+/**
+ * ポップアップ型のセレクト。選択肢の見た目を揃えたいツールバー向け。
+ * フォームの中では NativeSelect を優先する。
+ */
 export function SelectField({
   label,
   value,
   onChange,
   options,
   placeholder = "選択",
+  size = "md",
+  hideLabel,
 }: SelectFieldProps) {
   const collection = useMemo(() => createListCollection({ items: [...options] }), [options]);
 
   return (
-    <Field.Root>
-      <Field.Label>{label}</Field.Label>
+    <Field.Root minW="0">
       <Select.Root
         collection={collection}
+        size={size}
         value={value ? [value] : []}
         onValueChange={(details) => onChange(details.value[0] ?? "")}
+        positioning={{ sameWidth: true }}
       >
         <Select.HiddenSelect />
+        <Select.Label srOnly={hideLabel}>{label}</Select.Label>
         <Select.Control>
-          <Select.Trigger aria-label={label}>
+          <Select.Trigger>
             <Select.ValueText placeholder={placeholder} />
-            <Select.IndicatorGroup>
-              <Select.Indicator />
-            </Select.IndicatorGroup>
           </Select.Trigger>
+          <Select.IndicatorGroup>
+            <Select.Indicator />
+          </Select.IndicatorGroup>
         </Select.Control>
         <Portal>
           <Select.Positioner>

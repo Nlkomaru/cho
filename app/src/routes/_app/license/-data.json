@@ -72,6 +72,12 @@
 				"versions": ["1.4.0"],
 				"author": null,
 				"homepage": "https://github.com/mmkal/expect-type#readme"
+			},
+			{
+				"name": "typescript",
+				"versions": ["6.0.3"],
+				"author": "Microsoft Corp.",
+				"homepage": "https://www.typescriptlang.org/"
 			}
 		]
 	},
@@ -645,8 +651,14 @@
 				"homepage": "http://github.com/oozcitak/util"
 			},
 			{
+				"name": "@oxc-project/runtime",
+				"versions": ["0.157.0"],
+				"author": null,
+				"homepage": "https://oxc.rs/"
+			},
+			{
 				"name": "@oxc-project/types",
-				"versions": ["0.156.0"],
+				"versions": ["0.156.0", "0.157.0"],
 				"author": "Boshen and oxc contributors",
 				"homepage": "https://oxc.rs/"
 			},
@@ -1009,6 +1021,30 @@
 				"versions": ["5.1.0"],
 				"author": null,
 				"homepage": "https://github.com/vitest-dev/vitest/tree/main/packages/utils"
+			},
+			{
+				"name": "@voidzero-dev/vite-plus-core",
+				"versions": ["1.5.0"],
+				"author": "VoidZero Inc.",
+				"homepage": "https://viteplus.dev/guide"
+			},
+			{
+				"name": "@voidzero-dev/vite-plus-linux-x64-gnu",
+				"versions": ["1.5.0"],
+				"author": "VoidZero Inc.",
+				"homepage": "https://viteplus.dev/guide"
+			},
+			{
+				"name": "@yuku-core/binding-linux-x64-gnu",
+				"versions": ["0.19.0"],
+				"author": null,
+				"homepage": "https://github.com/yuku-toolchain/yuku#readme"
+			},
+			{
+				"name": "@yuku-toolchain/types",
+				"versions": ["0.19.0"],
+				"author": null,
+				"homepage": "https://github.com/yuku-toolchain/yuku#readme"
 			},
 			{
 				"name": "@zag-js/accordion",
@@ -2103,12 +2139,6 @@
 				"homepage": "https://github.com/jshttp/negotiator#readme"
 			},
 			{
-				"name": "next-themes",
-				"versions": ["0.4.6"],
-				"author": null,
-				"homepage": "https://github.com/pacocoursey/next-themes#readme"
-			},
-			{
 				"name": "node-releases",
 				"versions": ["2.0.53"],
 				"author": "Sergey Rubanov",
@@ -2601,6 +2631,18 @@
 				"homepage": "https://github.com/oozcitak/xmlbuilder2"
 			},
 			{
+				"name": "yuku-core",
+				"versions": ["0.19.0"],
+				"author": null,
+				"homepage": "https://github.com/yuku-toolchain/yuku#readme"
+			},
+			{
+				"name": "yuku-parser",
+				"versions": ["0.19.0"],
+				"author": null,
+				"homepage": "https://github.com/yuku-toolchain/yuku#readme"
+			},
+			{
 				"name": "zod",
 				"versions": ["4.4.3", "4.6.7"],
 				"author": "Colin McDonnell",
@@ -2641,10 +2683,10 @@
 				"homepage": "https://fontsource.org/fonts/noto-sans-jp"
 			},
 			{
-				"name": "@fontsource/poppins",
-				"versions": ["5.3.0"],
+				"name": "@fontsource/onest",
+				"versions": ["5.3.1"],
 				"author": "Google Inc.",
-				"homepage": "https://fontsource.org/fonts/poppins"
+				"homepage": "https://fontsource.org/fonts/onest"
 			}
 		]
 	},

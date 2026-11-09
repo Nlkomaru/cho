@@ -1,90 +1,88 @@
-import { Button, chakra, Input, Link, Stack } from "@chakra-ui/react";
-import { createFileRoute } from "@tanstack/react-router";
-import { ExternalLinkIcon } from "lucide-react";
+import { Skeleton, Stack, Tabs } from "@chakra-ui/react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-import { Feedback } from "../../../components/ui/feedback";
-import { FormField } from "../-components/form-field";
-import { errorMessageFrom } from "../../../lib/api-error";
-import { Page, PageHeader } from "../../../components/ui/page";
-import { Section } from "../../../components/ui/section";
-import { McpManagement } from "../../../components/mcp-management";
+import { Page } from "@/components/layout/page";
+import { PageHeader } from "@/components/layout/page-header";
+import {
+  type IntegrationFieldError,
+  type IntegrationFormValue,
+  type IntegrationSettings,
+  IntegrationSettingsForm,
+} from "@/components/settings/integration-settings";
+import { McpManagement } from "@/components/settings/mcp-management";
+import { Button } from "@/components/ui/button";
+import { Feedback } from "@/components/ui/feedback";
+import { toaster } from "@/components/ui/toaster";
+import { errorMessageFrom } from "@/lib/api-error";
+
+type SettingsTab = "integrations" | "mcp";
 
 export const Route = createFileRoute("/_app/settings/")({
   staticData: { breadcrumbs: [{ label: "設定" }] },
+  validateSearch: (search: Record<string, unknown>): { tab?: SettingsTab } =>
+    search.tab === "mcp" ? { tab: "mcp" } : {},
   component: SettingsPage,
 });
 
-type IntegrationIssue =
-  | "missing_token"
-  | "missing_encryption_key"
-  | "invalid_credentials"
-  | "invalid_configuration"
-  | "missing_base_url"
-  | "invalid_base_url";
-
-type IntegrationSettings = {
-  openrouter: {
-    configured: boolean;
-    model: string;
-    usable?: boolean;
-    issue?: IntegrationIssue | null;
-  };
-  inventia: {
-    configured: boolean;
-    providerId: string | null;
-    usable?: boolean;
-    issue?: IntegrationIssue | null;
-    tokenSettingsUrl?: string | null;
-    capabilities?: { readItems: boolean; writeStock: boolean };
-  };
-};
-
-const openrouterIssueMessages: Record<IntegrationIssue, string> = {
-  missing_token: "OpenRouter の API キーが未設定です。",
-  missing_encryption_key:
-    "サーバーの暗号化キーが未設定です。運用担当が SETTINGS_ENCRYPTION_KEY を設定する必要があります。",
-  invalid_credentials: "認証情報が無効です。再設定してください。",
-  invalid_configuration: "設定値が不正です。",
-  missing_base_url: "Inventia のベース URL が未設定です。",
-  invalid_base_url: "Inventia のベース URL が不正です。",
-};
-
-const inventiaIssueMessages: Record<IntegrationIssue, string> = {
-  missing_token: "Inventia の API トークンが未設定です。下のリンクから発行してください。",
-  missing_encryption_key:
-    "サーバーの暗号化キーが未設定です。運用担当が SETTINGS_ENCRYPTION_KEY を設定する必要があります。",
-  invalid_credentials: "Inventia の認証情報が無効です。トークンを再設定してください。",
-  invalid_configuration: "Inventia の設定値が不正です。",
-  missing_base_url: "Inventia のベース URL が未設定です。",
-  invalid_base_url: "Inventia のベース URL が不正です。",
-};
-
-function openrouterIssue(issue: IntegrationIssue | null | undefined) {
-  return issue ? openrouterIssueMessages[issue] : null;
-}
-
-function inventiaIssue(issue: IntegrationIssue | null | undefined) {
-  return issue ? inventiaIssueMessages[issue] : null;
-}
-
 function SettingsPage() {
+  const { tab = "integrations" } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+
+  return (
+    <Page size="md">
+      <PageHeader title="設定" />
+      <Tabs.Root
+        value={tab}
+        onValueChange={(details) =>
+          void navigate({
+            search: details.value === "mcp" ? { tab: "mcp" } : {},
+            replace: true,
+            resetScroll: false,
+          })
+        }
+        variant="line"
+        lazyMount
+      >
+        <Tabs.List mb={{ base: "8", md: "10" }}>
+          <Tabs.Trigger value="integrations">連携</Tabs.Trigger>
+          <Tabs.Trigger value="mcp">MCP</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Content value="integrations" p="0">
+          <IntegrationsTab />
+        </Tabs.Content>
+        <Tabs.Content value="mcp" p="0">
+          <McpManagement />
+        </Tabs.Content>
+      </Tabs.Root>
+    </Page>
+  );
+}
+
+const toFormValue = (settings: IntegrationSettings): IntegrationFormValue => ({
+  apiKey: "",
+  model: settings.openrouter.model,
+  token: "",
+  providerId: settings.inventia.providerId ?? "",
+});
+
+function IntegrationsTab() {
   const [settings, setSettings] = useState<IntegrationSettings | null>(null);
-  const [model, setModel] = useState("");
-  const [providerId, setProviderId] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [token, setToken] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [value, setValue] = useState<IntegrationFormValue>({
+    apiKey: "",
+    model: "",
+    token: "",
+    providerId: "",
+  });
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [fieldError, setFieldError] = useState<{
-    field: "model" | "provider";
-    message: string;
-  } | null>(null);
-  const [success, setSuccess] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<IntegrationFieldError | null>(null);
 
   useEffect(() => {
     let active = true;
+    setLoadError(null);
     fetch("/api/settings/integrations")
       .then(async (response) => {
         if (!response.ok) throw new Error("設定を読み込めませんでした。");
@@ -93,32 +91,30 @@ function SettingsPage() {
       .then((data) => {
         if (!active) return;
         setSettings(data);
-        setModel(data.openrouter.model);
-        setProviderId(data.inventia.providerId ?? "");
+        setValue(toFormValue(data));
       })
       .catch((cause: unknown) => {
         if (active)
-          setError(cause instanceof Error ? cause.message : "設定を読み込めませんでした。");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+          setLoadError(cause instanceof Error ? cause.message : "設定を読み込めませんでした。");
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadKey]);
 
-  async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function save() {
     setSaving(true);
-    setError("");
+    setError(null);
     setFieldError(null);
-    setSuccess("");
-    const openrouter: { model: string; apiKey?: string } = { model: model.trim() };
+    const apiKey = value.apiKey.trim();
+    const token = value.token.trim();
+    const model = value.model.trim();
+    const providerId = value.providerId.trim();
+    const openrouter: { model: string; apiKey?: string } = { model };
     const inventia: { providerId?: string; token?: string } = {};
-    if (apiKey.trim()) openrouter.apiKey = apiKey.trim();
-    if (providerId.trim()) inventia.providerId = providerId.trim();
-    if (token.trim()) inventia.token = token.trim();
+    if (apiKey) openrouter.apiKey = apiKey;
+    if (providerId) inventia.providerId = providerId;
+    if (token) inventia.token = token;
     try {
       const response = await fetch("/api/settings/integrations", {
         method: "PUT",
@@ -129,35 +125,29 @@ function SettingsPage() {
       if (!response.ok) {
         const message = errorMessageFrom(body, "設定を保存できませんでした。");
         if (response.status === 400) {
-          const noModelSecret = !apiKey.trim() && !settings?.openrouter.configured;
-          const noProviderSecret = !token.trim() && !settings?.inventia.configured;
-          if (/provider|プロバイダ/i.test(message)) {
-            setFieldError({ field: "provider", message });
-            return;
-          }
-          if (/モデル|model/i.test(message)) {
-            setFieldError({ field: "model", message });
-            return;
-          }
-          if (noProviderSecret && providerId.trim()) {
-            setFieldError({ field: "provider", message });
-            return;
-          }
-          if (noModelSecret && model.trim()) {
-            setFieldError({ field: "model", message });
+          // 400 はどの項目の問題かを推定して、その項目の下に出す
+          const noModelSecret = !apiKey && !settings?.openrouter.configured;
+          const noProviderSecret = !token && !settings?.inventia.configured;
+          const field: IntegrationFieldError["field"] | null = /provider|プロバイダ/i.test(message)
+            ? "provider"
+            : /モデル|model/i.test(message)
+              ? "model"
+              : noProviderSecret && providerId
+                ? "provider"
+                : noModelSecret && model
+                  ? "model"
+                  : null;
+          if (field) {
+            setFieldError({ field, message });
             return;
           }
         }
         throw new Error(message);
       }
       const updated = body as IntegrationSettings;
-      setFieldError(null);
       setSettings(updated);
-      setModel(updated.openrouter.model);
-      setProviderId(updated.inventia.providerId ?? "");
-      setApiKey("");
-      setToken("");
-      setSuccess("設定を保存しました。");
+      setValue(toFormValue(updated));
+      toaster.create({ type: "success", title: "設定を保存しました" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "設定を保存できませんでした。");
     } finally {
@@ -165,132 +155,39 @@ function SettingsPage() {
     }
   }
 
+  if (loadError && !settings) {
+    return (
+      <Feedback
+        tone="error"
+        action={
+          <Button size="sm" variant="outline" onClick={() => setReloadKey((key) => key + 1)}>
+            再読み込み
+          </Button>
+        }
+      >
+        {loadError}
+      </Feedback>
+    );
+  }
+
+  if (!settings) {
+    return (
+      <Stack gap="6" role="status" aria-busy="true" aria-label="設定を読み込み中">
+        <Skeleton h="40" />
+        <Skeleton h="40" />
+      </Stack>
+    );
+  }
+
   return (
-    <Page size="sm">
-      <PageHeader title="設定" />
-      {loading ? (
-        <Feedback tone="status" role="status" ariaLive="polite">
-          設定を読み込み中…
-        </Feedback>
-      ) : null}
-      {error && !settings ? (
-        <Feedback tone="error" role="alert">
-          {error}
-        </Feedback>
-      ) : null}
-      {settings ? (
-        <chakra.form onSubmit={save}>
-          <Stack gap="8" align="stretch">
-            <Section title="OpenRouter" label="OpenRouter 設定">
-              <Feedback tone="status">
-                API キー: {settings.openrouter.configured ? "設定済み" : "未設定"} ・ 利用状態:{" "}
-                {(settings.openrouter.usable ?? settings.openrouter.configured)
-                  ? "利用可能"
-                  : "利用不可"}
-              </Feedback>
-              {openrouterIssue(settings.openrouter.issue) ? (
-                <Feedback tone="error">{openrouterIssue(settings.openrouter.issue)}</Feedback>
-              ) : null}
-              <FormField label="API キー" htmlFor="openrouter-key">
-                <Input
-                  id="openrouter-key"
-                  type="password"
-                  autoComplete="new-password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="新しい API キー"
-                />
-              </FormField>
-              <FormField label="モデル" htmlFor="openrouter-model">
-                <Input
-                  id="openrouter-model"
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
-                  aria-invalid={fieldError?.field === "model"}
-                  required
-                />
-              </FormField>
-              {fieldError?.field === "model" ? (
-                <Feedback tone="error" role="alert">
-                  {fieldError.message}
-                </Feedback>
-              ) : null}
-            </Section>
-            <Section title="Inventia" label="Inventia 設定">
-              <Feedback tone="status">
-                トークン: {settings.inventia.configured ? "設定済み" : "未設定"} ・ 利用状態:{" "}
-                {(settings.inventia.usable ?? settings.inventia.configured)
-                  ? "利用可能"
-                  : "利用不可"}
-              </Feedback>
-              {inventiaIssue(settings.inventia.issue) ? (
-                <Feedback tone="error">{inventiaIssue(settings.inventia.issue)}</Feedback>
-              ) : null}
-              {settings.inventia.tokenSettingsUrl ? (
-                <Link
-                  href={settings.inventia.tokenSettingsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  alignSelf="start"
-                >
-                  Inventia でトークンを発行
-                  <ExternalLinkIcon aria-hidden="true" size={14} />
-                </Link>
-              ) : null}
-              {settings.inventia.capabilities ? (
-                <Feedback tone="status">
-                  品目読み取り: {settings.inventia.capabilities.readItems ? "利用可" : "利用不可"}{" "}
-                  ・ 在庫書き込み: {settings.inventia.capabilities.writeStock ? "有効" : "無効"}
-                  {settings.inventia.capabilities.writeStock
-                    ? ""
-                    : "（この環境では在庫書き込みを停止しています）"}
-                </Feedback>
-              ) : null}
-              <FormField label="トークン" htmlFor="inventia-token">
-                <Input
-                  id="inventia-token"
-                  type="password"
-                  autoComplete="new-password"
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  placeholder="新しいトークン"
-                />
-              </FormField>
-              <FormField label="Provider ID" htmlFor="inventia-provider">
-                <Input
-                  id="inventia-provider"
-                  value={providerId}
-                  onChange={(event) => setProviderId(event.target.value)}
-                  aria-invalid={fieldError?.field === "provider"}
-                />
-              </FormField>
-              {fieldError?.field === "provider" ? (
-                <Feedback tone="error" role="alert">
-                  {fieldError.message}
-                </Feedback>
-              ) : null}
-            </Section>
-            <Stack
-              direction={{ base: "column", sm: "row" }}
-              align={{ base: "stretch", sm: "center" }}
-              gap="3"
-            >
-              <Button type="submit" colorPalette="red" loading={saving} disabled={loading}>
-                設定を保存
-              </Button>
-              <Feedback tone="status" role="status" ariaLive="polite">
-                {saving ? "保存中…" : success}
-              </Feedback>
-              {error ? (
-                <Feedback tone="error" role="alert">
-                  {error}
-                </Feedback>
-              ) : null}
-            </Stack>
-          </Stack>
-        </chakra.form>
-      ) : null}
-      <McpManagement />
-    </Page>
+    <IntegrationSettingsForm
+      settings={settings}
+      value={value}
+      onChange={setValue}
+      onSubmit={() => void save()}
+      saving={saving}
+      error={error}
+      fieldError={fieldError}
+    />
   );
 }

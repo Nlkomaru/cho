@@ -1,54 +1,62 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 
 /**
- * 画面上の区切りセクション。上罫線 1px と見出しを共通化する。
+ * 画面の区切り。見出し行の下に 2px の紺の罫 (AISI の "Technical research")。
+ * 見出しレベル 3 は細罫にする。`subHeading` は見出し + 右に伸びる細罫。
  */
-export const section = defineSlotRecipe({
-  className: "cho-section",
-  slots: ["root", "header", "title", "actions", "body"],
+export const sectionSlotRecipe = defineSlotRecipe({
+  className: "section",
+  slots: [
+    "root",
+    "header",
+    "titleGroup",
+    "title",
+    "meta",
+    "actions",
+    "body",
+    "subHeading",
+    "subTitle",
+    "subRule",
+  ],
   base: {
-    root: {
-      display: "flex",
-      flexDirection: "column",
-      gap: "4",
-      borderTopWidth: "1px",
-      borderColor: "border",
-      paddingTop: "4",
-    },
+    root: { display: "flex", flexDirection: "column", minW: "0" },
     header: {
       display: "flex",
       flexWrap: "wrap",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: "3",
+      columnGap: "4",
+      rowGap: "2",
+      pb: "3",
     },
-    title: {
-      textStyle: "heading.md",
-    },
-    actions: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: "2",
-    },
-    body: {
-      display: "flex",
-      flexDirection: "column",
-      gap: "3",
-    },
+    titleGroup: { display: "flex", alignItems: "baseline", gap: "3", minW: "0" },
+    title: { color: "fg.strong" },
+    meta: { textStyle: "body.sm", color: "fg.subtle", fontVariantNumeric: "tabular-nums" },
+    actions: { display: "flex", alignItems: "center", gap: "2", flexWrap: "wrap" },
+    body: { mt: "5", minW: "0" },
+    subHeading: { display: "flex", alignItems: "center", gap: "3", minW: "0" },
+    subTitle: { textStyle: "heading.group", color: "fg.muted", flexShrink: 0 },
+    subRule: { flex: "1", h: "1px", bg: "border" },
   },
   variants: {
-    divided: {
-      true: {},
-      false: {
-        root: { borderTopWidth: "0", paddingTop: "0" },
-      },
+    variant: {
+      rule: { header: { borderBottomWidth: "2px", borderColor: "border.strong" } },
+      plain: { header: { pb: "0" }, body: { mt: "4" } },
     },
     level: {
-      2: {},
-      3: {
-        title: { textStyle: "heading.sm" },
+      h2: { title: { textStyle: "heading.section" } },
+      h3: {
+        title: { textStyle: "heading.card" },
+        body: { mt: "4" },
       },
     },
   },
-  defaultVariants: { divided: true, level: 2 },
+  compoundVariants: [
+    {
+      variant: "rule",
+      level: "h3",
+      css: { header: { borderBottomWidth: "1px", borderColor: "border", pb: "2.5" } },
+    },
+  ],
+  defaultVariants: { variant: "rule", level: "h2" },
 });

@@ -1,78 +1,56 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { cardAnatomy } from "@chakra-ui/react/anatomy";
 
 /**
- * カード (spec/02_design-system.md §4.2)
- * 1px solid `border` (#e4e4e7) / 背景 `bg.panel` (#FFFFFF) / 角丸 `l3` (6px)。
- * 影・グラデーションは使わない。
+ * カード。角を立てた白地 + 1px の細罫、影なし。
+ * plain は余白も枠もなし (余白はコンポーネント側で 0 にする)。
  */
-export const card = defineSlotRecipe({
-  className: "cho-card",
-  slots: ["root", "media", "header", "title", "description", "meta", "body", "footer"],
+export const cardSlotRecipe = defineSlotRecipe({
+  className: "chakra-card",
+  slots: cardAnatomy.keys(),
   base: {
     root: {
-      display: "flex",
-      flexDirection: "column",
-      minWidth: "0",
-      borderWidth: "1px",
-      borderColor: "border",
-      borderRadius: "l3",
-      background: "bg.panel",
+      borderRadius: "none",
       color: "fg",
+      bg: "bg.panel",
       boxShadow: "none",
-      overflow: "hidden",
-    },
-    media: {
-      display: "block",
-      background: "bg.muted",
-      lineHeight: "0",
-      "& > img": {
-        width: "full",
-        maxHeight: "180px",
-        objectFit: "cover",
-      },
     },
     header: {
-      display: "flex",
-      flexDirection: "column",
-      gap: "1",
-      paddingInline: "4",
-      paddingTop: "4",
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: "4",
     },
-    title: {
-      textStyle: "heading.sm",
-      overflowWrap: "anywhere",
-    },
-    description: {
-      textStyle: "caption",
-    },
-    meta: {
-      textStyle: "body.sm",
-      color: "fg.muted",
-    },
-    body: {
-      display: "flex",
-      flexDirection: "column",
-      flex: "1",
-      gap: "2",
-      padding: "4",
-    },
+    title: { textStyle: "heading.card", color: "fg.strong" },
+    description: { textStyle: "caption", color: "fg.subtle", mt: "1" },
+    body: { gap: "4" },
     footer: {
-      display: "flex",
-      alignItems: "center",
-      gap: "2",
-      paddingInline: "4",
-      paddingBottom: "4",
+      borderTopWidth: "1px",
+      borderColor: "border",
+      pt: "4",
+      mx: "var(--card-padding)",
+      px: "0",
+      flexWrap: "wrap",
     },
   },
   variants: {
-    padding: {
-      sm: {
-        header: { paddingInline: "3", paddingTop: "3" },
-        body: { padding: "3" },
-        footer: { paddingInline: "3", paddingBottom: "3" },
+    variant: {
+      outline: { root: { bg: "bg.panel", borderWidth: "1px", borderColor: "border" } },
+      subtle: { root: { bg: "bg.subtle", borderWidth: "0" } },
+      plain: { root: { bg: "transparent", borderWidth: "0" } },
+      elevated: { root: { bg: "bg.panel", borderWidth: "1px", borderColor: "border" } },
+    },
+    size: {
+      sm: { root: { "--card-padding": "spacing.4" }, title: { textStyle: "heading.card" } },
+      md: {
+        root: { "--card-padding": { base: "spacing.4", md: "spacing.5" } },
+        title: { textStyle: "heading.card" },
       },
-      md: {},
+      lg: { root: { "--card-padding": "spacing.6" }, title: { textStyle: "heading.section" } },
     },
   },
-  defaultVariants: { padding: "md" },
+  defaultVariants: {
+    variant: "outline",
+    size: "md",
+  },
 });
