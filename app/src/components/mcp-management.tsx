@@ -599,8 +599,15 @@ export function McpManagement({
     ),
   );
 
+  const quoteShellValue = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
+  const createHermesCommand = (token: string) =>
+    [
+      `hermes config set mcp_servers.cho.url ${quoteShellValue(endpointUrl)}`,
+      `hermes config set mcp_servers.cho.headers.Authorization ${quoteShellValue(`Bearer ${token}`)}`,
+      "hermes mcp test cho",
+    ].join("\n");
   const effectiveConnectionToken = interactiveToken.trim() || "<cho_mcp_トークン>";
-  const hermesAddCommand = `hermes mcp add cho ${endpointUrl} --header "Authorization=Bearer ${effectiveConnectionToken}"`;
+  const hermesAddCommand = createHermesCommand(effectiveConnectionToken);
   const mcpServersConfigJson = JSON.stringify(
     {
       mcpServers: {
@@ -781,7 +788,7 @@ export function McpManagement({
                     whiteSpace="pre-wrap"
                     wordBreak="break-all"
                   >
-                    <code>{`hermes mcp add cho ${endpointUrl} --header "Authorization=Bearer ${state.issuedSecret.secret}"`}</code>
+                    <code>{createHermesCommand(state.issuedSecret.secret)}</code>
                   </Box>
                   <Button
                     mt="2"
@@ -789,7 +796,7 @@ export function McpManagement({
                     variant="outline"
                     onClick={() =>
                       copyToClipboard(
-                        `hermes mcp add cho ${endpointUrl} --header "Authorization=Bearer ${state.issuedSecret!.secret}"`,
+                        createHermesCommand(state.issuedSecret!.secret),
                         "issued-hermes",
                         "Hermes コマンド",
                       )
