@@ -825,6 +825,12 @@
 				"homepage": "https://tanstack.com/store"
 			},
 			{
+				"name": "@tanstack/react-table",
+				"versions": ["9.3.1"],
+				"author": "Tanner Linsley",
+				"homepage": "https://tanstack.com/table"
+			},
+			{
 				"name": "@tanstack/router-core",
 				"versions": ["1.171.39"],
 				"author": "Tanner Linsley",
@@ -889,6 +895,12 @@
 				"versions": ["0.11.2"],
 				"author": "Tanner Linsley",
 				"homepage": "https://tanstack.com/store"
+			},
+			{
+				"name": "@tanstack/table-core",
+				"versions": ["9.3.1"],
+				"author": "Tanner Linsley",
+				"homepage": "https://tanstack.com/table"
 			},
 			{
 				"name": "@tanstack/virtual-file-routes",
