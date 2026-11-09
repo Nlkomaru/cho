@@ -8,7 +8,15 @@ import {
   mealLogItemBaseSchema,
   mealLogSchema,
 } from "../domain/ingredient";
-import type { McpToolName } from "../domain/mcp";
+import {
+  calculatePurchaseListInputSchema,
+  deleteIngredientInputSchema,
+  deleteRecipeInputSchema,
+  deleteResultSchema,
+  purchaseListResultSchema,
+  type McpToolName,
+} from "../domain/mcp";
+import { calculatePurchaseList } from "../domain/purchase-list";
 import { recipeSchema } from "../domain/recipe";
 import { createDbClient } from "../db/client";
 import { createDishRepository } from "../repositories/dish-repository";
@@ -53,6 +61,8 @@ const output = {
   recipes: z.object({ recipes: z.array(dishSchema) }).strict(),
   recipe: z.object({ recipe: dishSchema }).strict(),
   meal: z.object({ meal: mealLogSchema }).strict(),
+  deleteResult: deleteResultSchema,
+  purchaseList: purchaseListResultSchema,
 };
 
 function mcpSuccess<T extends Record<string, unknown>>(value: T) {
@@ -105,6 +115,24 @@ export function createMcpServer(
         return mcpSuccess({ ingredient: await ingredientService.create(ingredient) });
       },
     );
+  if (allowed.has("delete_ingredient"))
+    server.registerTool(
+      "delete_ingredient",
+      {
+        title: "Delete an ingredient",
+        description: "Delete an ingredient registered in Cho.",
+        inputSchema: deleteIngredientInputSchema,
+        outputSchema: output.deleteResult,
+      },
+      async (input) => {
+        const targetId = input.id ?? input.ingredientId;
+        if (!targetId) {
+          throw new Error("Missing ingredient ID");
+        }
+        const deleted = await ingredientService.delete(targetId);
+        return mcpSuccess({ success: Boolean(deleted), deletedId: targetId });
+      },
+    );
   if (allowed.has("list_recipes"))
     server.registerTool(
       "list_recipes",
@@ -128,6 +156,92 @@ export function createMcpServer(
       async (input) => {
         const dish = dishSchema.parse({ ...input, id: crypto.randomUUID() });
         return mcpSuccess({ recipe: await dishService.create(dish) });
+      },
+    );
+  if (allowed.has("delete_recipe"))
+    server.registerTool(
+      "delete_recipe",
+      {
+        title: "Delete a recipe",
+        description: "Delete a recipe registered in Cho.",
+        inputSchema: deleteRecipeInputSchema,
+        outputSchema: output.deleteResult,
+      },
+      async (input) => {
+        const targetId = input.id ?? input.recipeId;
+        if (!targetId) {
+          throw new Error("Missing recipe ID");
+        }
+        const deleted = await dishService.delete(targetId);
+        return mcpSuccess({ success: Boolean(deleted), deletedId: targetId });
+      },
+    );
+  if (allowed.has("calculate_purchase_list"))
+    server.registerTool(
+      "calculate_purchase_list",
+      {
+        title: "Calculate purchase and shortage list",
+        description:
+          "Calculate inventory shortages, purchase amounts, unit costs, and output a unified Markdown table for a recipe.",
+        inputSchema: calculatePurchaseListInputSchema,
+        outputSchema: output.purchaseList,
+      },
+      async (input) => {
+        let recipe = input.recipe;
+        if (!recipe && (input.dishId || input.recipeId)) {
+          const targetId = input.dishId ?? input.recipeId;
+          if (!targetId) {
+            throw new Error("Missing dish ID");
+          }
+          const dish = await dishService.get(targetId);
+          if (!dish) throw new Error(`Dish not found: ${targetId}`);
+          recipe = dish.recipe;
+        }
+        if (!recipe) {
+          throw new Error("Either recipe or dishId/recipeId must be provided");
+        }
+
+        const ingredients = await ingredientService.list();
+        const inventory: Record<string, { currentQuantity: number; baseUnit: string }> = {};
+
+        for (const entry of recipe.ingredients) {
+          if (entry.ingredientId) {
+            try {
+              const stock = await ingredientService.inventiaStock(entry.ingredientId);
+              if (stock.found && stock.currentQuantity !== null) {
+                inventory[entry.ingredientId] = {
+                  currentQuantity: stock.currentQuantity,
+                  baseUnit: stock.baseUnit ?? entry.unit,
+                };
+              }
+            } catch {
+              // Inventia not configured; ignore
+            }
+          }
+        }
+
+        const rawInventory = {
+          ...input.inventory,
+          ...input.inventoryOverrides,
+        };
+        for (const [key, val] of Object.entries(rawInventory)) {
+          if (typeof val === "number") {
+            inventory[key] = { currentQuantity: val, baseUnit: "" };
+          } else if (val && typeof val === "object") {
+            inventory[key] = {
+              currentQuantity: val.currentQuantity,
+              baseUnit: val.baseUnit ?? "",
+            };
+          }
+        }
+
+        const result = calculatePurchaseList({
+          recipe,
+          ingredients,
+          inventory,
+        });
+
+        return mcpSuccess(result);
       },
     );
   if (allowed.has("record_meal"))

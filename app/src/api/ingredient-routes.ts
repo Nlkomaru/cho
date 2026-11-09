@@ -203,6 +203,27 @@ ingredientRoutes.openapi(updateIngredientRoute, async (context) => {
   }
 });
 
+const deleteIngredientRoute = createRoute({
+  method: "delete",
+  path: "/api/ingredients/{id}",
+  summary: "Delete an ingredient",
+  request: { params: z.object({ id: ingredientSchema.shape.id }).strict() },
+  responses: {
+    204: { description: "Ingredient deleted." },
+    404: {
+      description: "Ingredient not found.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+  },
+});
+ingredientRoutes.openapi(deleteIngredientRoute, async (context) => {
+  const { id } = context.req.valid("param");
+  const { service } = createIngredientContext(context.env);
+  const deleted = await service.delete(id);
+  if (!deleted) return context.json({ error: "Ingredient not found." }, 404);
+  return context.body(null, 204);
+});
+
 const searchInventiaRoute = createRoute({
   method: "post",
   path: "/api/ingredients/search-inventia",

@@ -2,11 +2,15 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { dishSchema } from "../domain/ingredient";
+import { inventoryItemInputSchema, purchaseListResultSchema } from "../domain/mcp";
+import { calculatePurchaseList } from "../domain/purchase-list";
 import { computeRecipeGanttSchedule } from "../domain/recipe-scheduler";
 import { createDbClient } from "../db/client";
 import { createDishRepository } from "../repositories/dish-repository";
 import { createIngredientRepository } from "../repositories/ingredient-repository";
+import { createSettingsRepository } from "../repositories/settings-repository";
 import { createDishService } from "../services/dish";
+import { resolveInventiaConnection } from "../services/integration-settings";
 import type { ApiBindings } from "./index";
 
 const errorSchema = z.object({ error: z.string() }).strict();
@@ -206,11 +210,116 @@ dishRoutes.openapi(deleteDishRoute, async (context) => {
   return context.body(null, 204);
 });
 
+const purchaseListBodySchema = z
+  .object({
+    inventory: z.record(z.string(), inventoryItemInputSchema).optional(),
+    inventoryOverrides: z.record(z.string(), inventoryItemInputSchema).optional(),
+  })
+  .strict()
+  .optional();
+
+const purchaseListRoute = createRoute({
+  method: "post",
+  path: "/api/dishes/{id}/purchase-list",
+  summary: "Calculate purchase and shortage list for a dish",
+  request: {
+    params: z.object({ id: dishSchema.shape.id }).strict(),
+    body: {
+      content: {
+        "application/json": {
+          schema: purchaseListBodySchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Purchase list calculated.",
+      content: { "application/json": { schema: purchaseListResultSchema } },
+    },
+    404: {
+      description: "Dish not found.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+  },
+});
+
+dishRoutes.openapi(purchaseListRoute, async (context) => {
+  const { id } = context.req.valid("param");
+  const { service, ingredientRepository, db } = createDishContext(context.env);
+  const dish = await service.get(id);
+  if (!dish) return context.json({ error: "Dish not found." }, 404);
+
+  let body: z.infer<typeof purchaseListBodySchema>;
+  try {
+    body = context.req.valid("json");
+  } catch {
+    body = undefined;
+  }
+
+  const ingredients = await ingredientRepository.list();
+  const inventory: Record<string, { currentQuantity: number; baseUnit: string }> = {};
+
+  try {
+    const settings = await createSettingsRepository(db).get("inventia");
+    const { client } = await resolveInventiaConnection(settings, context.env);
+    if (client) {
+      for (const entry of dish.recipe.ingredients) {
+        if (entry.ingredientId) {
+          const ing = ingredients.find((i) => i.id === entry.ingredientId);
+          if (ing?.inventiaItemId) {
+            try {
+              const item = await client.getItem(ing.inventiaItemId);
+              if (item && item.currentQuantity !== null) {
+                inventory[entry.ingredientId] = {
+                  currentQuantity: item.currentQuantity,
+                  baseUnit: item.baseUnit,
+                };
+              }
+            } catch {
+              // ignore individual lookup error
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Inventia not available; ignore
+  }
+
+  const rawInventory = {
+    ...body?.inventory,
+    ...body?.inventoryOverrides,
+  };
+  for (const [key, val] of Object.entries(rawInventory)) {
+    if (typeof val === "number") {
+      inventory[key] = { currentQuantity: val, baseUnit: "" };
+    } else if (val && typeof val === "object") {
+      inventory[key] = {
+        currentQuantity: val.currentQuantity,
+        baseUnit: val.baseUnit ?? "",
+      };
+    }
+  }
+
+  const result = calculatePurchaseList({
+    recipe: dish.recipe,
+    ingredients,
+    inventory,
+  });
+
+  return context.json(result, 200);
+});
+
 function createDishContext(env: ApiBindings) {
   const db = createDbClient(env.DB);
   const repository = createDishRepository(db);
   const ingredientRepository = createIngredientRepository(db);
-  return { service: createDishService({ repository, ingredientRepository }) };
+  return {
+    service: createDishService({ repository, ingredientRepository }),
+    ingredientRepository,
+    db,
+  };
 }
 
 function isDishValidationError(error: unknown): boolean {
