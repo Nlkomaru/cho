@@ -152,7 +152,7 @@ Cho は `better-auth`（`@better-auth/api-key`）と D1（`mcp_api_tokens`）を
 
 - **キー発行**: キー名、許可ツール（`list_ingredients`, `create_ingredient`, `list_recipes`, `create_recipe`, `record_meal` から選択）、および任意の有効期限（7日、30日、90日、無期限）を指定して発行します。
 - **ワンタイム表示と接続スニペット**: キー本体（`cho_mcp_...`）は発行時の一度のみ表示されます。画面上で即座にコピー可能な連携スニペットが提供されます:
-  - `hermes mcp add cho <url> --headers "Authorization: Bearer <key>"`
+  - Hermes CLI 設定コマンド（`hermes config set mcp_servers.cho.url ...` / `hermes config set mcp_servers.cho.headers.Authorization ...` / `hermes mcp test cho`）
   - MCP JSON 設定スニペット（VS Code / Claude Desktop 用）
   - `curl` テストコマンド
 - **キー一覧と失効**: 発行済みキーのプレフィックス、許可ツール、作成日時、有効期限、失効状態、最終利用日時を確認でき、不要になったキーを即座に失効（Revoke）できます。
