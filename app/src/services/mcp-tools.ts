@@ -9,6 +9,7 @@ import {
   inventiaItemIdSchema,
   mealLogItemBaseSchema,
   mealLogSchema,
+  type Dish,
   type Ingredient,
 } from "../domain/ingredient";
 import {
@@ -32,7 +33,7 @@ import {
   type McpToolName,
 } from "../domain/mcp";
 import { calculatePurchaseList } from "../domain/purchase-list";
-import { recipeSchema } from "../domain/recipe";
+import { namedRecipeIngredientEntrySchema, recipeSchema, withEntryNames } from "../domain/recipe";
 import { createDbClient } from "../db/client";
 import { MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_BYTES } from "../domain/image";
 import { createDishRepository } from "../repositories/dish-repository";
@@ -77,7 +78,7 @@ const ingredientInput = ingredientObjectSchema
       .nullable()
       .optional()
       .describe(
-        "Inventia item ID to link. Checked against Inventia (existence and unit) and the latest price is pulled; fails when Inventia is not configured. Use search_inventia_items to find IDs",
+        "Inventia item ID to link. Checked against Inventia (existence and unit) and the latest price is pulled; a missing price does not block the link. Fails when Inventia is not configured. Use search_inventia_items to find IDs",
       ),
     inventia_item_id: inventiaItemIdSchema
       .nullable()
@@ -170,13 +171,17 @@ const inventiaItemOutput = z
     currentQuantity: z.number(),
   })
   .strict();
+// Outputs add each ingredient entry's display name, which the stored recipe does not keep.
+const namedDishSchema = dishSchema.extend({
+  recipe: recipeSchema.extend({ ingredients: z.array(namedRecipeIngredientEntrySchema) }),
+});
 const output = {
   ingredients: z.object({ items: z.array(ingredientSchema) }).strict(),
   ingredient: z.object({ ingredient: ingredientSchema }).strict(),
   ingredientCreated: z.object({ ingredient: ingredientSchema, created: z.boolean() }).strict(),
-  recipes: z.object({ recipes: z.array(dishSchema) }).strict(),
-  recipe: z.object({ recipe: dishSchema }).strict(),
-  recipeCreated: z.object({ recipe: dishSchema, created: z.boolean() }).strict(),
+  recipes: z.object({ recipes: z.array(namedDishSchema) }).strict(),
+  recipe: z.object({ recipe: namedDishSchema }).strict(),
+  recipeCreated: z.object({ recipe: namedDishSchema, created: z.boolean() }).strict(),
   meal: z.object({ meal: mealLogSchema }).strict(),
   mealCreated: z.object({ meal: mealLogSchema, created: z.boolean() }).strict(),
   meals: z
@@ -196,6 +201,12 @@ const output = {
       ingredient: ingredientSchema,
       synced: z.boolean(),
       unitPriceYen: z.number().nullable(),
+      reason: z
+        .enum(["no_price_records", "price_unavailable"])
+        .nullable()
+        .describe(
+          "Why no price was stored when synced is false; the link is saved either way and the price is refreshed when the ingredient or a recipe using it is opened in Cho",
+        ),
     })
     .strict(),
   image: z.object({ imageId: z.string(), contentType: z.string(), byteSize: z.number() }).strict(),
@@ -376,6 +387,11 @@ export function createMcpServer(
     inventiaClient,
   });
   const dishService = createDishService({ repository: dishRepository, ingredientRepository });
+  async function withNames(dishes: readonly Dish[]) {
+    const ingredients = await dishService.ingredientsFor(dishes.map((dish) => dish.recipe));
+    return dishes.map((dish) => ({ ...dish, recipe: withEntryNames(dish.recipe, ingredients) }));
+  }
+  const withName = async (dish: Dish) => (await withNames([dish]))[0];
   const mealService = createMealLogService({
     repository: mealRepository,
     dishRepository,
@@ -448,7 +464,7 @@ export function createMcpServer(
       {
         title: "Update an ingredient",
         description:
-          "Update fields of an existing ingredient. Changing baseDimension or baseUnit clears the Inventia link and price unless inventiaItemId is sent in the same call. A non-null inventiaItemId is verified against Inventia (existence and unit) and the latest price is pulled; null unlinks.",
+          "Update fields of an existing ingredient. Changing baseDimension or baseUnit clears the Inventia link and price unless inventiaItemId is sent in the same call. A non-null inventiaItemId is verified against Inventia (existence and unit) and the latest price is pulled (the link is kept even when no price is available); null unlinks.",
         inputSchema: updateIngredientInputSchema,
         outputSchema: output.ingredient,
         annotations: update,
@@ -519,7 +535,7 @@ export function createMcpServer(
       {
         title: "Link an ingredient to an Inventia item",
         description:
-          "Link a Cho ingredient to an Inventia item. Checks that the item exists and that its unit matches the ingredient, then stores the latest Inventia unit price. synced is false when Inventia has no price record; the link is still saved.",
+          "Link a Cho ingredient to an Inventia item. Checks that the item exists and that its unit matches the ingredient, then stores the latest Inventia unit price converted to the ingredient's nutrition basis. synced is false when Inventia has no price record or the price request failed (see reason); the link is still saved and the price is refreshed when the ingredient or a recipe using it is opened in Cho.",
         inputSchema: linkInventiaItemInputSchema,
         outputSchema: output.link,
         annotations: { ...update, openWorldHint: true },
@@ -530,6 +546,7 @@ export function createMcpServer(
           ingredient: result.ingredient,
           synced: result.synced,
           unitPriceYen: result.synced ? result.unitPriceYen : null,
+          reason: result.synced ? null : result.reason,
         });
       }),
     );
@@ -556,7 +573,7 @@ export function createMcpServer(
         outputSchema: output.recipes,
         annotations: readOnly,
       },
-      guard(async () => mcpSuccess({ recipes: await dishService.list() })),
+      guard(async () => mcpSuccess({ recipes: await withNames(await dishService.list()) })),
     );
   if (allowed.has("get_recipe"))
     server.registerTool(
@@ -572,7 +589,7 @@ export function createMcpServer(
         const targetId = input.id ?? input.recipeId ?? "";
         const recipe = await dishService.get(targetId);
         if (!recipe) throw new Error(`Recipe not found: ${targetId}`);
-        return mcpSuccess({ recipe });
+        return mcpSuccess({ recipe: await withName(recipe) });
       }),
     );
   if (allowed.has("create_recipe"))
@@ -583,7 +600,7 @@ export function createMcpServer(
         description: [
           "Register a recipe in Cho. Workflow:",
           "1) Call list_ingredients, or create_ingredient for missing ones, and note each ingredient UUID.",
-          "2) Build recipe.ingredients. Each entry has a recipe-local id (lowercase letters, digits, - and _, up to 64 characters) and an ingredientId that must be an existing Cho ingredient UUID. amount is in the ingredient base unit.",
+          "2) Build recipe.ingredients. Each entry has a recipe-local id (lowercase letters, digits, - and _, up to 64 characters) and an ingredientId that must be an existing Cho ingredient UUID. amount is in the ingredient base unit. The entry shows the ingredient's registered name, so do not repeat it; set label only for recipe-specific wording such as 玉ねぎ（飾り用）.",
           "3) Build recipe.steps. Each step has a local id; list the steps that must finish first in dependsOnStepIds. The graph must have no cycle.",
           "4) Step inputs refer to local ids: ingredientEntryId (recipe.ingredients[].id), groupId (recipe.ingredientGroups[].id), or fromStepId plus outputId (an earlier step's outputs[].id).",
           "5) Optional images: upload with upload_image or create_image_upload, then put the returned imageId in coverImageId or recipe.steps[].imageIds (up to 4 per step). Each image can be used once.",
@@ -596,8 +613,8 @@ export function createMcpServer(
       guard(async (input) => {
         const { id, servings, ...fields } = input;
         if (id) {
-          const existing = await dishRepository.getById(id);
-          if (existing) return mcpSuccess({ recipe: existing, created: false });
+          const existing = await dishService.get(id);
+          if (existing) return mcpSuccess({ recipe: await withName(existing), created: false });
         }
         const resolved = resolveServings(servings, input.recipe.servings, 1);
         const dish = dishSchema.parse({
@@ -606,7 +623,10 @@ export function createMcpServer(
           servings: resolved,
           recipe: { ...input.recipe, servings: resolved },
         });
-        return mcpSuccess({ recipe: await dishService.create(dish), created: true });
+        return mcpSuccess({
+          recipe: await withName(await dishService.create(dish)),
+          created: true,
+        });
       }),
     );
   if (allowed.has("update_recipe"))
@@ -615,7 +635,7 @@ export function createMcpServer(
       {
         title: "Update a recipe",
         description:
-          "Update a recipe in place, keeping its ID so past meals stay linked. Sending recipe replaces the whole recipe (same rules as create_recipe: existing ingredient UUIDs, local IDs, acyclic dependsOnStepIds). Omitted fields are unchanged.",
+          "Update a recipe in place, keeping its ID so past meals stay linked. Sending recipe replaces the whole recipe (same rules as create_recipe: existing ingredient UUIDs, local IDs, acyclic dependsOnStepIds, optional label). The name field in recipe outputs is read-only and ignored when sent back. Omitted fields are unchanged.",
         inputSchema: updateRecipeInput,
         outputSchema: output.recipe,
         annotations: update,
@@ -635,7 +655,7 @@ export function createMcpServer(
         if (input.coverImageId !== undefined) changes.coverImageId = input.coverImageId;
         const updated = await dishService.update(input.id, changes);
         if (!updated) throw new Error(`Recipe not found: ${input.id}`);
-        return mcpSuccess({ recipe: updated });
+        return mcpSuccess({ recipe: await withName(updated) });
       }),
     );
   if (allowed.has("delete_recipe"))
@@ -737,7 +757,7 @@ export function createMcpServer(
           ...(input.stepImages ? { stepImages: input.stepImages } : {}),
         });
         if (!recipe) throw new Error(`Recipe not found: ${input.recipeId}`);
-        return mcpSuccess({ recipe });
+        return mcpSuccess({ recipe: await withName(recipe) });
       }),
     );
   if (allowed.has("calculate_purchase_list"))

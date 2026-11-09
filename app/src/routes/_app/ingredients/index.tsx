@@ -5,6 +5,7 @@ import { z } from "zod";
 import { toaster } from "@/components/ui/toaster";
 import type { Ingredient } from "@/domain/ingredient";
 import { errorMessageFrom } from "@/lib/api-error";
+import { refreshStaleInventiaPrices } from "@/lib/inventia-price-refresh";
 
 import { IngredientEditorDrawer } from "./-components/ingredient-editor-drawer";
 import type { EstimateResult, IngredientPayload } from "./-components/ingredient-form";
@@ -23,6 +24,10 @@ const stockResultResponseSchema = z
     baseUnit: z.string().nullable(),
   })
   .strict();
+type LinkResult =
+  | { synced: true; ingredient: Ingredient; unitPriceYen: number }
+  | { synced: false; reason: "no_price_records" | "price_unavailable"; ingredient: Ingredient };
+
 const stockAdjustResponseSchema = z
   .object({ currentQuantity: z.number(), allocations: z.array(z.unknown()) })
   .strict();
@@ -57,6 +62,12 @@ function IngredientsPage() {
     setError("");
     try {
       setItems(await request<Ingredient[]>("/api/ingredients", "材料を読み込めませんでした。"));
+      // 一覧を出してから古い単価を取り直し、更新された行だけ差し替える
+      void refreshStaleInventiaPrices().then((updated) => {
+        if (updated.length === 0) return;
+        const byId = new Map(updated.map((item) => [item.id, item]));
+        setItems((current) => current.map((item) => byId.get(item.id) ?? item));
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "材料を読み込めませんでした。");
     } finally {
@@ -90,7 +101,10 @@ function IngredientsPage() {
         : [...current, ingredient],
     );
     setDrawerOpen(false);
-    toaster.create({ type: "success", title: editingId ? "保存しました" : "材料を追加しました" });
+    toaster.create({
+      type: "success",
+      title: editingId ? "保存しました" : "材料を追加しました",
+    });
   }
 
   async function remove(ingredient: Ingredient) {
@@ -125,14 +139,24 @@ function IngredientsPage() {
           },
         ),
       async link(ingredientId, itemId) {
-        const result = await request<{ synced: boolean; ingredient: Ingredient }>(
+        const result = await request<LinkResult>(
           "/api/ingredients/sync-inventia",
-          "価格を同期できませんでした。",
+          "Inventia と連携できませんでした。",
           { method: "POST", body: { ingredientId, itemId } },
         );
         replaceItem(result.ingredient);
-        if (result.synced)
-          toaster.create({ type: "success", title: "Inventia の価格を同期しました" });
+        toaster.create(
+          result.synced
+            ? { type: "success", title: "Inventia と連携し、単価を取り込みました" }
+            : {
+                type: "info",
+                title: "Inventia と連携しました",
+                description:
+                  result.reason === "price_unavailable"
+                    ? "単価を取得できませんでした。次に開いたときに取り直します。"
+                    : "この品目には価格の記録がないため、単価は未登録です。",
+              },
+        );
         return result;
       },
       async readStock(ingredientId) {

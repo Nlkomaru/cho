@@ -19,6 +19,8 @@ export const Default: Story = {};
 
 export const WithCost: Story = { args: { costYen: 480 } };
 
+export const CostMissing: Story = { args: { costYen: null, costMissing: true } };
+
 export const Sizes: Story = {
   render: () => (
     <Stack gap="3">

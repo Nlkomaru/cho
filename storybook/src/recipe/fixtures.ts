@@ -115,17 +115,17 @@ export const ingredientById: ReadonlyMap<string, Ingredient> = new Map(
   ingredientMaster.map((item) => [item.id, item]),
 );
 
+// 材料名は材料マスタから引く。label はレシピ内だけの言い方を付けたいときに使う
 const entry = (
   id: string,
   ingredientId: string,
-  name: string,
   amount: number,
   displayAmount: string,
   extra: Partial<RecipeJson["ingredients"][number]> = {},
 ): RecipeJson["ingredients"][number] => ({
   id,
   ingredientId,
-  name,
+  label: null,
   amount,
   unit: "g",
   displayAmount,
@@ -193,22 +193,22 @@ export const curryRecipe: RecipeJson = {
     },
   ],
   ingredients: [
-    entry("e-rice", "ing-rice", "精白米", 300, "2合"),
-    entry("e-pork", "ing-pork", "豚こま切れ肉", 300, "300g"),
-    entry("e-onion", "ing-onion", "玉ねぎ", 400, "2個", { prepNote: "くし切り" }),
-    entry("e-potato", "ing-potato", "じゃがいも", 300, "2個", { prepNote: "一口大" }),
-    entry("e-carrot", "ing-carrot", "にんじん", 150, "1本", { prepNote: "乱切り" }),
-    entry("e-oil", "ing-olive-oil", "オリーブオイル", 10, "大さじ1", { role: "seasoning" }),
-    entry("e-roux", "ing-roux", "カレールウ", 100, "1/2箱", { role: "seasoning" }),
-    entry("e-soy", "ing-soy", "しょうゆ", 6, "小さじ1", {
+    entry("e-rice", "ing-rice", 300, "2合"),
+    entry("e-pork", "ing-pork", 300, "300g"),
+    entry("e-onion", "ing-onion", 400, "2個", { prepNote: "くし切り" }),
+    entry("e-potato", "ing-potato", 300, "2個", { prepNote: "一口大" }),
+    entry("e-carrot", "ing-carrot", 150, "1本", { prepNote: "乱切り" }),
+    entry("e-oil", "ing-olive-oil", 10, "大さじ1", { role: "seasoning" }),
+    entry("e-roux", "ing-roux", 100, "1/2箱", { role: "seasoning", label: "カレールウ（中辛）" }),
+    entry("e-soy", "ing-soy", 6, "小さじ1", {
       role: "seasoning",
       groupId: "grp-hidden",
     }),
-    entry("e-mirin", "ing-mirin", "みりん", 6, "小さじ1", {
+    entry("e-mirin", "ing-mirin", 6, "小さじ1", {
       role: "seasoning",
       groupId: "grp-hidden",
     }),
-    entry("e-sugar", "ing-sugar", "砂糖", 3, "小さじ1", {
+    entry("e-sugar", "ing-sugar", 3, "小さじ1", {
       role: "seasoning",
       groupId: "grp-hidden",
     }),
@@ -361,6 +361,7 @@ export const curryDish: Dish = {
   recipe: curryRecipe,
   totalNutrition: null,
   totalCostYen: null,
+  costMissingCount: 0,
   coverImageId: null,
   notes: "隠し味のしょうゆとみりんはルウを溶かした後に加える。",
 };
@@ -392,12 +393,13 @@ export const gratinDish: Dish = {
   recipe: gratinPayload.recipe,
   totalNutrition: null,
   totalCostYen: null,
+  costMissingCount: 0,
   coverImageId: null,
   notes: null,
 };
 
-export const currySchedule = computeRecipeGanttSchedule(curryRecipe);
-export const gratinSchedule = computeRecipeGanttSchedule(gratinDish.recipe);
+export const currySchedule = computeRecipeGanttSchedule(curryRecipe, ingredientById);
+export const gratinSchedule = computeRecipeGanttSchedule(gratinDish.recipe, ingredientById);
 export const emptySchedule = {
   totalDurationSec: 0,
   serialDurationSec: 0,

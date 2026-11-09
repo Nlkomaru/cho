@@ -41,6 +41,7 @@ const incomplete: RecipeIngredientEntry = { ...emptyEntry(), id: "e-new" };
 
 /**
  * 材料の編集行。md 以上は見出し行付きの表、狭い画面では各欄にラベルを出す。
+ * 材料名は材料マスタから引き、表記はレシピだけの言い方を付けたいときに入れる。
  */
 const meta = {
   title: "RecipeEditor/IngredientRows",
@@ -55,6 +56,11 @@ export const Default: Story = {};
 
 export const WithGroups: Story = {
   args: { initial: recipe.ingredients },
+};
+
+/** 「カレールウ（中辛）」はこのレシピだけの表記。空の表記欄には材料マスタの名前が薄く出る。 */
+export const WithLabel: Story = {
+  args: { initial: recipe.ingredients.slice(5, 7) },
 };
 
 export const Empty: Story = {

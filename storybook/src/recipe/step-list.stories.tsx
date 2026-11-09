@@ -10,6 +10,7 @@ import {
   currySchedule,
   gratinDish,
   gratinSchedule,
+  ingredientById,
 } from "./fixtures";
 
 function InteractiveStepList(props: StepListProps) {
@@ -37,6 +38,7 @@ const meta = {
   ),
   args: {
     recipe: curryRecipe,
+    ingredientById,
     bars: currySchedule.bars,
     scale: 1,
     completedStepIds: [],

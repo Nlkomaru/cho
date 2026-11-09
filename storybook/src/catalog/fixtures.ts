@@ -196,6 +196,7 @@ export const buildDishRow = (overrides: Partial<DishRow> = {}): DishRow => {
     ingredientCount: 9,
     facts: buildNutritionFacts(),
     costYen: 312,
+    costMissingCount: 0,
     ...overrides,
   };
 };
@@ -216,6 +217,7 @@ export const dishRows: readonly DishRow[] = [
       carbohydrateG: 55.2,
     }),
     costYen: 286,
+    costMissingCount: 2,
   }),
   buildDishRow({
     id: "miso",
@@ -237,6 +239,7 @@ export const dishRows: readonly DishRow[] = [
     ingredientCount: 6,
     facts: buildNutritionFacts({ caloriesKcal: 118, proteinG: 1.4, fatG: 9.8, carbohydrateG: 6.9 }),
     costYen: null,
+    costMissingCount: 6,
   }),
   buildDishRow({
     id: "rice",

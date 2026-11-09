@@ -59,6 +59,7 @@ function dishFor(index: number, ingredientIds: string[]): Dish {
     }),
     totalNutrition: null,
     totalCostYen: null,
+    costMissingCount: 0,
     coverImageId: null,
     notes: null,
   };
@@ -105,4 +106,74 @@ test("a dish that references an unknown ingredient is rejected by name of the en
     ingredientRepository: { getById: async () => null, getByIds: async () => [] },
   });
   await expect(service.list()).rejects.toThrow("Unknown ingredient ghost");
+});
+
+test("saving keeps only labels that differ from the master ingredient name", async () => {
+  const base = dishFor(0, ["玉ねぎ", "食塩"]);
+  const dish: Dish = {
+    ...base,
+    recipe: {
+      ...base.recipe,
+      ingredients: [
+        { ...base.recipe.ingredients[0], label: "玉ねぎ" },
+        { ...base.recipe.ingredients[1], label: "塩ひとつまみ" },
+      ],
+    },
+  };
+  let saved: Dish | undefined;
+  const service = createDishService({
+    repository: {
+      create: async (input: Dish) => (saved = input),
+    } as unknown as DishRepository,
+    ingredientRepository: { getById: async (id) => ingredientFor(id) },
+  });
+  await service.create(dish);
+  expect(saved?.recipe.ingredients.map((entry) => entry.label)).toEqual([null, "塩ひとつまみ"]);
+});
+
+test("legacy entries with a copied name read as having no label", async () => {
+  // dishFor writes the old `name` field, set to the master name
+  const service = createDishService({
+    repository: { list: async () => [dishFor(0, ["玉ねぎ"])] } as unknown as DishRepository,
+    ingredientRepository: { getById: async (id) => ingredientFor(id) },
+  });
+  const [dish] = await service.list();
+  expect(dish?.recipe.ingredients[0]).not.toHaveProperty("name");
+  expect(dish?.recipe.ingredients[0]?.label).toBeNull();
+});
+
+function serviceWithPrices(prices: Record<string, number | null>) {
+  const repository = {
+    create: async (dish: Dish) => dish,
+    getById: async () => null,
+  } as unknown as DishRepository;
+  return createDishService({
+    repository,
+    ingredientRepository: {
+      getById: async (id) => ({ ...ingredientFor(id), latestUnitPriceYen: prices[id] ?? null }),
+      getByIds: async (ids) =>
+        ids.map((id) => ({ ...ingredientFor(id), latestUnitPriceYen: prices[id] ?? null })),
+    },
+  });
+}
+
+test("a dish with some unpriced ingredients keeps the partial sum and counts the gaps", async () => {
+  const service = serviceWithPrices({ a: 10, b: null, c: null });
+  const created = await service.create({ ...dishFor(0, ["a", "b", "c"]), servings: 2 });
+  expect(created.totalCostYen).toBeCloseTo(10 / 2);
+  expect(created.costMissingCount).toBe(2);
+});
+
+test("a dish with no priced ingredient has null cost and counts every ingredient", async () => {
+  const service = serviceWithPrices({ a: null, b: null });
+  const created = await service.create(dishFor(0, ["a", "b"]));
+  expect(created.totalCostYen).toBeNull();
+  expect(created.costMissingCount).toBe(2);
+});
+
+test("a fully priced dish reports no missing ingredients", async () => {
+  const service = serviceWithPrices({ a: 10, b: 20 });
+  const created = await service.create(dishFor(0, ["a", "b"]));
+  expect(created.totalCostYen).toBeCloseTo(30);
+  expect(created.costMissingCount).toBe(0);
 });

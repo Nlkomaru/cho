@@ -18,6 +18,7 @@ const dishInputSchema = dishSchema.omit({
   id: true,
   totalNutrition: true,
   totalCostYen: true,
+  costMissingCount: true,
 });
 const dishPatchSchema = dishInputSchema
   .partial()
@@ -135,8 +136,12 @@ dishRoutes.openapi(getDishRoute, async (context) => {
   const { service } = createDishContext(context.env);
   const dish = await service.get(id);
   if (!dish) return context.json({ error: "Dish not found." }, 404);
+  const ingredients = await service.ingredientsFor([dish.recipe]);
   try {
-    return context.json({ dish, schedule: computeRecipeGanttSchedule(dish.recipe) }, 200);
+    return context.json(
+      { dish, schedule: computeRecipeGanttSchedule(dish.recipe, ingredients) },
+      200,
+    );
   } catch {
     return context.json({ error: "Dish schedule could not be computed." }, 500);
   }

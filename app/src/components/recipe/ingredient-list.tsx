@@ -110,6 +110,7 @@ function IngredientRow({
   onStepSelect?(stepId: string): void;
 }) {
   const multiStep = item.usages.length > 1;
+  const costMissing = item.costYen === null;
   return (
     <chakra.li
       display="grid"
@@ -131,6 +132,11 @@ function IngredientRow({
             {item.prep}
           </chakra.span>
         ) : null}
+        {costMissing && !showNutrition ? (
+          <chakra.span textStyle="caption" color="fg.subtle" ms="2">
+            単価未登録
+          </chakra.span>
+        ) : null}
       </Box>
       <chakra.span
         fontSize="15px"
@@ -145,7 +151,12 @@ function IngredientRow({
       </chakra.span>
       {showNutrition ? (
         <Box minW="0" gridColumn={multiStep ? "1" : "1 / -1"}>
-          <NutritionInline facts={item.facts ?? null} costYen={item.costYen} size="xs" />
+          <NutritionInline
+            facts={item.facts ?? null}
+            costYen={item.costYen}
+            costMissing={costMissing}
+            size="xs"
+          />
         </Box>
       ) : null}
       {multiStep ? (

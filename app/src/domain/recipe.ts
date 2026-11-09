@@ -12,7 +12,10 @@ export const MAX_STEP_IMAGES = 4;
 /** Cover plus every step image; keeps one `IN (...)` lookup well under the D1 bound-parameter limit. */
 export const MAX_DISH_IMAGES = 40;
 
-export const recipeIngredientEntrySchema = z
+/** Shown when an entry has no label and its ingredient is missing from the master. */
+export const UNKNOWN_INGREDIENT_NAME = "不明な材料";
+
+export const recipeIngredientEntryObjectSchema = z
   .object({
     id: recipeIdSchema.describe("Recipe-local ingredient ID"),
     ingredientId: z
@@ -23,7 +26,16 @@ export const recipeIngredientEntrySchema = z
       .describe(
         "UUID of an existing Cho ingredient, taken from list_ingredients or create_ingredient",
       ),
-    name: z.string().trim().min(1).max(120),
+    label: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .nullable()
+      .default(null)
+      .describe(
+        "Optional recipe-specific wording shown instead of the ingredient name, such as 玉ねぎ（飾り用）. Use null to show the ingredient's registered name",
+      ),
     amount: z
       .number()
       .positive()
@@ -38,6 +50,25 @@ export const recipeIngredientEntrySchema = z
     prepNote: z.string().trim().max(120).nullable().default(null),
   })
   .strict();
+
+/**
+ * Entries used to store a copy of the ingredient name in `name`. Without a `label` key it is
+ * read as the label (one that matches the master name is dropped when the recipe is saved).
+ * With a `label` key, `name` is the read-only display name from an output and is ignored.
+ * A blank label means "use the master name".
+ */
+function readLegacyEntry(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const { name, ...rest } = value as Record<string, unknown>;
+  const label = "label" in rest ? rest.label : name;
+  if (label === undefined) return rest;
+  return { ...rest, label: typeof label === "string" && !label.trim() ? null : label };
+}
+
+export const recipeIngredientEntrySchema = z.preprocess(
+  readLegacyEntry,
+  recipeIngredientEntryObjectSchema,
+);
 
 export const recipeGroupSymbolSchema = z.enum(["★", "☆", "◎", "●", "▲", "A", "B", "C"]);
 export const recipeIngredientGroupSchema = z
@@ -190,4 +221,60 @@ export type RecipeJson = z.infer<typeof recipeSchema>;
 export type RecipeStep = z.infer<typeof recipeStepSchema>;
 export type RecipeIngredientEntry = z.infer<typeof recipeIngredientEntrySchema>;
 export type RecipeIngredientGroup = z.infer<typeof recipeIngredientGroupSchema>;
+
+/** Anything that maps an ingredient ID to its master record, such as a Map of ingredients. */
+export type IngredientNameLookup = ReadonlyMap<string, { readonly name: string }>;
+
+/** Display name of a recipe entry: its label, else the master ingredient name. */
+export function recipeEntryName(
+  entry: Pick<RecipeIngredientEntry, "ingredientId" | "label">,
+  ingredients: IngredientNameLookup | undefined,
+): string {
+  return entry.label ?? ingredients?.get(entry.ingredientId)?.name ?? UNKNOWN_INGREDIENT_NAME;
+}
+
+/** Drops labels that only repeat the master ingredient name, so renames in the master show up. */
+export function dropRedundantLabels<T extends Pick<RecipeJson, "ingredients">>(
+  recipe: T,
+  ingredients: IngredientNameLookup,
+): T {
+  if (
+    !recipe.ingredients.some(
+      (entry) => entry.label !== null && entry.label === ingredients.get(entry.ingredientId)?.name,
+    )
+  )
+    return recipe;
+  return {
+    ...recipe,
+    ingredients: recipe.ingredients.map((entry) =>
+      entry.label !== null && entry.label === ingredients.get(entry.ingredientId)?.name
+        ? { ...entry, label: null }
+        : entry,
+    ),
+  };
+}
+
+/** A recipe entry with its display name filled in, for read-only outputs such as MCP results. */
+export const namedRecipeIngredientEntrySchema = recipeIngredientEntryObjectSchema.extend({
+  name: z
+    .string()
+    .describe(
+      "Display name: label when set, otherwise the registered ingredient name. Read-only; change label or the ingredient to change it",
+    ),
+});
+export type NamedRecipeIngredientEntry = z.infer<typeof namedRecipeIngredientEntrySchema>;
+
+export function withEntryNames<T extends Pick<RecipeJson, "ingredients">>(
+  recipe: T,
+  ingredients: IngredientNameLookup,
+): Omit<T, "ingredients"> & { ingredients: NamedRecipeIngredientEntry[] } {
+  return {
+    ...recipe,
+    ingredients: recipe.ingredients.map((entry) => ({
+      ...entry,
+      name: recipeEntryName(entry, ingredients),
+    })),
+  };
+}
+
 export const recipeJsonSchema = z.toJSONSchema(recipeSchema, { target: "draft-2020-12" });

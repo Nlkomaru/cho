@@ -35,3 +35,27 @@ export const SearchResults: Story = {
 };
 
 export const NoResults: Story = { args: { ingredient: potato, initialMatches: [] } };
+
+/** 価格記録のない品目と連携した直後。連携は保存され、単価は未登録のまま。 */
+export const LinkedWithoutPrice: Story = {
+  args: {
+    ingredient: {
+      ...onion,
+      inventiaItemId: "itm_01JD8ONION",
+      latestUnitPriceYen: null,
+      latestPriceUpdatedAt: null,
+    },
+  },
+};
+
+/** 価格記録がないことを確認済み (日付はその確認日)。 */
+export const LinkedWithoutPriceChecked: Story = {
+  args: {
+    ingredient: {
+      ...onion,
+      inventiaItemId: "itm_01JD8ONION",
+      latestUnitPriceYen: null,
+      latestPriceUpdatedAt: "2026-11-10T03:00:00.000Z",
+    },
+  },
+};

@@ -1,13 +1,13 @@
 import { Box, chakra, Field, Grid, Input, Stack, Text } from "@chakra-ui/react";
 import { Plus, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { Button, IconButton } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { RecipeIngredientEntry, RecipeIngredientGroup } from "@/domain/recipe";
 
 import { DraftNumberInput } from "./draft-number-input";
-import { fieldIds, roleOptions, type IngredientOption } from "./recipe-draft";
+import { entryLabel, fieldIds, roleOptions, type IngredientOption } from "./recipe-draft";
 
 export interface IngredientRowsProps {
   entries: readonly RecipeIngredientEntry[];
@@ -72,7 +72,8 @@ function Cell({
 }
 
 /**
- * 材料の編集行。材料マスタ・基準量・表示分量・グループを 1 行に、役割と下ごしらえを 2 行目に置く。
+ * 材料の編集行。材料マスタ・基準量・表示分量・グループを 1 行に、役割・表記・下ごしらえを 2 行目に置く。
+ * 材料名は材料マスタから引く。表記はこのレシピだけの言い方を付けたいときに入れる。
  */
 export function IngredientRows({
   entries,
@@ -83,6 +84,10 @@ export function IngredientRows({
   onRemove,
   onAdd,
 }: IngredientRowsProps) {
+  const ingredientById = useMemo(
+    () => new Map(ingredients.map((item) => [item.id, item])),
+    [ingredients],
+  );
   const ingredientOptions = ingredients.map((item) => ({
     value: item.id,
     label: `${item.name} (${item.baseUnit})`,
@@ -115,8 +120,8 @@ export function IngredientRows({
           </Grid>
           <chakra.ol listStyleType="none" m="0" p="0">
             {entries.map((entry, index) => {
-              const master = ingredients.find((item) => item.id === entry.ingredientId);
-              const rowName = entry.name || `材料${index + 1}`;
+              const master = ingredientById.get(entry.ingredientId);
+              const rowName = entryLabel(entry, index, ingredientById);
               const ingredientId = fieldIds.entry(entry.id, "ingredient");
               const amountId = fieldIds.entry(entry.id, "amount");
               const displayId = fieldIds.entry(entry.id, "display");
@@ -138,12 +143,8 @@ export function IngredientRows({
                         placeholder="材料を選択"
                         value={entry.ingredientId}
                         onChange={(value) => {
-                          const item = ingredients.find((candidate) => candidate.id === value);
-                          onChange(entry.id, {
-                            ingredientId: value,
-                            name: item?.name ?? "",
-                            unit: item?.baseUnit ?? "",
-                          });
+                          const item = ingredientById.get(value);
+                          onChange(entry.id, { ingredientId: value, unit: item?.baseUnit ?? "" });
                         }}
                       />
                     </Cell>
@@ -193,7 +194,7 @@ export function IngredientRows({
                   <Grid
                     templateColumns={{
                       base: "minmax(0, 1fr) minmax(0, 1fr)",
-                      md: "minmax(0, 9rem) minmax(0, 1fr)",
+                      md: "minmax(0, 9rem) minmax(0, 1fr) minmax(0, 1fr)",
                     }}
                     gap="3"
                     pe={{ md: "calc(2.5rem + {spacing.3})" }}
@@ -210,6 +211,19 @@ export function IngredientRows({
                       />
                     </Field.Root>
                     <Field.Root minW="0">
+                      <Field.Label srOnly>{`${rowName} のレシピ内の表記`}</Field.Label>
+                      <Input
+                        size="sm"
+                        maxLength={120}
+                        placeholder={master ? `表記 (${master.name})` : "表記"}
+                        value={entry.label ?? ""}
+                        onChange={(event) => {
+                          const label = event.currentTarget.value;
+                          onChange(entry.id, { label: label.trim() ? label : null });
+                        }}
+                      />
+                    </Field.Root>
+                    <Field.Root minW="0" gridColumn={{ base: "1 / -1", md: "auto" }}>
                       <Field.Label srOnly>{`${rowName} の下ごしらえ`}</Field.Label>
                       <Input
                         size="sm"

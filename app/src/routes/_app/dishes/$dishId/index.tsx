@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { SearchX } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Page } from "@/components/layout/page";
 import { PageHeader } from "@/components/layout/page-header";
@@ -12,6 +12,7 @@ import { toaster } from "@/components/ui/toaster";
 import type { Dish, Ingredient } from "@/domain/ingredient";
 import type { RecipeGanttSchedule } from "@/domain/recipe-scheduler";
 import { errorMessageFrom } from "@/lib/api-error";
+import { refreshStaleInventiaPrices } from "@/lib/inventia-price-refresh";
 
 import { DishDetailSkeleton, DishDetailView } from "./-components/dish-detail-view";
 import { RecipeMetaDialog, type RecipeMetaValues } from "./-components/recipe-meta-dialog";
@@ -87,6 +88,18 @@ function DishDetailPage() {
     setDetail(null);
     void load();
   }, [load]);
+
+  // 表示後に、このレシピの材料のうち古い Inventia 単価を取り直す。更新があれば原価を再計算する
+  const refreshedFor = useRef<string | null>(null);
+  const loadedDish = detail?.dish.id === dishId ? detail.dish : null;
+  useEffect(() => {
+    if (!loadedDish || refreshedFor.current === loadedDish.id) return;
+    refreshedFor.current = loadedDish.id;
+    const ids = new Set(loadedDish.recipe.ingredients.map((entry) => entry.ingredientId));
+    void refreshStaleInventiaPrices([...ids]).then((updated) => {
+      if (updated.length > 0) void load({ quiet: true });
+    });
+  }, [loadedDish, load]);
 
   const ingredientById = useMemo(() => new Map(master.map((item) => [item.id, item])), [master]);
 

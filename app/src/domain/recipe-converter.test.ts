@@ -106,7 +106,7 @@ describe("R4: Inventia to cho Recipe Converter & Splitter (recipe-converter.ts)"
 
     // Every ingredient mapped to proper UUID from ingredientMap
     for (const ing of payload.recipe.ingredients) {
-      expect(ing.ingredientId).toBe(sampleIngredientMap[ing.name]);
+      expect(ing.ingredientId).toBe(sampleIngredientMap[ing.label ?? ""]);
       expect(ing.ingredientId).not.toBe("");
     }
 

@@ -1,4 +1,8 @@
-import type { Ingredient } from "../domain/ingredient";
+import {
+  type Ingredient,
+  inventiaUnitPriceToBasisPrice,
+  isInventiaPriceStale,
+} from "../domain/ingredient";
 import {
   assertIntegerStockAmount,
   assertInventiaUnitMatch,
@@ -13,7 +17,15 @@ export interface IngredientRepository {
   list(): Promise<Ingredient[]>;
   getById(id: string): Promise<Ingredient | null>;
   create(input: Ingredient): Promise<Ingredient>;
-  update(id: string, changes: Partial<Omit<Ingredient, "id">>): Promise<Ingredient | null>;
+  /**
+   * `onlyIfLinkedTo` makes the write conditional on the ingredient still being linked to that
+   * Inventia item; it resolves to null when the link changed in the meantime.
+   */
+  update(
+    id: string,
+    changes: Partial<Omit<Ingredient, "id">>,
+    onlyIfLinkedTo?: string,
+  ): Promise<Ingredient | null>;
   delete(id: string): Promise<Ingredient | null>;
 }
 export interface IngredientInventiaClient {
@@ -32,9 +44,19 @@ export type IngredientStockResult = {
   currentQuantity: number | null;
   baseUnit: string | null;
 };
+/**
+ * Outcome of linking an ingredient to an Inventia item. The link is saved in every case;
+ * `synced: false` only means no price could be stored yet (`price_unavailable` = the price
+ * request failed, so a later refresh retries it).
+ */
 export type IngredientPriceSyncResult =
   | { synced: true; ingredient: Ingredient; unitPriceYen: number }
-  | { synced: false; reason: "no_price_records"; ingredient: Ingredient };
+  | { synced: false; reason: "no_price_records" | "price_unavailable"; ingredient: Ingredient };
+
+/** Upper bound of ingredients refreshed per call so a page view stays cheap. */
+export const priceRefreshBatchSize = 10;
+
+type PriceFetch = { ok: true; unitPriceYen: number | null } | { ok: false };
 
 export function createIngredientService({
   repository,
@@ -45,19 +67,78 @@ export function createIngredientService({
     if (!inventiaClient) throw new Error("Inventia client is not configured");
     return inventiaClient;
   }
+  /** Reads the latest Inventia price in Cho's per-basis unit. Never throws. */
+  async function fetchBasisPrice(
+    ingredient: Pick<Ingredient, "baseDimension" | "baseUnit" | "nutritionBasisAmount">,
+    itemId: string,
+  ): Promise<PriceFetch> {
+    try {
+      const latest = (await requireInventiaClient().getItemPrices(itemId))[0];
+      if (!latest) return { ok: true, unitPriceYen: null };
+      if (
+        (latest.baseDimension !== undefined && latest.baseDimension !== ingredient.baseDimension) ||
+        (latest.baseUnit !== undefined && latest.baseUnit !== ingredient.baseUnit)
+      )
+        return { ok: false };
+      const unitPriceYen = inventiaUnitPriceToBasisPrice(latest.unitPrice, ingredient);
+      return unitPriceYen === null ? { ok: false } : { ok: true, unitPriceYen };
+    } catch {
+      return { ok: false };
+    }
+  }
+  /**
+   * Verifies the item (missing items and unit mismatches reject) and builds the link fields.
+   * A failed price lookup does not block the link: the price stays empty (or, when re-linking
+   * the same item, keeps its cached value) and `latestPriceUpdatedAt` stays unset so the next
+   * view retries it.
+   */
   async function resolveLink(
-    ingredient: Pick<Ingredient, "baseDimension" | "baseUnit">,
+    ingredient: Pick<
+      Ingredient,
+      | "baseDimension"
+      | "baseUnit"
+      | "nutritionBasisAmount"
+      | "inventiaItemId"
+      | "latestUnitPriceYen"
+      | "latestPriceUpdatedAt"
+    >,
     itemId: string,
   ) {
     const client = requireInventiaClient();
     const item = await client.getItem(itemId);
-    if (!item) throw new InventiaItemNotFoundError();
+    if (!item)
+      throw ingredient.inventiaItemId === itemId
+        ? new InventiaItemNotFoundError()
+        : new InventiaItemNotFoundError(
+            "The Inventia item was not found. Check the Inventia item ID.",
+          );
     assertInventiaUnitMatch(ingredient, item);
-    const latestPrice = (await client.getItemPrices(itemId))[0];
+    const price = await fetchBasisPrice(ingredient, itemId);
+    if (price.ok)
+      return {
+        fields: {
+          inventiaItemId: itemId,
+          // Inventia has no price yet: keep a hand-entered price (not linked before) or the same
+          // item's cache; a price that came from a different item is dropped.
+          latestUnitPriceYen:
+            price.unitPriceYen ??
+            (ingredient.inventiaItemId === null || ingredient.inventiaItemId === itemId
+              ? ingredient.latestUnitPriceYen
+              : null),
+          latestPriceUpdatedAt: new Date().toISOString(),
+        },
+        priceFetched: true,
+        priceFound: price.unitPriceYen !== null,
+      };
+    const sameItem = ingredient.inventiaItemId === itemId;
     return {
-      inventiaItemId: itemId,
-      latestUnitPriceYen: latestPrice?.unitPrice ?? null,
-      latestPriceUpdatedAt: latestPrice ? new Date().toISOString() : null,
+      fields: {
+        inventiaItemId: itemId,
+        latestUnitPriceYen: sameItem ? ingredient.latestUnitPriceYen : null,
+        latestPriceUpdatedAt: sameItem ? ingredient.latestPriceUpdatedAt : null,
+      },
+      priceFetched: false,
+      priceFound: false,
     };
   }
   return {
@@ -67,7 +148,7 @@ export function createIngredientService({
       if (input.inventiaItemId === null) return repository.create(input);
       return repository.create({
         ...input,
-        ...(await resolveLink(input, input.inventiaItemId)),
+        ...(await resolveLink({ ...input, inventiaItemId: null }, input.inventiaItemId)).fields,
       });
     },
     async update(id: string, changes: Partial<Omit<Ingredient, "id">>) {
@@ -80,8 +161,22 @@ export function createIngredientService({
         dimensionChanged || unitChanged
           ? { inventiaItemId: null, latestUnitPriceYen: null, latestPriceUpdatedAt: null }
           : {};
+      const basisChanged =
+        changes.nutritionBasisAmount !== undefined &&
+        changes.nutritionBasisAmount !== current.nutritionBasisAmount;
       const requested = changes.inventiaItemId;
-      if (requested === undefined) return repository.update(id, { ...changes, ...unitReset });
+      if (requested === undefined) {
+        // The stored price is per basis amount, so a new basis needs a fresh conversion.
+        if (basisChanged && !dimensionChanged && !unitChanged && current.inventiaItemId) {
+          const price = await fetchBasisPrice({ ...current, ...changes }, current.inventiaItemId);
+          return repository.update(id, {
+            ...changes,
+            latestUnitPriceYen: price.ok ? (price.unitPriceYen ?? null) : null,
+            latestPriceUpdatedAt: price.ok ? new Date().toISOString() : null,
+          });
+        }
+        return repository.update(id, { ...changes, ...unitReset });
+      }
       if (requested === null)
         return repository.update(id, {
           ...changes,
@@ -89,26 +184,108 @@ export function createIngredientService({
           latestUnitPriceYen: null,
           latestPriceUpdatedAt: null,
         });
-      if (requested === current.inventiaItemId && !dimensionChanged && !unitChanged)
+      if (
+        requested === current.inventiaItemId &&
+        !dimensionChanged &&
+        !unitChanged &&
+        !basisChanged
+      )
         return repository.update(id, changes);
       return repository.update(id, {
         ...changes,
-        ...(await resolveLink({ ...current, ...changes }, requested)),
+        ...(
+          await resolveLink(
+            {
+              ...current,
+              ...changes,
+              // The cached price only survives a failed lookup when the same item is re-linked.
+              inventiaItemId:
+                dimensionChanged || unitChanged || basisChanged ? null : current.inventiaItemId,
+              latestUnitPriceYen:
+                dimensionChanged || unitChanged || basisChanged ? null : current.latestUnitPriceYen,
+            },
+            requested,
+          )
+        ).fields,
       });
     },
-    /** Links an ingredient to an Inventia item after checking it exists and matches the unit. */
+    /**
+     * Links an ingredient to an Inventia item after checking it exists and matches the unit.
+     * The link is saved even when Inventia has no price record or the price request fails.
+     */
     async linkInventiaItem(
       ingredientId: string,
       itemId: string,
-    ): Promise<IngredientPriceSyncResult & { ingredient: Ingredient }> {
+    ): Promise<IngredientPriceSyncResult> {
       const ingredient = await repository.getById(ingredientId);
       if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
-      const link = await resolveLink(ingredient, itemId);
-      const updated = await repository.update(ingredientId, link);
+      const { fields, priceFetched, priceFound } = await resolveLink(ingredient, itemId);
+      const updated = await repository.update(ingredientId, fields);
       if (!updated) throw new Error(`Ingredient disappeared during linking: ${ingredientId}`);
-      return link.latestUnitPriceYen === null
-        ? { synced: false, reason: "no_price_records", ingredient: updated }
-        : { synced: true, ingredient: updated, unitPriceYen: link.latestUnitPriceYen };
+      if (updated.latestUnitPriceYen !== null && priceFound)
+        return {
+          synced: true,
+          ingredient: updated,
+          unitPriceYen: updated.latestUnitPriceYen,
+        };
+      return {
+        synced: false,
+        reason: priceFetched ? "no_price_records" : "price_unavailable",
+        ingredient: updated,
+      };
+    },
+    /**
+     * Refreshes cached Inventia prices of linked ingredients that are stale (see
+     * isInventiaPriceStale), oldest first and at most `limit` per call. Individual failures keep
+     * the cached value. Returns only the ingredients whose price was written.
+     */
+    async refreshStalePrices(
+      options: { ingredientIds?: readonly string[]; limit?: number; now?: Date } = {},
+    ): Promise<Ingredient[]> {
+      if (!inventiaClient) return [];
+      const now = options.now ?? new Date();
+      const wanted = options.ingredientIds ? new Set(options.ingredientIds) : null;
+      const stale = (await repository.list())
+        .filter((item) => (wanted ? wanted.has(item.id) : true))
+        .filter((item) => isInventiaPriceStale(item, now))
+        .sort(
+          (a, b) =>
+            (a.latestPriceUpdatedAt ? Date.parse(a.latestPriceUpdatedAt) : 0) -
+            (b.latestPriceUpdatedAt ? Date.parse(b.latestPriceUpdatedAt) : 0),
+        )
+        .slice(0, options.limit ?? priceRefreshBatchSize);
+      const results = await Promise.all(
+        stale.map(async (ingredient) => {
+          const itemId = ingredient.inventiaItemId;
+          if (!itemId) return null;
+          const price = await fetchBasisPrice(ingredient, itemId);
+          try {
+            // A failed lookup keeps the cached price and only records the attempt, so the old
+            // price is never shown as freshly checked while failing ingredients still wait for
+            // their retry window instead of holding every batch slot. The write only lands while the link is unchanged.
+            const updated = await repository.update(
+              ingredient.id,
+              !price.ok
+                ? { latestPriceAttemptedAt: now.toISOString() }
+                : price.unitPriceYen !== null
+                  ? {
+                      latestUnitPriceYen: price.unitPriceYen,
+                      latestPriceUpdatedAt: now.toISOString(),
+                      latestPriceAttemptedAt: now.toISOString(),
+                    }
+                  : {
+                      latestPriceUpdatedAt: now.toISOString(),
+                      latestPriceAttemptedAt: now.toISOString(),
+                    },
+              itemId,
+            );
+            return price.ok && price.unitPriceYen !== null ? updated : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return results.filter((item): item is Ingredient => item !== null);
     },
     delete: (id: string) => repository.delete(id),
     searchInventiaItems(query: string) {
@@ -144,27 +321,6 @@ export function createIngredientService({
         externalProviderId: providerId,
         externalId: ingredient.id,
       });
-    },
-    async syncInventiaPrice(
-      ingredientId: string,
-      itemId: string,
-    ): Promise<IngredientPriceSyncResult> {
-      const client = requireInventiaClient();
-      const ingredient = await repository.getById(ingredientId);
-      if (!ingredient) throw new Error(`Ingredient not found: ${ingredientId}`);
-      const item = await client.getItem(itemId);
-      if (!item) throw new InventiaItemNotFoundError();
-      assertInventiaUnitMatch(ingredient, item);
-      const prices = await client.getItemPrices(itemId);
-      const latestPrice = prices[0];
-      if (!latestPrice) return { synced: false, reason: "no_price_records", ingredient };
-      const updated = await repository.update(ingredientId, {
-        inventiaItemId: itemId,
-        latestUnitPriceYen: latestPrice.unitPrice,
-        latestPriceUpdatedAt: new Date().toISOString(),
-      });
-      if (!updated) throw new Error(`Ingredient disappeared during price sync: ${ingredientId}`);
-      return { synced: true, ingredient: updated, unitPriceYen: latestPrice.unitPrice };
     },
   };
 }

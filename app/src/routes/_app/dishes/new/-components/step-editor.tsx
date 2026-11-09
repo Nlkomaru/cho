@@ -6,7 +6,12 @@ import { SubHeading } from "@/components/layout/section";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { RecipeIngredientEntry, RecipeIngredientGroup, RecipeStep } from "@/domain/recipe";
+import type {
+  IngredientNameLookup,
+  RecipeIngredientEntry,
+  RecipeIngredientGroup,
+  RecipeStep,
+} from "@/domain/recipe";
 import { formatMinutes } from "@/lib/format";
 
 import { CautionList } from "./caution-editor";
@@ -29,6 +34,8 @@ export interface StepEditorProps {
   /** 依存先・中間生成物の候補に使う全手順。 */
   steps: readonly RecipeStep[];
   entries: readonly RecipeIngredientEntry[];
+  /** 材料マスタ。投入に並べる材料名に使う。 */
+  ingredientById: IngredientNameLookup;
   groups: readonly RecipeIngredientGroup[];
   expanded: boolean;
   onExpandedChange(expanded: boolean): void;
@@ -59,6 +66,7 @@ export function StepEditor({
   step,
   steps,
   entries,
+  ingredientById,
   groups,
   expanded,
   onExpandedChange,
@@ -284,6 +292,7 @@ export function StepEditor({
               step={step}
               steps={steps}
               entries={entries}
+              ingredientById={ingredientById}
               groups={groups}
               errors={errors}
               onChange={onChange}

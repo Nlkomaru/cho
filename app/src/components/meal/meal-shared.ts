@@ -77,6 +77,7 @@ export type Dish = {
   servings: number;
   totalNutrition: NutritionFacts | null;
   totalCostYen: number | null;
+  costMissingCount: number;
 };
 
 export type Analysis = {

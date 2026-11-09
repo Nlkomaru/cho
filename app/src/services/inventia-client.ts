@@ -17,7 +17,10 @@ export interface InventiaItemDto {
   currentQuantity: number;
 }
 export interface InventiaPriceRecordDto {
+  /** Yen per 100 g / 100 mL for mass and volume items, per one base unit for count items. */
   unitPrice: number;
+  baseUnit?: string;
+  baseDimension?: "mass" | "volume" | "count";
 }
 export interface InventiaStockAdjustRequest {
   delta: number;
@@ -77,8 +80,10 @@ export class InventiaAmountError extends Error {
 }
 
 export class InventiaItemNotFoundError extends Error {
-  constructor() {
-    super("The linked Inventia item no longer exists. Re-link the ingredient to an Inventia item.");
+  constructor(
+    message = "The linked Inventia item no longer exists. Re-link the ingredient to an Inventia item.",
+  ) {
+    super(message);
     this.name = "InventiaItemNotFoundError";
   }
 }
@@ -186,8 +191,14 @@ const itemSchema = z.object({
   baseDimension: z.enum(["mass", "volume", "count"]),
   currentQuantity: z.number(),
 });
-const priceSchema = z.object({ unitPrice: z.number() });
+const priceSchema = z.object({
+  unitPrice: z.number(),
+  baseUnit: z.string().optional(),
+  baseDimension: z.enum(["mass", "volume", "count"]).optional(),
+});
 const maxSearchPages = 10;
+/** Bounds price lookups so a hung Inventia cannot hold background refreshes open. */
+const priceRequestTimeoutMs = 8000;
 const itemPageSchema = z.object({
   items: z.array(itemSchema),
   nextCursor: z.string().nullable(),
@@ -276,7 +287,9 @@ export function createInventiaClient(config: InventiaConfig): InventiaClient {
     },
     async getItemPrices(id: string): Promise<InventiaPriceRecordDto[]> {
       assertSafeItemId(id);
-      const result = await request<unknown>(`/api/items/${encodeURIComponent(id)}/prices?limit=5`);
+      const result = await request<unknown>(`/api/items/${encodeURIComponent(id)}/prices?limit=5`, {
+        signal: AbortSignal.timeout(priceRequestTimeoutMs),
+      });
       return pricePageSchema.parse(result).items;
     },
     async adjustStock(

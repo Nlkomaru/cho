@@ -39,6 +39,24 @@ export function formatYen(value: number | null | undefined): string {
   return `¥${Math.round(value).toLocaleString("ja-JP")}`;
 }
 
+/**
+ * 原価の表示。全材料に単価があれば "¥320"、一部だけなら下限として "¥320〜"、
+ * どれも無ければ "—"。`missingCount` は単価が無い材料の数。
+ */
+export function formatCostRange(
+  value: number | null | undefined,
+  missingCount: number | null | undefined = 0,
+): string {
+  if (!isPresent(value)) return EMPTY_VALUE;
+  const base = formatYen(value);
+  return missingCount && missingCount > 0 ? `${base}〜` : base;
+}
+
+/** 単価が無い材料の数の注記。0 件なら null。 */
+export function formatMissingCost(missingCount: number | null | undefined): string | null {
+  return missingCount && missingCount > 0 ? `${missingCount}品未登録` : null;
+}
+
 export function formatKcal(value: number | null | undefined): string {
   if (!isPresent(value)) return EMPTY_VALUE;
   return `${formatNumber(value, 0)} kcal`;

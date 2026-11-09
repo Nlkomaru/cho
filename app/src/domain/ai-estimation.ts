@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { ingredientSchema, mealLogSourceSchema } from "./ingredient";
 import { nutritionFactsSchema } from "./nutrition";
-import { recipeIngredientEntrySchema, recipeSchema } from "./recipe";
+import { namedRecipeIngredientEntrySchema, recipeSchema } from "./recipe";
 
 export const analyzeMealRequestSchema = z
   .object({
@@ -50,7 +50,8 @@ export const estimateIngredientOutputSchema = nutritionFactsSchema
 export const structureRecipeRequestSchema = z
   .object({
     dishName: z.string().trim().min(1).max(120),
-    ingredients: z.array(recipeIngredientEntrySchema),
+    // The model needs the names to match ingredients in the text; the result keeps entries as sent
+    ingredients: z.array(namedRecipeIngredientEntrySchema).min(1).max(100),
     rawStepsText: z.string().trim().min(1),
   })
   .strict();

@@ -112,7 +112,6 @@ const recipeInput = {
       {
         id: "rice",
         ingredientId: "",
-        name: "MCP test rice",
         amount: 100,
         unit: "g",
         displayAmount: "100 g",
@@ -183,8 +182,23 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
     expect(recipe.response.status).toBe(200);
     expect(recipe.body.error).toBeUndefined();
     const recipeResult = z
-      .object({ recipe: z.object({ id: z.string() }) })
+      .object({
+        recipe: z.object({
+          id: z.string(),
+          recipe: z.object({
+            ingredients: z.array(z.object({ label: z.string().nullable(), name: z.string() })),
+          }),
+        }),
+      })
       .parse(recipe.body.result?.structuredContent);
+    // The entry is sent without a name; the output shows the registered ingredient name
+    expect(recipeResult.recipe.recipe.ingredients).toEqual([
+      expect.objectContaining({ label: null, name: "MCP test rice" }),
+    ]);
+    const storedRecipe = sqlite
+      .prepare("SELECT recipe_json FROM dishes WHERE id = ?")
+      .get(recipeResult.recipe.id) as { recipe_json: string };
+    expect(storedRecipe.recipe_json).not.toContain('"name"');
     const meal = await callTool(
       env,
       issued.secret,

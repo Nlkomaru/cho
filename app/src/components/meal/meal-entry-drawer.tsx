@@ -212,7 +212,10 @@ export function MealEntryDrawer({
 
   function applyDish(dish: Dish, factor: number) {
     const servingsFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
-    const cost = dish.totalCostYen === null ? null : dish.totalCostYen * servingsFactor;
+    const cost =
+      dish.totalCostYen === null || dish.costMissingCount > 0
+        ? null
+        : dish.totalCostYen * servingsFactor;
     setDishId(dish.id);
     setSource("self_cooked");
     setTitle(dish.name);

@@ -4,7 +4,13 @@ import {
   type Ingredient,
 } from "@/domain/ingredient";
 import { sumNutritionFacts, type NutritionFacts } from "@/domain/nutrition";
-import type { RecipeIngredientEntry, RecipeJson, RecipeStep } from "@/domain/recipe";
+import {
+  recipeEntryName,
+  type IngredientNameLookup,
+  type RecipeIngredientEntry,
+  type RecipeJson,
+  type RecipeStep,
+} from "@/domain/recipe";
 import { formatNumber } from "@/lib/format";
 
 import type { IngredientListGroup, IngredientListItem } from "./ingredient-list";
@@ -110,7 +116,7 @@ export function buildIngredientItems(
     const amount = entry.amount * scale;
     return {
       id: entry.id,
-      name: entry.name,
+      name: recipeEntryName(entry, ingredientById),
       amount: scaleDisplayAmount(entry, scale),
       prep: entry.prepNote,
       groupKey: entry.groupId,
@@ -128,23 +134,24 @@ export function buildIngredientItems(
 }
 
 /**
- * 材料の合計。1 つでも栄養価・単価が無い材料があれば null。
+ * 材料の合計。栄養価は 1 つでも欠ければ null。原価は単価のある材料だけの合計で、
+ * 単価が無い材料の数を `costMissingCount` に返す（全部無ければ `costYen` は null）。
  */
 export function sumIngredientItems(items: readonly IngredientListItem[]): {
   facts: NutritionFacts | null;
   costYen: number | null;
+  costMissingCount: number;
 } {
   const facts = items.map((item) => item.facts ?? null);
   const costs = items.map((item) => item.costYen ?? null);
+  const priced = costs.filter((cost): cost is number => cost !== null);
   return {
     facts:
       facts.length > 0 && facts.every((fact) => fact !== null)
         ? sumNutritionFacts(facts as NutritionFacts[])
         : null,
-    costYen:
-      costs.length > 0 && costs.every((cost) => cost !== null)
-        ? (costs as number[]).reduce((sum, cost) => sum + cost, 0)
-        : null,
+    costYen: priced.length > 0 ? priced.reduce((sum, cost) => sum + cost, 0) : null,
+    costMissingCount: costs.length - priced.length,
   };
 }
 
@@ -155,12 +162,13 @@ export interface StepInputLine {
 }
 
 /**
- * 手順の「投入」に並べる材料・グループ・中間生成物。
+ * 手順の「投入」に並べる材料・グループ・中間生成物。材料名は材料マスタ `ingredientById` から引く。
  */
 export function describeStepInputs(
   step: RecipeStep,
   recipe: RecipeSource,
   scale: number,
+  ingredientById: IngredientNameLookup | undefined,
 ): StepInputLine[] {
   return step.inputs.map((input, index): StepInputLine => {
     if (input.type === "ingredient") {
@@ -168,7 +176,7 @@ export function describeStepInputs(
       if (!entry) return { key: `i-${index}`, name: input.ingredientEntryId };
       return {
         key: `i-${index}`,
-        name: entry.name,
+        name: recipeEntryName(entry, ingredientById),
         amount: input.amountText ?? scaleDisplayAmount(entry, scale * input.amountRatio),
       };
     }
@@ -178,7 +186,10 @@ export function describeStepInputs(
       const members = group.ingredientEntryIds
         .map((id) => recipe.ingredients.find((item) => item.id === id))
         .filter((entry): entry is RecipeIngredientEntry => Boolean(entry))
-        .map((entry) => `${entry.name} ${scaleDisplayAmount(entry, scale)}`);
+        .map(
+          (entry) =>
+            `${recipeEntryName(entry, ingredientById)} ${scaleDisplayAmount(entry, scale)}`,
+        );
       return {
         key: `g-${index}`,
         name: `${group.symbol} ${group.label}`,

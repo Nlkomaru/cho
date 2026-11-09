@@ -11,6 +11,7 @@ import { fieldIds, type RecipeCaution } from "@/routes/_app/dishes/new/-componen
 import { StepIoEditor } from "@/routes/_app/dishes/new/-components/step-io-editor";
 import { TagInput } from "@/routes/_app/dishes/new/-components/tag-input";
 
+import { ingredientById } from "../recipe/fixtures";
 import { curryDraft } from "./fixtures";
 
 const { recipe } = curryDraft;
@@ -163,6 +164,7 @@ function StepIoDemo({ stepIndex }: { stepIndex: number }) {
         step={step}
         steps={steps}
         entries={recipe.ingredients}
+        ingredientById={ingredientById}
         groups={recipe.ingredientGroups}
         onChange={(patch) =>
           setSteps((current) =>

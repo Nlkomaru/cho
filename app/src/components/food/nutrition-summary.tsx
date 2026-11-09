@@ -4,11 +4,20 @@ import { useState } from "react";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { StatGroup, StatPart } from "@/components/ui/stat-group";
 import { type NutritionFacts, scaleNutritionFacts } from "@/domain/nutrition";
-import { EMPTY_VALUE, formatFixed, formatNumber, formatYen } from "@/lib/format";
+import {
+  EMPTY_VALUE,
+  formatCostRange,
+  formatFixed,
+  formatMissingCost,
+  formatNumber,
+} from "@/lib/format";
 
 export interface NutritionSummaryProps {
   facts: NutritionFacts | null;
+  /** 単価のある材料だけの原価。`costMissingCount` が 1 以上なら下限。 */
   costYen?: number | null;
+  /** 単価が無い材料の数。 */
+  costMissingCount?: number;
   /** 渡すと 全量 / 1人前 の切り替えを出し、1人前では人数で割る。 */
   servings?: number;
   /** stack: 横の列に縦積み、row: 全幅の StatGroup。 */
@@ -36,6 +45,7 @@ const energyRatio = (facts: NutritionFacts) => {
 export function NutritionSummary({
   facts,
   costYen,
+  costMissingCount = 0,
   servings,
   layout = "stack",
   title,
@@ -44,6 +54,8 @@ export function NutritionSummary({
   const divisor = servings && servings > 0 && basis === "serving" ? servings : 1;
   const shown = facts ? (divisor === 1 ? facts : scaleNutritionFacts(facts, 1 / divisor)) : null;
   const shownCost = costYen === null || costYen === undefined ? costYen : costYen / divisor;
+  const costText = formatCostRange(shownCost, costMissingCount);
+  const missingText = shownCost == null ? null : formatMissingCost(costMissingCount);
 
   const toggle = servings ? (
     <SegmentedControl<Basis>
@@ -76,7 +88,9 @@ export function NutritionSummary({
         <StatGroup
           label={title ?? "栄養価と原価"}
           items={[
-            ...(costYen !== undefined ? [{ label: "原価", value: formatYen(shownCost) }] : []),
+            ...(costYen !== undefined
+              ? [{ label: "原価", value: costText, unit: missingText ?? undefined }]
+              : []),
             {
               label: "エネルギー",
               value: formatNumber(shown?.caloriesKcal, 0),
@@ -250,7 +264,12 @@ export function NutritionSummary({
               textStyle="stat.sm"
               color={shownCost == null ? "fg.subtle" : "fg.strong"}
             >
-              {formatYen(shownCost)}
+              {costText}
+              {missingText ? (
+                <chakra.span textStyle="body.sm" color="fg.subtle" ms="2">
+                  {missingText}
+                </chakra.span>
+              ) : null}
             </chakra.dd>
           </Box>
         ) : null}

@@ -233,7 +233,11 @@ export type PurchaseListItem = z.infer<typeof purchaseListItemSchema>;
 export const purchaseListResultSchema = z
   .object({
     items: z.array(purchaseListItemSchema),
-    totalEstimatedCostYen: z.number().nullable(),
+    totalEstimatedCostYen: z
+      .number()
+      .nullable()
+      .describe("Sum over items that have a price; a lower bound when costMissingCount > 0"),
+    costMissingCount: z.number().int().min(0).describe("Number of items without a price"),
     markdownTable: z.string(),
     inventiaStatus: z
       .enum(["used", "unavailable", "error", "not_linked"])

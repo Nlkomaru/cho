@@ -1,6 +1,8 @@
 import type { Ingredient } from "@/domain/ingredient";
 import {
+  recipeEntryName,
   recipeSchema,
+  type IngredientNameLookup,
   type RecipeIngredientEntry,
   type RecipeIngredientGroup,
   type RecipeJson,
@@ -80,7 +82,7 @@ export const emptyStep = (number: number): RecipeStep => ({
 export const emptyEntry = (): RecipeIngredientEntry => ({
   id: makeId("ing"),
   ingredientId: "",
-  name: "",
+  label: null,
   amount: 0,
   unit: "",
   displayAmount: "",
@@ -270,7 +272,13 @@ const blank = (value: string | null | undefined) => !value || !value.trim();
 function cautionIssues(cautions: readonly RecipeCaution[], stepId?: string): DraftIssue[] {
   return cautions.flatMap((caution) => [
     ...(blank(caution.title)
-      ? [{ fieldId: fieldIds.caution(caution.id, "title"), message: "注意の見出しを入力", stepId }]
+      ? [
+          {
+            fieldId: fieldIds.caution(caution.id, "title"),
+            message: "注意の見出しを入力",
+            stepId,
+          },
+        ]
       : []),
     ...(blank(caution.description)
       ? [
@@ -284,11 +292,22 @@ function cautionIssues(cautions: readonly RecipeCaution[], stepId?: string): Dra
   ]);
 }
 
+/** 材料の行の呼び名。材料が未選択なら「材料N」。 */
+export function entryLabel(
+  entry: Pick<RecipeIngredientEntry, "ingredientId" | "label">,
+  index: number,
+  ingredients: IngredientNameLookup,
+): string {
+  return entry.label || entry.ingredientId
+    ? recipeEntryName(entry, ingredients)
+    : `材料${index + 1}`;
+}
+
 /**
  * 画面で直せる入力漏れを、項目ごとの日本語メッセージにする。
  * これが空になってから、スキーマと DAG の検証 (英語) を重ねる。
  */
-export function validateDraft(draft: RecipeDraft): DraftIssue[] {
+export function validateDraft(draft: RecipeDraft, ingredients: IngredientNameLookup): DraftIssue[] {
   const { recipe } = draft;
   const issues: DraftIssue[] = [];
   if (blank(draft.name)) issues.push({ fieldId: fieldIds.name, message: "料理名を入力" });
@@ -298,7 +317,7 @@ export function validateDraft(draft: RecipeDraft): DraftIssue[] {
   if (!recipe.ingredients.length)
     issues.push({ fieldId: fieldIds.ingredients, message: "材料を 1 つ以上追加" });
   recipe.ingredients.forEach((entry, index) => {
-    const label = entry.name || `材料${index + 1}`;
+    const label = entryLabel(entry, index, ingredients);
     if (!entry.ingredientId)
       issues.push({
         fieldId: fieldIds.entry(entry.id, "ingredient"),
@@ -339,8 +358,15 @@ export function validateDraft(draft: RecipeDraft): DraftIssue[] {
 }
 
 /** DAG の英語エラーを、材料・手順の名前に置き換えて読めるようにする。 */
-function describeDagError(message: string, recipe: RecipeJson): string {
-  const entryName = (id: string) => recipe.ingredients.find((entry) => entry.id === id)?.name;
+function describeDagError(
+  message: string,
+  recipe: RecipeJson,
+  ingredients: IngredientNameLookup,
+): string {
+  const entryName = (id: string) => {
+    const entry = recipe.ingredients.find((item) => item.id === id);
+    return entry ? recipeEntryName(entry, ingredients) : undefined;
+  };
   const stepName = (id: string) => {
     const step = recipe.steps.find((item) => item.id === id);
     return step ? `手順${step.stepNumber}` : undefined;
@@ -365,9 +391,9 @@ export type SubmitCheck =
   | { success: true; recipe: RecipeJson }
   | { success: false; issues: DraftIssue[] };
 
-/** 保存前の検証。入力漏れ → スキーマ → DAG の順に見る。 */
-export function checkDraft(draft: RecipeDraft): SubmitCheck {
-  const issues = validateDraft(draft);
+/** 保存前の検証。入力漏れ → スキーマ → DAG の順に見る。`ingredients` は材料名の表示に使う。 */
+export function checkDraft(draft: RecipeDraft, ingredients: IngredientNameLookup): SubmitCheck {
+  const issues = validateDraft(draft, ingredients);
   if (issues.length) return { success: false, issues };
   const parsed = recipeSchema.safeParse(toSubmitRecipe(draft));
   if (!parsed.success)
@@ -384,7 +410,7 @@ export function checkDraft(draft: RecipeDraft): SubmitCheck {
       success: false,
       issues: dag.errors.map((message) => ({
         fieldId: fieldIds.steps,
-        message: describeDagError(message, parsed.data),
+        message: describeDagError(message, parsed.data, ingredients),
       })),
     };
   return { success: true, recipe: parsed.data };
@@ -398,7 +424,10 @@ const PREVIEW_GROUP = "preview-group";
  * 材料の入力が終わっていなくても見られるよう、手順の並びと時間だけで組み立てる。
  * 依存が循環しているときは null。
  */
-export function previewSchedule(recipe: RecipeJson): RecipeGanttSchedule | null {
+export function previewSchedule(
+  recipe: RecipeJson,
+  ingredients: IngredientNameLookup,
+): RecipeGanttSchedule | null {
   if (!recipe.steps.length) return null;
   const stepIds = new Set(recipe.steps.map((step) => step.id));
   const seconds = (value: number, max: number) =>
@@ -430,7 +459,7 @@ export function previewSchedule(recipe: RecipeJson): RecipeGanttSchedule | null 
       {
         id: PREVIEW_ENTRY,
         ingredientId: PREVIEW_ENTRY,
-        name: "-",
+        label: "-",
         amount: 1,
         unit: "g",
         displayAmount: "-",
@@ -448,17 +477,24 @@ export function previewSchedule(recipe: RecipeJson): RecipeGanttSchedule | null 
   const schedule = computeRecipeGanttSchedule(preview);
   return {
     ...schedule,
-    bars: schedule.bars.map((bar) => ({ ...bar, inputsSummary: inputNames(recipe, bar.stepId) })),
+    bars: schedule.bars.map((bar) => ({
+      ...bar,
+      inputsSummary: inputNames(recipe, bar.stepId, ingredients),
+    })),
   };
 }
 
-function inputNames(recipe: RecipeJson, stepId: string): string[] {
+function inputNames(
+  recipe: RecipeJson,
+  stepId: string,
+  ingredients: IngredientNameLookup,
+): string[] {
   const step = recipe.steps.find((item) => item.id === stepId);
   if (!step) return [];
   return step.inputs.flatMap((input) => {
     if (input.type === "ingredient") {
-      const name = recipe.ingredients.find((entry) => entry.id === input.ingredientEntryId)?.name;
-      return name ? [name] : [];
+      const entry = recipe.ingredients.find((item) => item.id === input.ingredientEntryId);
+      return entry?.ingredientId || entry?.label ? [recipeEntryName(entry, ingredients)] : [];
     }
     if (input.type === "group") {
       const group = recipe.ingredientGroups.find((item) => item.id === input.groupId);

@@ -200,3 +200,23 @@ test("returns deterministic gantt bars and lane order for identical input", () =
   ]);
   expect(first.lanes.map(({ id }) => id)).toEqual(["cook-hand", "waiting", "board"]);
 });
+
+test("bar input summaries take ingredient names from the master unless a label is set", () => {
+  const plain = { ...ingredient, name: undefined };
+  const labelled = { ...plain, id: "ing-garnish", label: "Garnish" };
+  const scheduled = computeRecipeGanttSchedule(
+    recipe(
+      [
+        step("use", {
+          inputs: [
+            { type: "ingredient", ingredientEntryId: "ing-main" },
+            { type: "ingredient", ingredientEntryId: "ing-garnish" },
+          ],
+        }),
+      ],
+      [plain, labelled],
+    ),
+    new Map([["master-1", { name: "Onion" }]]),
+  );
+  expect(barById(scheduled.bars, "use").inputsSummary).toEqual(["Onion", "Garnish"]);
+});

@@ -206,9 +206,10 @@ export function createMealLogService({
           const priceYen =
             manual && item.priceYen !== null
               ? item.priceYen
-              : dish.totalCostYen === null
+              : // Priced from current ingredient prices; a partly priced dish has no meal price.
+                breakdown.length === 0 || breakdown.some((entry) => entry === null)
                 ? null
-                : dish.totalCostYen * item.servingsFactor;
+                : breakdown.reduce((sum, entry) => sum + (entry?.costYen ?? 0), 0);
           return {
             ...item,
             name: dish.name,

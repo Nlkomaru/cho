@@ -30,6 +30,8 @@ const server = createServer((request, response) => {
         nextCursor: null,
       }),
     );
+  } else if (itemPrices?.[1]?.includes("pricefail")) {
+    response.writeHead(500).end(JSON.stringify({ error: { code: "INTERNAL", message: "boom" } }));
   } else if (itemPrices) {
     const price = prices[itemPrices[1] ?? ""];
     response.end(
@@ -177,7 +179,7 @@ test("create_ingredient verifies the Inventia item, pulls its price and accepts 
       ...massIngredient,
       inventiaItemId: "missing-xyz",
     });
-    expect(missing.error).toContain("no longer exists");
+    expect(missing.error).toContain("was not found");
     const mismatch = await call("create_ingredient", {
       ...massIngredient,
       inventiaItemId: "milk-ml",
@@ -191,7 +193,10 @@ test("create_ingredient verifies the Inventia item, pulls its price and accepts 
       inventia_item_id: "item-g2",
     });
     expect(conflict.error).toContain("must match");
-    const traversal = await call("create_ingredient", { ...massIngredient, inventiaItemId: ".." });
+    const traversal = await call("create_ingredient", {
+      ...massIngredient,
+      inventiaItemId: "..",
+    });
     expect(traversal.error).toContain("Inventia item ID");
   } finally {
     harness.cleanup();
@@ -226,7 +231,11 @@ test("update_ingredient keeps a link requested together with a unit change and r
       latestUnitPriceYen: null,
     });
 
-    const reunit = await call("update_ingredient", { id, baseDimension: "mass", baseUnit: "g" });
+    const reunit = await call("update_ingredient", {
+      id,
+      baseDimension: "mass",
+      baseUnit: "g",
+    });
     expect(reunit.data.ingredient).toMatchObject({ inventiaItemId: null });
 
     const relink = await call("update_ingredient", { id, inventiaItemId: "item-g" });
@@ -271,14 +280,25 @@ test("search_inventia_items, link_inventia_item and get_ingredient_stock use the
     });
 
     const noPrice = await call("link_inventia_item", { ingredientId: id, itemId: "item-g3" });
-    expect(noPrice.data).toMatchObject({ synced: false, unitPriceYen: null });
+    expect(noPrice.data).toMatchObject({
+      synced: false,
+      unitPriceYen: null,
+      reason: "no_price_records",
+    });
     expect(noPrice.data.ingredient).toMatchObject({
       inventiaItemId: "item-g3",
       latestUnitPriceYen: null,
     });
 
+    const failed = await call("link_inventia_item", {
+      ingredientId: id,
+      itemId: "item-pricefail",
+    });
+    expect(failed.data).toMatchObject({ synced: false, reason: "price_unavailable" });
+    expect(failed.data.ingredient.inventiaItemId).toBe("item-pricefail");
+
     const bad = await call("link_inventia_item", { ingredientId: id, itemId: "missing-1" });
-    expect(bad.error).toContain("no longer exists");
+    expect(bad.error).toContain("was not found");
   } finally {
     harness.cleanup();
   }
@@ -354,7 +374,10 @@ test("calculate_purchase_list reads Inventia stock and reports how Inventia was 
     const failed = await call("calculate_purchase_list", { recipeId });
     expect(failed.data.inventiaStatus).toBe("error");
     expect(failed.data.warnings[0]).toContain("Flour");
-    expect(failed.data.items[0]).toMatchObject({ stockPresence: "unknown", purchaseAmount: 300 });
+    expect(failed.data.items[0]).toMatchObject({
+      stockPresence: "unknown",
+      purchaseAmount: 300,
+    });
 
     harness.sqlite.prepare("UPDATE ingredients SET inventia_item_id = NULL").run();
     const unlinked = await call("calculate_purchase_list", { recipeId });
@@ -412,7 +435,11 @@ test("recipes can be read and edited in place without changing their ID", async 
       },
     });
     expect(edited.error).toBeNull();
-    expect(edited.data.recipe).toMatchObject({ id: recipeId, name: "Flour dish v2", servings: 2 });
+    expect(edited.data.recipe).toMatchObject({
+      id: recipeId,
+      name: "Flour dish v2",
+      servings: 2,
+    });
     expect(edited.data.recipe.recipe.steps[0].title).toBe("Mix well");
     expect(edited.data.recipe.recipe.servings).toBe(2);
 
@@ -533,7 +560,10 @@ test("tools declare annotations and id aliases must agree", async () => {
     expect(hints.list_recipes).toMatchObject({ readOnlyHint: true });
     expect(hints.calculate_purchase_list).toMatchObject({ readOnlyHint: true });
     expect(hints.delete_recipe).toMatchObject({ destructiveHint: true, idempotentHint: true });
-    expect(hints.update_ingredient).toMatchObject({ readOnlyHint: false, idempotentHint: true });
+    expect(hints.update_ingredient).toMatchObject({
+      readOnlyHint: false,
+      idempotentHint: true,
+    });
     expect(hints.create_recipe).toMatchObject({ readOnlyHint: false });
 
     const conflict = await call("delete_recipe", { id: "a", recipeId: "b" });

@@ -21,7 +21,13 @@ import {
 import type { Dish } from "@/domain/ingredient";
 import type { NutritionFacts } from "@/domain/nutrition";
 import { computeRecipeGanttSchedule } from "@/domain/recipe-scheduler";
-import { formatMinutes, formatFixed, formatNumber, formatYen } from "@/lib/format";
+import {
+  formatMinutes,
+  formatFixed,
+  formatNumber,
+  formatCostRange,
+  formatMissingCost,
+} from "@/lib/format";
 import { useImageSrc } from "@/lib/images";
 
 /** 一覧表示用に整えたレシピ 1 行分。 */
@@ -39,6 +45,8 @@ export interface DishRow {
   facts: NutritionFacts | null;
   /** 1 人前の原価。 */
   costYen: number | null;
+  /** 単価が無い材料の数。1 以上なら costYen は下限。 */
+  costMissingCount: number;
 }
 
 const durationOf = (recipe: Dish["recipe"]): number | null => {
@@ -60,6 +68,7 @@ export const toDishRow = (dish: Dish): DishRow => ({
   ingredientCount: dish.recipe.ingredients.length,
   facts: dish.totalNutrition,
   costYen: dish.totalCostYen,
+  costMissingCount: dish.costMissingCount,
 });
 
 const features = tableFeatures({
@@ -225,12 +234,23 @@ const columns = columnHelper.columns([
         onToggle={column.getToggleSortingHandler()}
       />
     ),
-    cell: ({ getValue }) => {
+    cell: ({ getValue, row }) => {
       const value = getValue();
-      return value == null ? <Dash /> : formatYen(value);
+      if (value == null) return <Dash />;
+      const missing = formatMissingCost(row.original.costMissingCount);
+      return (
+        <chakra.span display="inline-flex" flexDirection="column" alignItems="flex-end">
+          <chakra.span>{formatCostRange(value, row.original.costMissingCount)}</chakra.span>
+          {missing ? (
+            <chakra.span textStyle="caption" color="fg.subtle" whiteSpace="nowrap">
+              {missing}
+            </chakra.span>
+          ) : null}
+        </chakra.span>
+      );
     },
     sortUndefined: "last",
-    meta: { numeric: true, width: "88px", hideBelow: "md" },
+    meta: { numeric: true, width: "112px", hideBelow: "md" },
   }),
 ]);
 

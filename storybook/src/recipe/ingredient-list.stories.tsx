@@ -36,6 +36,23 @@ export const WithNutrition: Story = {
   args: { items: curryItems, groups: buildIngredientGroups(curryRecipe), showNutrition: true },
 };
 
+/** 単価が無い材料（最初の 2 品）は「単価未登録」と出る。 */
+export const WithUnpriced: Story = {
+  args: {
+    items: curryItems.map((item, index) => (index < 2 ? { ...item, costYen: null } : item)),
+    groups: buildIngredientGroups(curryRecipe),
+    showNutrition: true,
+  },
+};
+
+/** 栄養価を出さない表示でも、単価が無い材料の行に「単価未登録」が付く。 */
+export const UnpricedWithoutNutrition: Story = {
+  args: {
+    items: curryItems.map((item, index) => (index < 2 ? { ...item, costYen: null } : item)),
+    groups: buildIngredientGroups(curryRecipe),
+  },
+};
+
 /** 6 人前に換算した分量。 */
 export const Scaled: Story = {
   args: {

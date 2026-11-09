@@ -26,7 +26,7 @@ import { formatMinutes } from "@/lib/format";
 export interface DishDetailViewProps {
   dish: Dish;
   schedule: RecipeGanttSchedule;
-  /** 栄養価・原価の計算に使う材料マスタ。 */
+  /** 材料名・栄養価・原価に使う材料マスタ。 */
   ingredientById: ReadonlyMap<string, Ingredient>;
   /** 最初に表示する人前数。既定はレシピの基準人前。 */
   initialServings?: number;
@@ -214,6 +214,7 @@ export function DishDetailView({
           >
             <StepList
               recipe={recipe}
+              ingredientById={ingredientById}
               bars={schedule.bars}
               scale={scale}
               completedStepIds={completedStepIds}
@@ -236,6 +237,7 @@ export function DishDetailView({
             <NutritionSummary
               facts={totals.facts}
               costYen={totals.costYen}
+              costMissingCount={totals.costMissingCount}
               servings={servings}
               layout="stack"
             />

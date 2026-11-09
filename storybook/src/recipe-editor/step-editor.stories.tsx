@@ -7,6 +7,7 @@ import type { RecipeStep } from "@/domain/recipe";
 import { StepEditor } from "@/routes/_app/dishes/new/-components/step-editor";
 
 import { sampleImageIds, sampleImageSrc } from "../fixtures/images";
+import { ingredientById } from "../recipe/fixtures";
 import { curryDraft } from "./fixtures";
 
 const { recipe } = curryDraft;
@@ -34,6 +35,7 @@ function StepEditorDemo({
         step={step}
         steps={steps}
         entries={recipe.ingredients}
+        ingredientById={ingredientById}
         groups={recipe.ingredientGroups}
         expanded={expanded}
         onExpandedChange={setExpanded}
@@ -91,6 +93,7 @@ export const CollapsedList: Story = {
           step={step}
           steps={recipe.steps}
           entries={recipe.ingredients}
+          ingredientById={ingredientById}
           groups={recipe.ingredientGroups}
           expanded={false}
           onExpandedChange={() => undefined}

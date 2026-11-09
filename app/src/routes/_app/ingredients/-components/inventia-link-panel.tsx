@@ -28,7 +28,10 @@ export interface StockResult {
 
 export interface InventiaActions {
   search(query: string): Promise<InventiaItem[]>;
-  /** 品目を紐付けて価格を同期する。synced=false は価格記録なし。 */
+  /**
+   * 品目を紐付けて価格を同期する。価格が取れなくても紐付けは保存され、synced=false になる
+   * (結果の通知は呼び出し側が行う)。
+   */
   link(ingredientId: string, itemId: string): Promise<{ synced: boolean }>;
   readStock(ingredientId: string): Promise<StockResult>;
   consumeStock(
@@ -53,6 +56,7 @@ const messageOf = (cause: unknown, fallback: string) =>
 
 /**
  * Inventia との連携欄。品目の検索・紐付け (価格同期)・在庫の確認と消費。
+ * 価格記録のない品目も紐付けられ、その間は「単価未登録」と表示する。
  * 保存フォームの中に置くため、Enter で外側のフォームを送信しないようにしている。
  */
 export function InventiaLinkPanel({
@@ -100,12 +104,11 @@ export function InventiaLinkPanel({
     run(
       `link:${item.id}`,
       async () => {
-        const result = await actions.link(ingredient.id, item.id);
+        await actions.link(ingredient.id, item.id);
         setMatches(null);
         setStock(null);
-        if (!result.synced) setNotice("紐付けました。価格の記録はまだありません。");
       },
-      "価格を同期できませんでした。",
+      "Inventia と連携できませんでした。",
     );
 
   const readStock = () =>
@@ -130,7 +133,11 @@ export function InventiaLinkPanel({
         const key = requestKey ?? crypto.randomUUID();
         setRequestKey(key);
         const result = await actions.consumeStock(ingredient.id, value, key);
-        setStock({ found: true, currentQuantity: result.currentQuantity, baseUnit: stockUnit });
+        setStock({
+          found: true,
+          currentQuantity: result.currentQuantity,
+          baseUnit: stockUnit,
+        });
         setAmount("");
         setRequestKey(null);
       },
@@ -200,7 +207,14 @@ export function InventiaLinkPanel({
                   </chakra.span>
                 </>
               ) : (
-                <chakra.span color="fg.subtle">価格記録なし</chakra.span>
+                <>
+                  <chakra.span color="fg.muted">単価未登録</chakra.span>
+                  {ingredient.latestPriceUpdatedAt ? (
+                    <chakra.span color="fg.subtle">
+                      {` · ${formatDateJa(ingredient.latestPriceUpdatedAt)}確認`}
+                    </chakra.span>
+                  ) : null}
+                </>
               )}
             </Text>
             <Text as="dt" textStyle="label" color="fg.muted">

@@ -33,6 +33,7 @@ export const ingredients = sqliteTable(
     inventiaItemId: text("inventia_item_id"),
     latestUnitPriceYen: real("latest_unit_price_yen"),
     latestPriceUpdatedAt: text("latest_price_updated_at"),
+    latestPriceAttemptedAt: text("latest_price_attempted_at"),
     memo: text("memo"),
     ...timestamps,
   },

@@ -14,7 +14,7 @@ const facts = {
   saltEquivalentG: 0.2,
   micronutrients: [],
 };
-const ingredient = (price: number, inventiaItemId: string | null = null): Ingredient => ({
+const ingredient = (price: number | null, inventiaItemId: string | null = null): Ingredient => ({
   id: "tomato",
   name: "Tomato",
   normalizedName: "tomato",
@@ -76,7 +76,7 @@ const dish: Dish = {
   servings: 2,
   recipe: recipe(),
   totalNutrition: facts,
-  totalCostYen: 50.5,
+  totalCostYen: 50,
   coverImageId: null,
   notes: null,
 };
@@ -152,8 +152,8 @@ const mealInput = {
 test("snapshots self-cooked item price, nutrition, and ingredient costs; memo patch preserves history", async () => {
   const state = fixture();
   const created = await state.service.create(mealInput);
-  expect(created.items[0]?.priceYen).toBe(50.5);
-  expect(created.totalPriceYen).toBe(50.5);
+  expect(created.items[0]?.priceYen).toBe(50);
+  expect(created.totalPriceYen).toBe(50);
   expect(created.items[0]?.nutrition?.caloriesKcal).toBe(100);
   expect(created.items[0]?.ingredientCostBreakdown).toEqual([
     { ingredientId: "tomato", name: "Tomato", amount: 20, unit: "g", costYen: 20 },
@@ -473,4 +473,19 @@ test("meal consumption refuses a fractional computed amount naming the unit", as
     amount: 101 / 3,
   });
   expect(state.statuses).toEqual(["pending", "failed"]);
+});
+
+test("meal price comes from current ingredient prices, not the cached dish cost", async () => {
+  const priced = fixture(ingredient(100), { ...dish, totalCostYen: 999 });
+  const meal = await priced.service.create({ ...mealInput, items: [{ ...mealInput.items[0] }] });
+  expect(meal.items[0]?.priceYen).toBeCloseTo(50);
+});
+
+test("a partly priced dish gives the meal no price", async () => {
+  const unpriced = fixture(ingredient(null), { ...dish, totalCostYen: 165.3, costMissingCount: 0 });
+  const meal = await unpriced.service.create({
+    ...mealInput,
+    items: [{ ...mealInput.items[0] }],
+  });
+  expect(meal.items[0]?.priceYen).toBeNull();
 });

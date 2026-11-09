@@ -5,7 +5,7 @@ import {
   type Ingredient,
 } from "../domain/ingredient";
 import { validateRecipeDag } from "../domain/recipe-scheduler";
-import type { RecipeJson } from "../domain/recipe";
+import { dropRedundantLabels, type RecipeJson } from "../domain/recipe";
 import { DishImageError } from "../repositories/dish-repository";
 
 export interface DishRepository {
@@ -30,8 +30,8 @@ export interface DishImageChanges {
   /** Replaces the images of the listed steps; other steps keep theirs. */
   stepImages?: Readonly<Record<string, readonly string[]>>;
 }
-type DishInput = Omit<Dish, "totalNutrition" | "totalCostYen"> &
-  Partial<Pick<Dish, "totalNutrition" | "totalCostYen">>;
+type DishInput = Omit<Dish, "totalNutrition" | "totalCostYen" | "costMissingCount"> &
+  Partial<Pick<Dish, "totalNutrition" | "totalCostYen" | "costMissingCount">>;
 
 export function createDishService({ repository, ingredientRepository }: DishServiceOptions) {
   async function loadIngredients(ids: readonly string[]): Promise<Map<string, Ingredient>> {
@@ -45,14 +45,15 @@ export function createDishService({ repository, ingredientRepository }: DishServ
       found.flatMap((ingredient) => (ingredient ? [[ingredient.id, ingredient] as const] : [])),
     );
   }
-  async function calculate(
+  const ingredientIdsOf = (recipes: readonly Pick<RecipeJson, "ingredients">[]) =>
+    recipes.flatMap((recipe) => recipe.ingredients.map((entry) => entry.ingredientId));
+  function calculate(
     recipe: RecipeJson,
     servings: number,
-    known?: ReadonlyMap<string, Ingredient>,
+    lookup: ReadonlyMap<string, Ingredient>,
   ) {
     const validation = validateRecipeDag(recipe);
     if (!validation.success) throw new Error(`Invalid recipe DAG: ${validation.errors.join("; ")}`);
-    const lookup = known ?? (await loadIngredients(recipe.ingredients.map((e) => e.ingredientId)));
     const resolved = recipe.ingredients.map((entry) => {
       const ingredient = lookup.get(entry.ingredientId);
       if (!ingredient)
@@ -61,17 +62,23 @@ export function createDishService({ repository, ingredientRepository }: DishServ
         );
       return { ingredient, amount: entry.amount };
     });
+    const cost = calculateDishCost(resolved, servings);
     return {
       totalNutrition: calculateDishNutrition(resolved, servings),
-      totalCostYen: calculateDishCost(resolved, servings),
+      // Null only when nothing is priced; a partial sum is paired with costMissingCount.
+      totalCostYen:
+        cost.missingCount === resolved.length && resolved.length > 0 ? null : cost.totalYen,
+      costMissingCount: cost.missingCount,
     };
   }
   async function complete(
     input: DishInput,
     known?: ReadonlyMap<string, Ingredient>,
   ): Promise<Dish> {
-    const totals = await calculate(input.recipe, input.servings, known);
-    return { ...input, ...totals };
+    const lookup = known ?? (await loadIngredients(ingredientIdsOf([input.recipe])));
+    // Names come from the ingredient master; keep only labels that say something else
+    const recipe = dropRedundantLabels(input.recipe, lookup);
+    return { ...input, recipe, ...calculate(recipe, input.servings, lookup) };
   }
   async function update(id: string, changes: Partial<Omit<Dish, "id">>): Promise<Dish | null> {
     const current = await repository.getById(id);
@@ -82,9 +89,7 @@ export function createDishService({ repository, ingredientRepository }: DishServ
   return {
     async list(): Promise<Dish[]> {
       const dishes = await repository.list();
-      const known = await loadIngredients(
-        dishes.flatMap((dish) => dish.recipe.ingredients.map((entry) => entry.ingredientId)),
-      );
+      const known = await loadIngredients(ingredientIdsOf(dishes.map((dish) => dish.recipe)));
       return Promise.all(dishes.map((dish) => complete(dish, known)));
     },
     async get(id: string): Promise<Dish | null> {
@@ -95,6 +100,10 @@ export function createDishService({ repository, ingredientRepository }: DishServ
       return repository.create(await complete(input));
     },
     update,
+    /** The master ingredients the recipes refer to, keyed by ID (for display names). */
+    ingredientsFor(recipes: readonly Pick<RecipeJson, "ingredients">[]) {
+      return loadIngredients(ingredientIdsOf(recipes));
+    },
     /** Attaches or replaces images without resending the whole recipe. */
     async setImages(id: string, changes: DishImageChanges): Promise<Dish | null> {
       const current = await repository.getById(id);

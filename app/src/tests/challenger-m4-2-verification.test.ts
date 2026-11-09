@@ -175,7 +175,7 @@ describe("Empirical Challenger M4 (Challenger 2): Recipe Splitting & Workspace F
         for (const ing of payload.recipe.ingredients) {
           expect(
             ingredientIdsInInputs.has(ing.id),
-            `Ingredient ${ing.name} (${ing.id}) must be consumed in steps`,
+            `Ingredient ${ing.label} (${ing.id}) must be consumed in steps`,
           ).toBe(true);
         }
 

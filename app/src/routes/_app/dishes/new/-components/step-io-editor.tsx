@@ -3,7 +3,13 @@ import { Plus, X } from "lucide-react";
 
 import { Button, IconButton } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { RecipeIngredientEntry, RecipeIngredientGroup, RecipeStep } from "@/domain/recipe";
+import {
+  recipeEntryName,
+  type IngredientNameLookup,
+  type RecipeIngredientEntry,
+  type RecipeIngredientGroup,
+  type RecipeStep,
+} from "@/domain/recipe";
 
 import { DraftNumberInput } from "./draft-number-input";
 import { fieldIds, makeId } from "./recipe-draft";
@@ -16,6 +22,8 @@ export interface StepIoEditorProps {
   step: RecipeStep;
   steps: readonly RecipeStep[];
   entries: readonly RecipeIngredientEntry[];
+  /** 材料マスタ。材料名に使う。 */
+  ingredientById: IngredientNameLookup;
   groups: readonly RecipeIngredientGroup[];
   errors?: Readonly<Record<string, string>>;
   onChange(patch: Partial<RecipeStep>): void;
@@ -31,6 +39,7 @@ export function StepIoEditor({
   step,
   steps,
   entries,
+  ingredientById,
   groups,
   errors = {},
   onChange,
@@ -90,7 +99,10 @@ export function StepIoEditor({
           <chakra.ul listStyleType="none" m="0" p="0">
             {ingredientInputs.map((input) => {
               const entry = entries.find((item) => item.id === input.ingredientEntryId);
-              const name = entry?.name || "材料";
+              const name =
+                entry && (entry.label || entry.ingredientId)
+                  ? recipeEntryName(entry, ingredientById)
+                  : "材料";
               const ratioId = fieldIds.step(step.id, `ratio-${input.ingredientEntryId}`);
               return (
                 <chakra.li
@@ -182,9 +194,10 @@ export function StepIoEditor({
               .filter((entry) => !used.has(entry.id))
               .map((entry) => ({
                 value: entry.id,
-                label: entry.name
-                  ? `${entry.name} (${entry.displayAmount || "分量未入力"})`
-                  : "材料未選択",
+                label:
+                  entry.label || entry.ingredientId
+                    ? `${recipeEntryName(entry, ingredientById)} (${entry.displayAmount || "分量未入力"})`
+                    : "材料未選択",
               }))}
             value=""
             onChange={(entryId) => {

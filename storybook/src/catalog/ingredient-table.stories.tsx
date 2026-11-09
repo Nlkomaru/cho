@@ -30,3 +30,12 @@ export const Empty: Story = { args: { items: [] } };
 export const Mobile: Story = {
   globals: { viewport: { value: "mobile", isRotated: false } },
 };
+
+/** Inventia と連携済みだが単価がまだない材料は「未登録」と出す。 */
+export const LinkedWithoutPrice: Story = {
+  args: {
+    items: ingredients.map((item) =>
+      item.id === "salt" ? { ...item, inventiaItemId: "itm_01JD8SALT" } : item,
+    ),
+  },
+};

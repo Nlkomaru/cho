@@ -7,16 +7,25 @@ import { formatNumber, formatYen } from "@/lib/format";
 export interface NutritionInlineProps {
   facts: NutritionFacts | null;
   costYen?: number | null;
+  /** 単価が無い材料。原価の代わりに「単価未登録」を薄く出す。 */
+  costMissing?: boolean;
   size?: "sm" | "xs";
 }
 
 /**
  * 1 行の栄養価 "677 kcal · P 22.2 · F 24.8 · C 96.3"。数値は fg、単位とラベルは fg.subtle。
  */
-export function NutritionInline({ facts, costYen, size = "sm" }: NutritionInlineProps) {
+export function NutritionInline({
+  facts,
+  costYen,
+  costMissing = false,
+  size = "sm",
+}: NutritionInlineProps) {
   const parts: { key: string; label?: string; value: string; unit?: string }[] = [];
   if (costYen !== undefined && costYen !== null) {
     parts.push({ key: "cost", value: formatYen(costYen) });
+  } else if (costMissing) {
+    parts.push({ key: "cost", value: "単価未登録" });
   }
   if (facts) {
     parts.push(

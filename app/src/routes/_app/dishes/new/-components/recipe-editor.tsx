@@ -12,8 +12,9 @@ import { ImageUpload, useImageUploads } from "@/components/ui/image-upload";
 import { toaster } from "@/components/ui/toaster";
 import {
   MAX_STEP_IMAGES,
+  recipeEntryName,
   recipeSchema,
-  type RecipeIngredientEntry,
+  type NamedRecipeIngredientEntry,
   type RecipeJson,
   type RecipeStep,
 } from "@/domain/recipe";
@@ -56,7 +57,8 @@ export interface RecipeSavePayload {
 /** AI 構造化 API の入力。 */
 export interface RecipeStructureRequest {
   dishName: string;
-  ingredients: RecipeIngredientEntry[];
+  /** 材料名を付けた材料。AI は名前で本文と材料を対応付ける。 */
+  ingredients: NamedRecipeIngredientEntry[];
   rawStepsText: string;
 }
 
@@ -155,7 +157,14 @@ export function RecipeEditor({
     },
   });
 
-  const check = useMemo(() => (submitted ? checkDraft(draft) : null), [submitted, draft]);
+  const ingredientById = useMemo(
+    () => new Map(ingredients.map((item) => [item.id, item])),
+    [ingredients],
+  );
+  const check = useMemo(
+    () => (submitted ? checkDraft(draft, ingredientById) : null),
+    [submitted, draft, ingredientById],
+  );
   const issues: readonly DraftIssue[] = check && !check.success ? check.issues : [];
   const errors = useMemo(
     () =>
@@ -164,7 +173,7 @@ export function RecipeEditor({
       ),
     [issues],
   );
-  const schedule = useMemo(() => previewSchedule(recipe), [recipe]);
+  const schedule = useMemo(() => previewSchedule(recipe, ingredientById), [recipe, ingredientById]);
 
   const changeRecipe = (update: (current: RecipeJson) => RecipeJson) =>
     setDraft((current) => ({ ...current, recipe: update(current.recipe) }));
@@ -228,7 +237,10 @@ export function RecipeEditor({
       const entries = recipe.ingredients.map((entry) => ({ ...entry }));
       const result = await onStructure({
         dishName: draft.name.trim(),
-        ingredients: entries,
+        ingredients: entries.map((entry) => ({
+          ...entry,
+          name: recipeEntryName(entry, ingredientById),
+        })),
         rawStepsText: text,
       });
       const checked = recipeSchema.safeParse({
@@ -271,7 +283,7 @@ export function RecipeEditor({
     event.preventDefault();
     setSubmitted(true);
     setSaveError("");
-    const result = checkDraft(draft);
+    const result = checkDraft(draft, ingredientById);
     if (!result.success) {
       const first = result.issues[0];
       reveal(first.fieldId, first.stepId);
@@ -365,7 +377,10 @@ export function RecipeEditor({
                         return;
                       }
                       images.release(key);
-                      setDraft((current) => ({ ...current, coverImageId: null }));
+                      setDraft((current) => ({
+                        ...current,
+                        coverImageId: null,
+                      }));
                     }}
                   />
                 }
@@ -375,7 +390,10 @@ export function RecipeEditor({
                     ...patch,
                     recipe:
                       patch.servings !== undefined && Number(patch.servings) >= 1
-                        ? { ...current.recipe, servings: Math.round(Number(patch.servings)) }
+                        ? {
+                            ...current.recipe,
+                            servings: Math.round(Number(patch.servings)),
+                          }
                         : current.recipe,
                   }))
                 }
@@ -418,7 +436,12 @@ export function RecipeEditor({
                       ...current,
                       ingredientGroups: [
                         ...current.ingredientGroups,
-                        { id: makeId("grp"), symbol: "★", label: "", ingredientEntryIds: [] },
+                        {
+                          id: makeId("grp"),
+                          symbol: "★",
+                          label: "",
+                          ingredientEntryIds: [],
+                        },
                       ],
                     }))
                   }
@@ -491,6 +514,7 @@ export function RecipeEditor({
                         step={step}
                         steps={recipe.steps}
                         entries={recipe.ingredients}
+                        ingredientById={ingredientById}
                         groups={recipe.ingredientGroups}
                         expanded={expanded.has(step.id)}
                         onExpandedChange={(open) => setStepOpen(step.id, open)}

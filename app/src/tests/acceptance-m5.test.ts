@@ -34,7 +34,7 @@ function buildValidRecipe(
     ingredients: ingredients.map((ing) => ({
       id: ing.id,
       ingredientId: ing.ingredientId,
-      name: ing.name,
+      label: ing.name,
       amount: ing.amount,
       unit: ing.unit,
       displayAmount: `${ing.amount}${ing.unit}`,

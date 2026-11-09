@@ -139,7 +139,7 @@ const columns = columnHelper.columns([
     id: "price",
     header: ({ column }) => (
       <SortableHeader
-        label={<>単価{headerBasis("1g")}</>}
+        label={<>単価{headerBasis("100g")}</>}
         align="end"
         sorted={column.getIsSorted()}
         onToggle={column.getToggleSortingHandler()}
@@ -147,13 +147,21 @@ const columns = columnHelper.columns([
     ),
     cell: ({ getValue, row }) => {
       const price = formatBasisPrice(getValue());
-      if (!price) return <Dash />;
+      if (!price)
+        return row.original.inventiaItemId ? (
+          <Text as="span" textStyle="caption" color="fg.subtle">
+            未登録
+          </Text>
+        ) : (
+          <Dash />
+        );
       return (
         <>
           {price}
-          {row.original.baseUnit === "g" ? null : (
+          {isDefaultBasis(row.original) ? null : (
             <chakra.span color="fg.subtle" ms="0.5" textStyle="caption">
-              /{row.original.baseUnit}
+              /{formatNumber(row.original.nutritionBasisAmount)}
+              {row.original.baseUnit}
             </chakra.span>
           )}
         </>
