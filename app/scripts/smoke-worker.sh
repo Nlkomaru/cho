@@ -31,7 +31,10 @@ config = config
   .replace(/"database_id"\s*:\s*"[^"]*"/, '"database_id": "33333333-3333-4333-8333-333333333333"');
 const varsMatches = config.match(/"vars"\s*:\s*\{/g) ?? [];
 if (varsMatches.length !== 1) throw new Error(`Expected one vars object, found ${varsMatches.length}`);
-config = config.replace(/("vars"\s*:\s*\{)/, `$1\n    "MCP_ALLOWED_ORIGINS": "${origin}",`);
+config = config.replace(
+  /("vars"\s*:\s*\{)/,
+  `$1\n    "MCP_MANAGEMENT_ENABLED": "true",\n    "MCP_ALLOWED_ORIGINS": "${origin}",`,
+);
 const remoteMatches = config.match(/"remote"\s*:\s*(?:true|false)/g) ?? [];
 if (remoteMatches.length !== 2) throw new Error(`Expected exactly two remote bindings, found ${remoteMatches.length}`);
 config = config.replace(/"remote"\s*:\s*(?:true|false)/g, '"remote": false');
@@ -39,23 +42,7 @@ await writeFile(outputPath, config);
 NODE
 
 cd "$APP_DIR"
-pnpm exec wrangler d1 migrations apply DB --local --persist-to "$PERSIST_DIR" --config "$CONFIG_FILE"
-MCP_TOKEN_FILE="$PERSIST_DIR/mcp-token"
-MCP_TOKEN_METADATA="$(node --input-type=module - "$MCP_TOKEN_FILE" <<'NODE'
-import { createHash, randomBytes } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-const token = `cho_mcp_${randomBytes(32).toString("hex")}`;
-await writeFile(process.argv[2], token, { mode: 0o600 });
-process.stdout.write(
-  `${createHash("sha256").update(token).digest("hex")}\n${token.slice(0, 16)}`,
-);
-NODE
-)"
-MCP_TOKEN_HASH="${MCP_TOKEN_METADATA%%$'\n'*}"
-MCP_TOKEN_PREFIX="${MCP_TOKEN_METADATA#*$'\n'}"
-unset MCP_TOKEN_METADATA
-pnpm exec wrangler d1 execute DB --local --persist-to "$PERSIST_DIR" --config "$CONFIG_FILE" --command "INSERT INTO mcp_api_tokens (id, name, owner_subject, prefix, secret_hash, allowed_tools) VALUES ('smoke-mcp-token', 'Worker smoke', 'smoke', '$MCP_TOKEN_PREFIX', '$MCP_TOKEN_HASH', '[\"list_ingredients\"]');"
-unset MCP_TOKEN_HASH MCP_TOKEN_PREFIX
+CI=true pnpm exec wrangler d1 migrations apply DB --local --persist-to "$PERSIST_DIR" --config "$CONFIG_FILE" </dev/null
 pnpm exec wrangler dev --local --ip 127.0.0.1 --port 8791 --persist-to "$PERSIST_DIR" --config "$CONFIG_FILE" >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
@@ -84,8 +71,45 @@ done
 assert_status "$health_status" 200 /api/health
 [[ "$(cat "$health_body")" == '{"status":"ok"}' ]] || fail_with_logs "/api/health returned unexpected JSON: $(cat "$health_body")"
 
+unauth_mcp_body="$PERSIST_DIR/mcp-unauth.json"
+unauth_status="$(request POST /api/mcp "$unauth_mcp_body" \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_ingredients","arguments":{}}}')"
+assert_status "$unauth_status" 401 'Unauthenticated POST /api/mcp'
+
+token_issue_body="$PERSIST_DIR/mcp-token-issue.json"
+token_issue_status="$(request POST /api/mcp/tokens "$token_issue_body" \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"Worker smoke","allowedTools":["list_ingredients"]}')"
+assert_status "$token_issue_status" 201 'POST /api/mcp/tokens'
+node --input-type=module - "$token_issue_body" "$PERSIST_DIR/mcp-token-id" "$PERSIST_DIR/mcp-token-secret" <<'NODE'
+import { readFile, writeFile } from "node:fs/promises";
+const [bodyFile, idFile, secretFile] = process.argv.slice(2);
+const data = JSON.parse(await readFile(bodyFile, "utf8"));
+if (!data.id || typeof data.id !== "string") throw new Error("POST /api/mcp/tokens missing id");
+if (!data.secret || !/^cho_mcp_[A-Za-z0-9_-]{20,80}$/.test(data.secret))
+  throw new Error(`POST /api/mcp/tokens returned invalid secret: ${data.secret}`);
+await writeFile(idFile, data.id, { mode: 0o600 });
+await writeFile(secretFile, data.secret, { mode: 0o600 });
+NODE
+mcp_token_id="$(cat "$PERSIST_DIR/mcp-token-id")"
+mcp_token="$(cat "$PERSIST_DIR/mcp-token-secret")"
+
+token_list_body="$PERSIST_DIR/mcp-token-list.json"
+token_list_status="$(request GET /api/mcp/tokens "$token_list_body")"
+assert_status "$token_list_status" 200 'GET /api/mcp/tokens'
+node --input-type=module - "$token_list_body" "$mcp_token_id" "$mcp_token" <<'NODE'
+import { readFile } from "node:fs/promises";
+const [bodyFile, tokenId, tokenSecret] = process.argv.slice(2);
+const text = await readFile(bodyFile, "utf8");
+if (text.includes(tokenSecret)) throw new Error("GET /api/mcp/tokens leaked client secret");
+if (text.includes("secretHash")) throw new Error("GET /api/mcp/tokens leaked secretHash");
+const data = JSON.parse(text);
+if (!Array.isArray(data.tokens) || !data.tokens.some((t) => t.id === tokenId))
+  throw new Error("GET /api/mcp/tokens did not list issued token");
+NODE
+
 mcp_body="$PERSIST_DIR/mcp-list.json"
-mcp_token="$(cat "$MCP_TOKEN_FILE")"
 mcp_status="$(request POST /api/mcp "$mcp_body" \
   -H "Authorization: Bearer $mcp_token" \
   -H 'Content-Type: application/json' \
@@ -97,6 +121,20 @@ import { readFile } from "node:fs/promises";
 const response = JSON.parse(await readFile(process.argv[2], "utf8"));
 if (response.jsonrpc !== "2.0" || response.id !== 1 || !Array.isArray(response.result?.structuredContent?.items))
   throw new Error("POST /api/mcp did not return the list_ingredients protocol result");
+NODE
+
+denied_mcp_body="$PERSIST_DIR/mcp-denied.json"
+denied_status="$(request POST /api/mcp "$denied_mcp_body" \
+  -H "Authorization: Bearer $mcp_token" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"record_meal","arguments":{}}}')"
+assert_status "$denied_status" 200 'POST /api/mcp disallowed tool'
+node --input-type=module - "$denied_mcp_body" <<'NODE'
+import { readFile } from "node:fs/promises";
+const response = JSON.parse(await readFile(process.argv[2], "utf8"));
+if (!response.result?.isError && !response.error)
+  throw new Error("POST /api/mcp allowed a tool outside allowedTools");
 NODE
 
 preflight_headers="$PERSIST_DIR/mcp-preflight.headers"
@@ -132,8 +170,7 @@ browser_mcp_status="$(request POST /api/mcp "$browser_mcp_body" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "Origin: $MCP_SMOKE_ORIGIN" \
-  --data '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_ingredients","arguments":{}}}')"
-unset mcp_token
+  --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_ingredients","arguments":{}}}')"
 assert_status "$browser_mcp_status" 200 'Origin-bearing POST /api/mcp'
 node --input-type=module - "$browser_mcp_headers" "$browser_mcp_body" "$MCP_SMOKE_ORIGIN" <<'NODE'
 import { readFile } from "node:fs/promises";
@@ -145,7 +182,7 @@ const headers = new Headers((await readFile(headersFile, "utf8")).split(/\r?\n/)
 if (headers.get("access-control-allow-origin") !== origin)
   throw new Error("Origin-bearing POST did not return the allowed Access-Control-Allow-Origin");
 const response = JSON.parse(await readFile(bodyFile, "utf8"));
-if (response.jsonrpc !== "2.0" || response.id !== 2 || !Array.isArray(response.result?.structuredContent?.items))
+if (response.jsonrpc !== "2.0" || response.id !== 3 || !Array.isArray(response.result?.structuredContent?.items))
   throw new Error("Origin-bearing POST did not return the list_ingredients protocol result");
 NODE
 
@@ -157,6 +194,31 @@ const headers = (await readFile(process.argv[2], "utf8")).toLowerCase();
 if (!headers.split(/\r?\n/).includes("allow: post, options"))
   throw new Error("GET /api/mcp did not return Allow: POST, OPTIONS");
 NODE
+
+usage_body="$PERSIST_DIR/mcp-usage.json"
+usage_status="$(request GET /api/mcp/usage "$usage_body")"
+assert_status "$usage_status" 200 'GET /api/mcp/usage'
+node --input-type=module - "$usage_body" "$mcp_token_id" <<'NODE'
+import { readFile } from "node:fs/promises";
+const [bodyFile, tokenId] = process.argv.slice(2);
+const data = JSON.parse(await readFile(bodyFile, "utf8"));
+if (!data.summary || typeof data.summary.totalCalls !== "number" || data.summary.totalCalls < 1)
+  throw new Error(`GET /api/mcp/usage summary.totalCalls must be >= 1, got ${data.summary?.totalCalls}`);
+if (!Array.isArray(data.usage) || !data.usage.some((u) => u.tokenId === tokenId && u.totalCalls >= 1))
+  throw new Error("GET /api/mcp/usage did not record calls for token");
+NODE
+
+delete_status="$(request DELETE "/api/mcp/tokens/$mcp_token_id" "$PERSIST_DIR/mcp-token-delete.body")"
+assert_status "$delete_status" 204 "DELETE /api/mcp/tokens/$mcp_token_id"
+
+revoked_mcp_body="$PERSIST_DIR/mcp-revoked.json"
+revoked_status="$(request POST /api/mcp "$revoked_mcp_body" \
+  -H "Authorization: Bearer $mcp_token" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_ingredients","arguments":{}}}')"
+unset mcp_token mcp_token_id
+assert_status "$revoked_status" 401 'Revoked token POST /api/mcp'
 
 home_body="$PERSIST_DIR/home.html"
 status="$(request GET / "$home_body")"
@@ -198,4 +260,4 @@ const meal = JSON.parse(await readFile(process.argv[2], "utf8"));
 if (meal.title !== "Local smoke meal") throw new Error("GET meal detail title did not match POST");
 NODE
 
-printf 'Local Worker smoke passed: health, MCP tool call, meal UI, Storybook, meal list, create, and detail.\n'
+printf 'Local Worker smoke passed: health, MCP tokens, usage & tools, meal UI, Storybook, meal list, create, and detail.\n'

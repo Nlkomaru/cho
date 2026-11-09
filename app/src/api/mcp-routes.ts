@@ -57,7 +57,8 @@ mcpRoutes.get("/api/mcp", (context) => context.body(null, 405, { Allow: "POST, O
 mcpRoutes.post("/api/mcp", async (context) => {
   const authorization = context.req.header("Authorization");
   const token = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
-  if (!/^cho_mcp_[0-9a-f]{64}$/.test(token)) return context.json({ error: "Unauthorized" }, 401);
+  if (!/^cho_mcp_[A-Za-z0-9_-]{20,80}$/.test(token))
+    return context.json({ error: "Unauthorized" }, 401);
 
   const tokenService = createMcpTokenService(createDbClient(context.env.DB));
   const principal = await tokenService.authenticate(token);

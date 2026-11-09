@@ -24,7 +24,6 @@ export type ApiBindings = {
   CLOUDFLARE_ACCESS_CLIENT_SECRET?: string;
   INVENTIA_STOCK_WRITES_ENABLED?: string;
   MCP_MANAGEMENT_ENABLED?: string;
-  MCP_MANAGEMENT_TOKEN_HASH?: string;
   MCP_ALLOWED_ORIGINS?: string;
 };
 
