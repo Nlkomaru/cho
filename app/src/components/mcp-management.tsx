@@ -24,8 +24,11 @@ import { StatBar } from "./ui/stat-bar";
 export const mcpToolLabels: Record<McpToolName, string> = {
   list_ingredients: "材料一覧",
   create_ingredient: "材料登録",
+  delete_ingredient: "材料削除",
   list_recipes: "レシピ一覧",
   create_recipe: "レシピ登録",
+  delete_recipe: "レシピ削除",
+  calculate_purchase_list: "買い物リスト作成",
   record_meal: "食事記録",
 };
 
