@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { ingredientSchema } from "../domain/ingredient";
+import { ingredientSchema, inventiaItemIdSchema } from "../domain/ingredient";
 import { nutritionFactsSchema } from "../domain/nutrition";
 import { createDbClient } from "../db/client";
 import { createIngredientRepository } from "../repositories/ingredient-repository";
@@ -66,7 +66,7 @@ const inventiaSearchRequestSchema = z.object({ query: z.string().trim().min(1).m
 const inventiaSyncRequestSchema = z
   .object({
     ingredientId: ingredientSchema.shape.id,
-    itemId: z.string().trim().min(1).max(128),
+    itemId: inventiaItemIdSchema,
   })
   .strict();
 const inventiaItemSchema = z.object({
@@ -87,11 +87,15 @@ const syncResultSchema = z.discriminatedUnion("synced", [
   z
     .object({
       synced: z.literal(false),
-      reason: z.literal("no_price_records"),
+      reason: z.enum(["no_price_records", "price_unavailable"]),
       ingredient: ingredientSchema,
     })
     .strict(),
 ]);
+const refreshPricesRequestSchema = z
+  .object({ ingredientIds: z.array(ingredientSchema.shape.id).max(500).optional() })
+  .strict();
+const refreshPricesResultSchema = z.object({ ingredients: z.array(ingredientSchema) }).strict();
 
 export const ingredientRoutes = new OpenAPIHono<{ Bindings: ApiBindings }>();
 
@@ -274,7 +278,7 @@ ingredientRoutes.openapi(searchInventiaRoute, async (context) => {
 const syncInventiaRoute = createRoute({
   method: "post",
   path: "/api/ingredients/sync-inventia",
-  summary: "Sync ingredient price from Inventia",
+  summary: "Link an ingredient to an Inventia item and sync its price",
   request: {
     body: {
       required: true,
@@ -283,7 +287,8 @@ const syncInventiaRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Price synchronization result.",
+      description:
+        "Link result. The link is saved even when synced is false (no price record, or the price request failed).",
       content: { "application/json": { schema: syncResultSchema } },
     },
     400: {
@@ -313,10 +318,44 @@ ingredientRoutes.openapi(syncInventiaRoute, async (context) => {
   if (!inventiaStatus.capabilities.readItems)
     return context.json({ error: inventiaConfigurationMessage(inventiaStatus.issue) }, 409);
   try {
-    return context.json(await service.syncInventiaPrice(ingredientId, itemId), 200);
+    return context.json(await service.linkInventiaItem(ingredientId, itemId), 200);
   } catch (error) {
     const failure = describeInventiaFailure(error, "Inventia price synchronization failed.");
     return context.json({ error: failure.error }, failure.status);
+  }
+});
+
+const refreshPricesRoute = createRoute({
+  method: "post",
+  path: "/api/ingredients/refresh-prices",
+  summary: "Refresh stale Inventia prices",
+  description:
+    "Re-reads Inventia prices of linked ingredients whose cached price is stale (older than 24 hours, or never fetched). Bounded per call; failures keep the cached value. Returns only the ingredients that were updated. Called by the UI after a page has rendered.",
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: refreshPricesRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated ingredients (empty when nothing was stale or Inventia is unavailable).",
+      content: { "application/json": { schema: refreshPricesResultSchema } },
+    },
+    500: {
+      description: "Unable to refresh prices.",
+      content: { "application/json": { schema: errorSchema } },
+    },
+  },
+});
+ingredientRoutes.openapi(refreshPricesRoute, async (context) => {
+  const { ingredientIds } = context.req.valid("json");
+  try {
+    const { service, inventiaStatus } = await createInventiaContext(context.env);
+    if (!inventiaStatus.capabilities.readItems) return context.json({ ingredients: [] }, 200);
+    return context.json({ ingredients: await service.refreshStalePrices({ ingredientIds }) }, 200);
+  } catch {
+    return context.json({ error: "Unable to refresh prices." }, 500);
   }
 });
 

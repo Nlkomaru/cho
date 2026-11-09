@@ -262,7 +262,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-onion",
           ingredientId: resolveId("玉ねぎ", "ing-onion"),
-          name: "玉ねぎ",
+          label: null,
           amount: 200,
           unit: "g",
           displayAmount: "1個 (200g)",
@@ -273,7 +273,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-macaroni",
           ingredientId: resolveId("マカロニ", "ing-macaroni"),
-          name: "マカロニ",
+          label: null,
           amount: 100,
           unit: "g",
           displayAmount: "100g",
@@ -284,7 +284,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-salt",
           ingredientId: resolveId("食塩", "ing-salt"),
-          name: "食塩",
+          label: null,
           amount: 2,
           unit: "g",
           displayAmount: "小さじ1/3 (2g)",
@@ -295,7 +295,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-butter",
           ingredientId: resolveId("有塩バター", "ing-butter"),
-          name: "有塩バター",
+          label: null,
           amount: 20,
           unit: "g",
           displayAmount: "20g",
@@ -306,7 +306,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-flour",
           ingredientId: resolveId("小麦粉", "ing-flour"),
-          name: "小麦粉",
+          label: null,
           amount: 20,
           unit: "g",
           displayAmount: "大さじ2 (20g)",
@@ -317,7 +317,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-milk",
           ingredientId: resolveId("牛乳", "ing-milk"),
-          name: "牛乳",
+          label: null,
           amount: 350,
           unit: "mL",
           displayAmount: "350mL",
@@ -328,7 +328,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-consomme",
           ingredientId: resolveId("顆粒コンソメ", "ing-consomme"),
-          name: "顆粒コンソメ",
+          label: null,
           amount: 5,
           unit: "g",
           displayAmount: "小さじ1 (5g)",
@@ -339,7 +339,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-pepper",
           ingredientId: resolveId("黒こしょう", "ing-pepper"),
-          name: "黒こしょう",
+          label: null,
           amount: 0.5,
           unit: "g",
           displayAmount: "少々 (0.5g)",
@@ -350,7 +350,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-nutmeg",
           ingredientId: resolveId("ナツメグ", "ing-nutmeg"),
-          name: "ナツメグ",
+          label: null,
           amount: 0.2,
           unit: "g",
           displayAmount: "ひとふり (0.2g)",
@@ -361,7 +361,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-cheese",
           ingredientId: resolveId("ピザ用チーズ", "ing-cheese"),
-          name: "ピザ用チーズ",
+          label: null,
           amount: 50,
           unit: "g",
           displayAmount: "50g",
@@ -372,7 +372,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-olive-oil",
           ingredientId: resolveId("オリーブオイル", "ing-olive-oil"),
-          name: "オリーブオイル",
+          label: null,
           amount: 10,
           unit: "g",
           displayAmount: "小さじ2 (10g)",
@@ -383,7 +383,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
         {
           id: "entry-parsley",
           ingredientId: resolveId("パセリ", "ing-parsley"),
-          name: "パセリ",
+          label: null,
           amount: 1,
           unit: "g",
           displayAmount: "適量 (1g)",
@@ -440,6 +440,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "玉ねぎが薄切りにされマカロニが茹で上がった状態",
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-cook",
@@ -512,6 +513,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "なめらかなホワイトソースが完成した状態",
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-assemble",
@@ -560,6 +562,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "耐熱皿にチーズが均等に散らされた状態",
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-finish",
@@ -602,6 +605,7 @@ export function createTwelveIngredientRecipePayload(ingredientIdMap: Record<stri
           ],
           completionCue: "チーズがこんがりと焼け香ばしい香りが立つ状態",
           cautions: [],
+          imageIds: [],
         },
       ],
       globalCautions: [],

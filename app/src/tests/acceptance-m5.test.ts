@@ -34,7 +34,7 @@ function buildValidRecipe(
     ingredients: ingredients.map((ing) => ({
       id: ing.id,
       ingredientId: ing.ingredientId,
-      name: ing.name,
+      label: ing.name,
       amount: ing.amount,
       unit: ing.unit,
       displayAmount: `${ing.amount}${ing.unit}`,
@@ -71,6 +71,7 @@ function buildValidRecipe(
         outputs: [{ id: "out-1", label: "完成品" }],
         completionCue: "全体に火が通った状態",
         cautions: [],
+        imageIds: [],
       },
     ],
     globalCautions: [],

@@ -5,7 +5,12 @@ import {
   sumNutritionFacts,
   type NutritionFacts,
 } from "./nutrition";
-import { recipeSchema } from "./recipe";
+import { imageIdSchema, recipeSchema } from "./recipe";
+
+export const inventiaItemIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_-]{1,128}$/, "Inventia item ID may only contain letters, digits, - and _");
 
 export const ingredientObjectSchema = z
   .object({
@@ -17,9 +22,11 @@ export const ingredientObjectSchema = z
     nutritionBasisAmount: z.number().positive(),
     nutritionPerBasis: nutritionFactsSchema,
     gramPerUnit: z.number().positive().nullable().default(null),
-    inventiaItemId: z.string().trim().min(1).max(128).nullable().default(null),
+    inventiaItemId: inventiaItemIdSchema.nullable().default(null),
     latestUnitPriceYen: z.number().min(0).nullable().default(null),
     latestPriceUpdatedAt: z.string().datetime().nullable().default(null),
+    /** Last Inventia lookup, successful or not; throttles retries without faking freshness. */
+    latestPriceAttemptedAt: z.string().datetime().nullable().default(null),
     memo: z.string().max(2000).nullable().default(null),
   })
   .strict();
@@ -78,6 +85,53 @@ export function calculateIngredientCost(
 }
 export const calculateUnitCost = calculateIngredientCost;
 
+/** Factor from a mass/volume unit to its smallest unit (g or mL); case-insensitive like Inventia. */
+const smallestUnitFactors: Record<string, number> = { g: 1, kg: 1000, ml: 1, l: 1000 };
+
+/**
+ * Converts an Inventia comparison unit price into Cho's `latestUnitPriceYen`.
+ *
+ * Inventia reports yen per 100 g / 100 mL (always the smallest unit, even for kg/L items) and yen
+ * per one base unit for count items. Cho stores yen per `nutritionBasisAmount` of `baseUnit`.
+ * Returns null when a mass/volume unit cannot be converted.
+ */
+export function inventiaUnitPriceToBasisPrice(
+  unitPrice: number,
+  ingredient: Pick<Ingredient, "baseDimension" | "baseUnit" | "nutritionBasisAmount">,
+): number | null {
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) return null;
+  if (ingredient.baseDimension === "count") return unitPrice * ingredient.nutritionBasisAmount;
+  const factor = smallestUnitFactors[ingredient.baseUnit.toLowerCase()];
+  if (factor === undefined) return null;
+  return (unitPrice * ingredient.nutritionBasisAmount * factor) / 100;
+}
+
+/** Linked prices older than this are refreshed from Inventia when the ingredient is viewed. */
+export const inventiaPriceMaxAgeMs = 24 * 60 * 60 * 1000;
+/** A linked item without any price record is re-checked sooner so a newly recorded price shows up. */
+export const inventiaMissingPriceRetryMs = 60 * 60 * 1000;
+
+/** Whether a linked ingredient's cached Inventia price should be refreshed. */
+export function isInventiaPriceStale(
+  ingredient: Pick<Ingredient, "inventiaItemId" | "latestUnitPriceYen" | "latestPriceUpdatedAt"> &
+    Partial<Pick<Ingredient, "latestPriceAttemptedAt">>,
+  now: Date,
+): boolean {
+  if (!ingredient.inventiaItemId) return false;
+  // A recent attempt (even a failed one) waits for the retry window.
+  const attemptedAt = ingredient.latestPriceAttemptedAt
+    ? Date.parse(ingredient.latestPriceAttemptedAt)
+    : Number.NaN;
+  if (!Number.isNaN(attemptedAt) && now.getTime() - attemptedAt < inventiaMissingPriceRetryMs)
+    return false;
+  if (!ingredient.latestPriceUpdatedAt) return true;
+  const checkedAt = Date.parse(ingredient.latestPriceUpdatedAt);
+  if (Number.isNaN(checkedAt)) return true;
+  const maxAge =
+    ingredient.latestUnitPriceYen === null ? inventiaMissingPriceRetryMs : inventiaPriceMaxAgeMs;
+  return now.getTime() - checkedAt >= maxAge;
+}
+
 export const dishSchema = z
   .object({
     id: z.string().trim().min(1).max(128),
@@ -86,8 +140,11 @@ export const dishSchema = z
     servings: z.int().min(1).max(100),
     recipe: recipeSchema,
     totalNutrition: nutritionFactsSchema.nullable().default(null),
+    /** Per-serving cost of the priced ingredients; null when none has a price. */
     totalCostYen: z.number().min(0).nullable().default(null),
-    coverImageId: z.string().trim().min(1).max(128).nullable().default(null),
+    /** How many ingredients have no price (so totalCostYen is a lower bound when above 0). */
+    costMissingCount: z.int().min(0).default(0),
+    coverImageId: imageIdSchema.nullable().default(null),
     notes: z.string().max(4000).nullable().default(null),
   })
   .strict();
@@ -105,19 +162,39 @@ export function calculateDishNutrition(
     1 / servings,
   );
 }
+export interface DishCostBreakdown {
+  /** Sum over the ingredients that have a price, divided by servings (yen per serving). */
+  totalYen: number;
+  /** Ingredient IDs (one per recipe entry, in order) that could not be priced. */
+  missingIngredientIds: string[];
+  missingCount: number;
+  /** True when every ingredient was priced. */
+  complete: boolean;
+}
+
+/**
+ * Per-serving cost of a dish. Unpriced ingredients are skipped and reported, so `totalYen` is a
+ * lower bound unless `complete`.
+ */
 export function calculateDishCost(
   ingredients: readonly { ingredient: Ingredient; amount: number }[],
   servings = 1,
-): number | null {
+): DishCostBreakdown {
   if (!Number.isInteger(servings) || servings < 1)
     throw new RangeError("Servings must be a positive integer");
   let total = 0;
+  const missingIngredientIds: string[] = [];
   for (const { ingredient, amount } of ingredients) {
     const cost = calculateIngredientCost(ingredient, amount);
-    if (cost === null) return null;
-    total += cost;
+    if (cost === null) missingIngredientIds.push(ingredient.id);
+    else total += cost;
   }
-  return total / servings;
+  return {
+    totalYen: total / servings,
+    missingIngredientIds,
+    missingCount: missingIngredientIds.length,
+    complete: missingIngredientIds.length === 0,
+  };
 }
 
 export const mealLogSourceSchema = z.enum([
@@ -148,7 +225,7 @@ export const mealLogItemBaseSchema = z
     servingsFactor: z.number().positive().default(1),
     priceYen: z.number().min(0).nullable().default(null),
     nutrition: nutritionFactsSchema.nullable().default(null),
-    ingredientCostBreakdown: z.array(ingredientCostBreakdownEntrySchema).default([]),
+    ingredientCostBreakdown: z.array(ingredientCostBreakdownEntrySchema).max(100).default([]),
     estimationSource: z.enum(["manual", "recipe", "ingredient", "ai", "unknown"]).default("manual"),
     sortOrder: z.int().min(0).default(0),
   })
@@ -175,7 +252,7 @@ export const mealLogSchema = z
     memo: z.string().max(4000).nullable().default(null),
     inventiaConsumptionStatus: z.enum(["pending", "succeeded", "failed"]).nullable().default(null),
     imageIds: z.array(z.string().trim().min(1).max(128)).default([]),
-    items: z.array(mealLogItemSchema).min(1),
+    items: z.array(mealLogItemSchema).min(1).max(100),
   })
   .strict();
 export type MealLog = z.infer<typeof mealLogSchema>;

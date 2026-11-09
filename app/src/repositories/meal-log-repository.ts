@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, like, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { mealLogSchema, type MealLog } from "../domain/ingredient";
 import type { createDbClient } from "../db/client";
@@ -94,13 +94,50 @@ export function createMealLogRepository(db: Database) {
     }));
   }
 
+  /**
+   * Claims only succeed while the image is still unassigned or already attached to this meal,
+   * so a purge that deleted the image first leaves the row untouched; the guard then aborts
+   * the batch.
+   */
   function imageUpdates(log: MealLog) {
-    return log.imageIds.map((imageId, sortOrder) =>
+    if (log.imageIds.length === 0) return [];
+    const claims = log.imageIds.map((imageId, sortOrder) =>
       db
         .update(mediaImages)
         .set({ targetType: "meal_log", targetId: log.id, sortOrder })
-        .where(eq(mediaImages.id, imageId)),
+        .where(
+          and(
+            eq(mediaImages.id, imageId),
+            or(
+              and(eq(mediaImages.targetType, "unassigned"), eq(mediaImages.targetId, "unassigned")),
+              and(eq(mediaImages.targetType, "meal_log"), eq(mediaImages.targetId, log.id)),
+            ),
+          ),
+        ),
     );
+    const guard = db
+      .select({
+        // json() raises on invalid input, which rolls the batch back.
+        ok: sql<string>`json(CASE WHEN (
+          SELECT count(*) FROM media_images
+          WHERE id IN (${sql.join(
+            log.imageIds.map((id) => sql`${id}`),
+            sql`, `,
+          )})
+          AND target_type = 'meal_log' AND target_id = ${log.id}
+        ) = ${log.imageIds.length} THEN '1' ELSE '{' END)`,
+      })
+      // The meal row is written earlier in the same batch, so this always yields one row.
+      .from(mealLogs)
+      .where(eq(mealLogs.id, log.id));
+    return [...claims, guard];
+  }
+
+  /** Turns a rolled-back image claim into a readable error; rethrows anything else. */
+  function rethrowImageConflict(error: unknown): never {
+    if (/malformed JSON/i.test(String(error) + String((error as Error)?.cause ?? "")))
+      throw new TypeError("Image is no longer available or is attached to another target");
+    throw error;
   }
 
   function logValues(log: MealLog) {
@@ -223,11 +260,15 @@ export function createMealLogRepository(db: Database) {
           : chunkArray(rows, MEAL_LOG_ITEM_CHUNK_SIZE).map((chunk) =>
               db.insert(mealLogItems).values(chunk),
             );
-      await db.batch([
-        db.insert(mealLogs).values(logValues(log)),
-        ...itemInserts,
-        ...imageUpdates(log),
-      ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+      try {
+        await db.batch([
+          db.insert(mealLogs).values(logValues(log)),
+          ...itemInserts,
+          ...imageUpdates(log),
+        ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+      } catch (error) {
+        rethrowImageConflict(error);
+      }
       const created = await getById(log.id);
       if (!created) throw new Error("Meal log insert completed without a readable row");
       return created;
@@ -247,7 +288,11 @@ export function createMealLogRepository(db: Database) {
         .map((image) =>
           db
             .update(mediaImages)
-            .set({ targetType: "unassigned", targetId: "unassigned" })
+            .set({
+              targetType: "unassigned",
+              targetId: "unassigned",
+              createdAt: sql`CURRENT_TIMESTAMP`,
+            })
             .where(eq(mediaImages.id, image.id)),
         );
       const values = logValues(log);
@@ -258,28 +303,32 @@ export function createMealLogRepository(db: Database) {
           : chunkArray(rows, MEAL_LOG_ITEM_CHUNK_SIZE).map((chunk) =>
               db.insert(mealLogItems).values(chunk),
             );
-      await db.batch([
-        db
-          .update(mealLogs)
-          .set({
-            eatenAt: values.eatenAt,
-            mealTiming: values.mealTiming,
-            sourceType: values.sourceType,
-            placeName: values.placeName,
-            title: values.title,
-            totalPriceYen: values.totalPriceYen,
-            totalNutritionJson: values.totalNutritionJson,
-            rating: values.rating,
-            memo: values.memo,
-            inventiaConsumptionStatus: values.inventiaConsumptionStatus,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(mealLogs.id, id)),
-        db.delete(mealLogItems).where(eq(mealLogItems.mealLogId, id)),
-        ...itemInserts,
-        ...detachImageUpdates,
-        ...imageUpdates(log),
-      ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+      try {
+        await db.batch([
+          db
+            .update(mealLogs)
+            .set({
+              eatenAt: values.eatenAt,
+              mealTiming: values.mealTiming,
+              sourceType: values.sourceType,
+              placeName: values.placeName,
+              title: values.title,
+              totalPriceYen: values.totalPriceYen,
+              totalNutritionJson: values.totalNutritionJson,
+              rating: values.rating,
+              memo: values.memo,
+              inventiaConsumptionStatus: values.inventiaConsumptionStatus,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(mealLogs.id, id)),
+          db.delete(mealLogItems).where(eq(mealLogItems.mealLogId, id)),
+          ...itemInserts,
+          ...detachImageUpdates,
+          ...imageUpdates(log),
+        ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+      } catch (error) {
+        rethrowImageConflict(error);
+      }
       return getById(id);
     },
     async delete(id: string): Promise<MealLog | null> {
@@ -293,7 +342,11 @@ export function createMealLogRepository(db: Database) {
         ...images.map((image) =>
           db
             .update(mediaImages)
-            .set({ targetType: "unassigned", targetId: "unassigned" })
+            .set({
+              targetType: "unassigned",
+              targetId: "unassigned",
+              createdAt: sql`CURRENT_TIMESTAMP`,
+            })
             .where(eq(mediaImages.id, image.id)),
         ),
         db.delete(mealLogs).where(eq(mealLogs.id, id)),

@@ -1,6 +1,6 @@
 import type { Ingredient } from "./ingredient";
 import { calculateIngredientCost } from "./ingredient";
-import type { RecipeJson } from "./recipe";
+import { recipeEntryName, type RecipeJson } from "./recipe";
 
 export interface PurchaseListItem {
   ingredientId: string | null;
@@ -19,6 +19,8 @@ export interface PurchaseListItem {
 export interface PurchaseListResult {
   items: PurchaseListItem[];
   totalEstimatedCostYen: number | null;
+  /** Items with no price; the total only covers the others. */
+  costMissingCount: number;
   markdownTable: string;
 }
 
@@ -35,10 +37,12 @@ export interface CalculatePurchaseListParams {
 
 /**
  * Resolves stock amount from the inventory mapping for a given recipe ingredient entry.
+ * `name` is the name shown in the list (the master name, or the label of an unregistered entry).
  */
 function resolveStockQuantity(
   entry: RecipeJson["ingredients"][number],
   matchedIngredient: Ingredient | undefined,
+  name: string,
   inventory?: Record<string, InventoryItemInfo | number>,
 ): number | null {
   if (!inventory) return null;
@@ -47,7 +51,7 @@ function resolveStockQuantity(
     matchedIngredient?.id,
     entry.ingredientId,
     matchedIngredient?.inventiaItemId,
-    entry.name,
+    name,
   ].filter((key): key is string => Boolean(key));
 
   for (const key of candidateKeys) {
@@ -83,9 +87,7 @@ function formatMarkdownTable(
   const separator = "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |";
 
   const rows = items.map((item) => {
-    const matched = item.ingredientId
-      ? ingredients.find((i) => i.id === item.ingredientId)
-      : ingredients.find((i) => i.name === item.name);
+    const matched = ingredients.find((i) => i.id === item.ingredientId);
 
     const stockQuantityStr =
       item.stockQuantity !== null ? `${item.stockQuantity}${item.unit}` : "-";
@@ -134,19 +136,19 @@ export function calculatePurchaseList({
   ingredients,
   inventory,
 }: CalculatePurchaseListParams): PurchaseListResult {
+  const byId = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const items: PurchaseListItem[] = recipe.ingredients.map((entry) => {
-    // 1. Identify matched ingredient from master catalog
-    const matched =
-      ingredients.find((i) => i.id === entry.ingredientId) ??
-      ingredients.find((i) => i.name === entry.name) ??
-      ingredients.find((i) => Boolean(i.normalizedName && i.normalizedName === entry.name));
+    // 1. Identify matched ingredient from master catalog (by ID only; names are not unique)
+    const matched = byId.get(entry.ingredientId);
 
     const isUnregistered = !matched;
     const ingredientId = matched ? matched.id : null;
     const unitPriceYen = matched?.latestUnitPriceYen ?? null;
+    // What to buy is the ingredient itself, so prefer its name over the recipe wording
+    const name = matched?.name ?? recipeEntryName(entry, byId);
 
     // 2. Determine stock quantity and presence
-    const stockQuantity = resolveStockQuantity(entry, matched, inventory);
+    const stockQuantity = resolveStockQuantity(entry, matched, name, inventory);
 
     let stockPresence: PurchaseListItem["stockPresence"];
     let shortageAmount: number;
@@ -184,7 +186,7 @@ export function calculatePurchaseList({
 
     return {
       ingredientId,
-      name: entry.name,
+      name,
       requiredAmount: entry.amount,
       unit: entry.unit,
       stockQuantity,
@@ -212,6 +214,7 @@ export function calculatePurchaseList({
   return {
     items,
     totalEstimatedCostYen,
+    costMissingCount: items.length - costItems.length,
     markdownTable,
   };
 }

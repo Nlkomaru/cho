@@ -21,7 +21,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
     const recipeIngredients = ingredients.map((item, idx) => ({
       id: item.id ?? `entry-${idx + 1}`,
       ingredientId: item.ingredientId ?? `ing-mock-${idx + 1}`,
-      name: item.name,
+      label: item.name,
       amount: item.amount,
       unit: item.unit,
       displayAmount: item.displayAmount ?? `${item.amount}${item.unit}`,
@@ -59,6 +59,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
         outputs: [{ id: "out-1", label: "下準備完了" }],
         completionCue: null,
         cautions: [],
+        imageIds: [],
       },
     ];
 
@@ -308,7 +309,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
       expect(result.markdownTable).toContain("未登録");
     });
 
-    test("1.5 Resolution Priority: matches by matchedIngredient.id, entry.ingredientId, inventiaItemId, and entry.name", () => {
+    test("1.5 Resolution Priority: matches by matchedIngredient.id, entry.ingredientId, inventiaItemId, and the master name", () => {
       const recipe = buildRecipe([
         { ingredientId: "ing-onion", name: "玉ねぎ", amount: 2, unit: "個" },
       ]);
@@ -594,7 +595,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
       const prepIngIds = prepStep.inputs
         .filter((i) => i.type === "ingredient")
         .map((i) => i.ingredientEntryId);
-      const garlicEntry = recipe.ingredients.find((i) => i.name === "にんにく")!;
+      const garlicEntry = recipe.ingredients.find((i) => i.label === "にんにく")!;
       expect(prepIngIds).toContain(garlicEntry.id);
 
       // Step 2: cook should have オリーブオイル (seasoning) and パスタ (main default)
@@ -602,14 +603,14 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
       const cookIngIds = cookStep.inputs
         .filter((i) => i.type === "ingredient")
         .map((i) => i.ingredientEntryId);
-      const pastaEntry = recipe.ingredients.find((i) => i.name === "パスタ")!;
-      const oilEntry = recipe.ingredients.find((i) => i.name === "オリーブオイル")!;
+      const pastaEntry = recipe.ingredients.find((i) => i.label === "パスタ")!;
+      const oilEntry = recipe.ingredients.find((i) => i.label === "オリーブオイル")!;
       expect(cookIngIds).toContain(pastaEntry.id);
       expect(cookIngIds).toContain(oilEntry.id);
 
       // Step 3: assemble should have 粉チーズ (optional)
       const assembleStep = recipe.steps.find((s) => s.phase === "assemble")!;
-      const cheeseEntry = recipe.ingredients.find((i) => i.name === "粉チーズ")!;
+      const cheeseEntry = recipe.ingredients.find((i) => i.label === "粉チーズ")!;
       expect(
         assembleStep.inputs.some(
           (i) => i.type === "ingredient" && i.ingredientEntryId === cheeseEntry.id,
@@ -618,7 +619,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
 
       // Step 4: finish should have パセリ (topping)
       const finishStep = recipe.steps.find((s) => s.phase === "finish")!;
-      const parsleyEntry = recipe.ingredients.find((i) => i.name === "パセリ")!;
+      const parsleyEntry = recipe.ingredients.find((i) => i.label === "パセリ")!;
       expect(
         finishStep.inputs.some(
           (i) => i.type === "ingredient" && i.ingredientEntryId === parsleyEntry.id,
@@ -860,6 +861,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
           outputs: [{ id: "out-1", label: "Out 1" }],
           completionCue: null,
           cautions: [],
+          imageIds: [],
         },
         {
           id: "step-2",
@@ -884,6 +886,7 @@ describe("Empirical Challenger M5-2: R3 Purchase List & R4 Converter/Splitter St
           outputs: [{ id: "out-2", label: "Out 2" }],
           completionCue: null,
           cautions: [],
+          imageIds: [],
         },
       ];
 

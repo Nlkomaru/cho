@@ -11,6 +11,7 @@ import {
   type EstimateIngredientRequest,
   type StructureRecipeRequest,
 } from "../domain/ai-estimation";
+import { recipeStepSchema } from "../domain/recipe";
 import { validateRecipeDag } from "../domain/recipe-scheduler";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -20,6 +21,14 @@ type OpenRouterOptions = {
   apiKey: string;
   model?: string;
 };
+
+// The model never sees step images: image IDs must come from real uploads.
+const aiRecipeSchema = structureRecipeOutputSchema.extend({
+  steps: z
+    .array(recipeStepSchema.omit({ imageIds: true }))
+    .min(1)
+    .max(100),
+});
 
 export type DataUrlImage = {
   dataUrl: string;
@@ -64,17 +73,12 @@ export async function estimateIngredient(
 
 export async function structureRecipe(request: StructureRecipeRequest, options: OpenRouterOptions) {
   const input = structureRecipeRequestSchema.parse(request);
-  const recipe = await completeStructured(
-    options,
-    "structure_recipe",
-    structureRecipeOutputSchema,
-    [
-      {
-        role: "user",
-        content: `Structure these recipe instructions as a dependency DAG. Return the requested structured output.\n${JSON.stringify(input)}`,
-      },
-    ],
-  );
+  const recipe = await completeStructured(options, "structure_recipe", aiRecipeSchema, [
+    {
+      role: "user",
+      content: `Structure these recipe instructions as a dependency DAG. Return the requested structured output.\n${JSON.stringify(input)}`,
+    },
+  ]);
   const validation = validateRecipeDag(recipe);
   if (!validation.success || !validation.data) {
     throw new Error(`OpenRouter returned an invalid recipe DAG: ${validation.errors.join("; ")}`);

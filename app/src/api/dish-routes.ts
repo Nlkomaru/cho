@@ -6,7 +6,7 @@ import { inventoryItemInputSchema, purchaseListResultSchema } from "../domain/mc
 import { calculatePurchaseList } from "../domain/purchase-list";
 import { computeRecipeGanttSchedule } from "../domain/recipe-scheduler";
 import { createDbClient } from "../db/client";
-import { createDishRepository } from "../repositories/dish-repository";
+import { createDishRepository, DishImageError } from "../repositories/dish-repository";
 import { createIngredientRepository } from "../repositories/ingredient-repository";
 import { createSettingsRepository } from "../repositories/settings-repository";
 import { createDishService } from "../services/dish";
@@ -18,6 +18,7 @@ const dishInputSchema = dishSchema.omit({
   id: true,
   totalNutrition: true,
   totalCostYen: true,
+  costMissingCount: true,
 });
 const dishPatchSchema = dishInputSchema
   .partial()
@@ -83,7 +84,7 @@ const createDishRoute = createRoute({
   responses: {
     201: { description: "Created dish.", content: { "application/json": { schema: dishSchema } } },
     400: {
-      description: "Invalid dish, recipe DAG, or ingredient reference.",
+      description: "Invalid dish, recipe DAG, ingredient reference, or image reference.",
       content: { "application/json": { schema: errorSchema } },
     },
     500: {
@@ -102,6 +103,7 @@ dishRoutes.openapi(createDishRoute, async (context) => {
     const dish = await service.create({ ...input, id: crypto.randomUUID() });
     return context.json(dish, 201);
   } catch (error) {
+    if (error instanceof DishImageError) return context.json({ error: error.message }, 400);
     if (isDishValidationError(error)) {
       return context.json({ error: "Invalid recipe DAG or ingredient reference." }, 400);
     }
@@ -134,8 +136,12 @@ dishRoutes.openapi(getDishRoute, async (context) => {
   const { service } = createDishContext(context.env);
   const dish = await service.get(id);
   if (!dish) return context.json({ error: "Dish not found." }, 404);
+  const ingredients = await service.ingredientsFor([dish.recipe]);
   try {
-    return context.json({ dish, schedule: computeRecipeGanttSchedule(dish.recipe) }, 200);
+    return context.json(
+      { dish, schedule: computeRecipeGanttSchedule(dish.recipe, ingredients) },
+      200,
+    );
   } catch {
     return context.json({ error: "Dish schedule could not be computed." }, 500);
   }
@@ -152,7 +158,7 @@ const updateDishRoute = createRoute({
   responses: {
     200: { description: "Updated dish.", content: { "application/json": { schema: dishSchema } } },
     400: {
-      description: "Invalid dish, recipe DAG, or ingredient reference.",
+      description: "Invalid dish, recipe DAG, ingredient reference, or image reference.",
       content: { "application/json": { schema: errorSchema } },
     },
     404: {
@@ -182,6 +188,7 @@ dishRoutes.openapi(updateDishRoute, async (context) => {
     if (!dish) return context.json({ error: "Dish not found." }, 404);
     return context.json(dish, 200);
   } catch (error) {
+    if (error instanceof DishImageError) return context.json({ error: error.message }, 400);
     if (isDishValidationError(error)) {
       return context.json({ error: "Invalid recipe DAG or ingredient reference." }, 400);
     }

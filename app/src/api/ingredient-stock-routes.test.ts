@@ -67,7 +67,18 @@ const server = createServer(async (request, response) => {
         }),
       );
   } else if (prices) {
-    response.end(JSON.stringify({ items: [{ unitPrice: 27.5 }], nextCursor: null }));
+    const id = prices[1] ?? "";
+    if (id.includes("pricefail"))
+      response.writeHead(500).end(JSON.stringify({ error: { code: "INTERNAL", message: "boom" } }));
+    else
+      response.end(
+        JSON.stringify({
+          items: id.includes("noprice")
+            ? []
+            : [{ unitPrice: 27.5, baseUnit: "g", baseDimension: "mass" }],
+          nextCursor: null,
+        }),
+      );
   } else if (item) {
     const id = item[1] ?? "";
     response.end(
@@ -275,6 +286,106 @@ test("inventia price sync refuses a changed unit and links a matching item", asy
       .prepare("SELECT inventia_item_id FROM ingredients WHERE id = 'rice'")
       .get();
     expect(stored?.inventia_item_id).toBeNull();
+  } finally {
+    sqlite.close();
+  }
+});
+
+const linkRow = (sqlite: DatabaseSync, id: string) =>
+  sqlite
+    .prepare(
+      "SELECT inventia_item_id, latest_unit_price_yen, latest_price_updated_at FROM ingredients WHERE id = ?",
+    )
+    .get(id);
+
+test("inventia link is saved even when the item has no price records or the price request fails", async () => {
+  const { sqlite, env } = await setup([
+    ["flour", null],
+    ["rice", null],
+  ]);
+  try {
+    const noPrice = await post(
+      "/api/ingredients/sync-inventia",
+      { ingredientId: "flour", itemId: "item-noprice" },
+      env,
+    );
+    expect(noPrice.status).toBe(200);
+    expect(await noPrice.json()).toMatchObject({
+      synced: false,
+      reason: "no_price_records",
+      ingredient: { inventiaItemId: "item-noprice", latestUnitPriceYen: null },
+    });
+    expect(linkRow(sqlite, "flour")).toMatchObject({
+      inventia_item_id: "item-noprice",
+      latest_unit_price_yen: null,
+    });
+
+    const failed = await post(
+      "/api/ingredients/sync-inventia",
+      { ingredientId: "rice", itemId: "item-pricefail" },
+      env,
+    );
+    expect(failed.status).toBe(200);
+    expect(await failed.json()).toMatchObject({ synced: false, reason: "price_unavailable" });
+    expect(linkRow(sqlite, "rice")).toEqual({
+      inventia_item_id: "item-pricefail",
+      latest_unit_price_yen: null,
+      latest_price_updated_at: null,
+    });
+  } finally {
+    sqlite.close();
+  }
+});
+
+test("refresh-prices updates only stale linked ingredients and keeps cached values on failure", async () => {
+  const { sqlite, env } = await setup([
+    ["never", "item-g"],
+    ["old", "item-g"],
+    ["fresh", "item-g"],
+    ["broken", "item-pricefail"],
+    ["plain", null],
+  ]);
+  const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  const fresh = new Date(Date.now() - 60 * 1000).toISOString();
+  const setPrice = sqlite.prepare(
+    "UPDATE ingredients SET latest_unit_price_yen = ?, latest_price_updated_at = ? WHERE id = ?",
+  );
+  setPrice.run(10, old, "old");
+  setPrice.run(12, fresh, "fresh");
+  setPrice.run(14, old, "broken");
+  try {
+    requests.length = 0;
+    const response = await post("/api/ingredients/refresh-prices", {}, env);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { ingredients: { id: string }[] };
+    expect(body.ingredients.map((item) => item.id).sort()).toEqual(["never", "old"]);
+    expect(linkRow(sqlite, "never")).toMatchObject({ latest_unit_price_yen: 27.5 });
+    expect(linkRow(sqlite, "old")).toMatchObject({ latest_unit_price_yen: 27.5 });
+    expect(linkRow(sqlite, "fresh")).toEqual({
+      inventia_item_id: "item-g",
+      latest_unit_price_yen: 12,
+      latest_price_updated_at: fresh,
+    });
+    // The cached price stays; the attempt is recorded so it waits for the next window.
+    expect(linkRow(sqlite, "broken")).toMatchObject({
+      inventia_item_id: "item-pricefail",
+      latest_unit_price_yen: 14,
+    });
+    expect(linkRow(sqlite, "broken")?.latest_price_updated_at).toBe(old);
+    expect(
+      sqlite
+        .prepare("SELECT latest_price_attempted_at AS at FROM ingredients WHERE id = ?")
+        .get("broken"),
+    ).not.toEqual({ at: null });
+    // Price lookups only: the refresh does not re-read item details.
+    expect(requests.every((request) => request.url.includes("/prices"))).toBe(true);
+
+    const scoped = await post(
+      "/api/ingredients/refresh-prices",
+      { ingredientIds: ["fresh", "plain"] },
+      env,
+    );
+    expect(await scoped.json()).toEqual({ ingredients: [] });
   } finally {
     sqlite.close();
   }

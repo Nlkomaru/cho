@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { imageIdSchema } from "../domain/recipe";
 import { mealListSchema, mealLogItemBaseSchema, mealLogSchema } from "../domain/ingredient";
 import { createDbClient } from "../db/client";
 import { createDishRepository } from "../repositories/dish-repository";
@@ -38,6 +39,8 @@ const createMealSchema = mealLogSchema
   .omit({ id: true, inventiaConsumptionStatus: true })
   .extend({
     id: z.string().trim().min(1).max(128).optional(),
+    // Stored legacy meals may hold other IDs, but new images come from the upload API.
+    imageIds: z.array(imageIdSchema).default([]),
     items: z.array(itemRequestSchema).min(1),
     consumeStock: z.boolean().optional(),
   })
@@ -61,7 +64,10 @@ const listQuerySchema = z
 
 const patchMealSchema = mealLogSchema
   .omit({ id: true, inventiaConsumptionStatus: true })
-  .extend({ items: z.array(itemRequestSchema).min(1).optional() })
+  .extend({
+    items: z.array(itemRequestSchema).min(1).optional(),
+    imageIds: z.array(imageIdSchema).optional(),
+  })
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0, "At least one field must be provided.");

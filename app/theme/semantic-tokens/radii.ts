@@ -1,7 +1,8 @@
 import { defineSemanticTokens } from "@chakra-ui/react";
 
 /**
- * セマンティックな角丸。`l3` がカード・フォームの基本半径 (6px)。
+ * Chakra 組み込みコンポーネントが参照する角丸。
+ * l1: バー・小さなチップ、l2: 入力・タグ・メニュー、l3: ダイアログ・ポップオーバー。
  */
 export const semanticRadii = defineSemanticTokens.radii({
   l1: { value: "{radii.xs}" },

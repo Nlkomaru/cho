@@ -1,128 +1,123 @@
 import { defineTextStyles } from "@chakra-ui/react";
 
 /**
- * タイポグラフィ規則 (spec/02_design-system.md §2.2)
- * - 見出し: semibold / `fg.subtle` (#000000)
- * - 本文: normal / `fg` (#3f3f46)
- * - 数値・単位・日時: JetBrains Mono + `tabular-nums` で桁を揃える
+ * 組版の単一の情報源。画面側は fontSize / lineHeight を直接書かず、
+ * ここの textStyle を指定する。大きな見出しほど字間を詰める。
+ * `body` と `body.sm` のように親子で名前を持たせるため、ドット付きのキーで平らに定義する。
  */
 export const textStyles = defineTextStyles({
+  display: {
+    value: {
+      fontFamily: "heading",
+      fontSize: { base: "28px", md: "36px" },
+      lineHeight: { base: "36px", md: "44px" },
+      fontWeight: "500",
+      letterSpacing: "-0.02em",
+    },
+  },
   heading: {
-    lg: {
+    page: {
       value: {
         fontFamily: "heading",
-        fontSize: "2xl",
-        fontWeight: "semibold",
-        lineHeight: "1.3",
-        color: "fg.subtle",
+        fontSize: { base: "24px", md: "30px" },
+        lineHeight: { base: "32px", md: "38px" },
+        fontWeight: "500",
+        letterSpacing: "-0.02em",
       },
     },
-    md: {
+    section: {
       value: {
         fontFamily: "heading",
-        fontSize: "xl",
-        fontWeight: "semibold",
-        lineHeight: "1.35",
-        color: "fg.subtle",
+        fontSize: "20px",
+        lineHeight: "28px",
+        fontWeight: "500",
+        letterSpacing: "-0.01em",
       },
     },
-    sm: {
+    card: {
       value: {
         fontFamily: "heading",
-        fontSize: "lg",
-        fontWeight: "semibold",
-        lineHeight: "1.4",
-        color: "fg.subtle",
+        fontSize: "16px",
+        lineHeight: "24px",
+        fontWeight: "600",
+        letterSpacing: "0",
       },
     },
-    xs: {
+    group: {
       value: {
         fontFamily: "heading",
-        fontSize: "md",
-        fontWeight: "semibold",
-        lineHeight: "1.4",
-        color: "fg.subtle",
+        fontSize: "14px",
+        lineHeight: "20px",
+        fontWeight: "600",
+        letterSpacing: "0",
       },
     },
   },
   body: {
-    DEFAULT: {
-      value: {
-        fontFamily: "body",
-        fontSize: "md",
-        fontWeight: "normal",
-        lineHeight: "1.6",
-        color: "fg",
-      },
-    },
-    sm: {
-      value: {
-        fontFamily: "body",
-        fontSize: "sm",
-        fontWeight: "normal",
-        lineHeight: "1.6",
-        color: "fg",
-      },
+    value: {
+      fontSize: "15px",
+      lineHeight: "24px",
+      fontWeight: "400",
+      letterSpacing: "0",
     },
   },
-  caption: {
+  "body.lg": {
     value: {
-      fontFamily: "body",
-      fontSize: "sm",
-      fontWeight: "normal",
-      lineHeight: "1.5",
-      color: "fg.muted",
+      fontSize: "16px",
+      lineHeight: "27px",
+      fontWeight: "400",
+      letterSpacing: "0",
+    },
+  },
+  "body.sm": {
+    value: {
+      fontSize: "14px",
+      lineHeight: "22px",
+      fontWeight: "400",
+      letterSpacing: "0",
     },
   },
   label: {
     value: {
-      fontFamily: "body",
-      fontSize: "sm",
-      fontWeight: "semibold",
-      lineHeight: "1.5",
-      color: "fg.subtle",
+      fontSize: "13px",
+      lineHeight: "18px",
+      fontWeight: "500",
+      letterSpacing: "0",
     },
   },
-  caution: {
+  caption: {
     value: {
-      fontFamily: "body",
-      fontSize: "sm",
-      fontWeight: "normal",
-      lineHeight: "1.6",
-      color: "red.fg",
+      fontSize: "12px",
+      lineHeight: "16px",
+      fontWeight: "400",
+      letterSpacing: "0",
     },
   },
-  numeric: {
-    DEFAULT: {
-      value: {
-        fontFamily: "mono",
-        fontVariantNumeric: "tabular-nums",
-        color: "fg",
-      },
+  stat: {
+    value: {
+      fontSize: { base: "24px", md: "28px" },
+      lineHeight: { base: "30px", md: "34px" },
+      fontWeight: "500",
+      letterSpacing: "-0.02em",
+      fontVariantNumeric: "tabular-nums",
     },
-    sm: {
-      value: {
-        fontFamily: "mono",
-        fontSize: "sm",
-        fontVariantNumeric: "tabular-nums",
-        color: "fg",
-      },
+  },
+  "stat.sm": {
+    value: {
+      fontSize: "18px",
+      lineHeight: "24px",
+      fontWeight: "500",
+      letterSpacing: "-0.01em",
+      fontVariantNumeric: "tabular-nums",
     },
-    xs: {
-      value: {
-        fontFamily: "mono",
-        fontSize: "xs",
-        fontVariantNumeric: "tabular-nums",
-        color: "fg.muted",
-      },
-    },
-    strong: {
-      value: {
-        fontFamily: "mono",
-        fontWeight: "semibold",
-        fontVariantNumeric: "tabular-nums",
-        color: "fg.subtle",
-      },
+  },
+  mono: {
+    value: {
+      fontFamily: "mono",
+      fontSize: "13px",
+      lineHeight: "20px",
+      fontWeight: "400",
+      letterSpacing: "0",
     },
   },
 });

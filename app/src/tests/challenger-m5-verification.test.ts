@@ -55,7 +55,7 @@ function buildAdversarialRecipe(
     ingredients: ingredients.map((ing) => ({
       id: ing.id,
       ingredientId: ing.ingredientId,
-      name: ing.name,
+      label: ing.name,
       amount: ing.amount,
       unit: ing.unit,
       displayAmount: `${ing.amount}${ing.unit}`,
@@ -92,6 +92,7 @@ function buildAdversarialRecipe(
         outputs: [{ id: "out-1", label: "完成料理" }],
         completionCue: "煮込み完了",
         cautions: [],
+        imageIds: [],
       },
     ],
     globalCautions: [],

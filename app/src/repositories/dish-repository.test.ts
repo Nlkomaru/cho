@@ -118,7 +118,7 @@ function createTestDish(id: string, name: string, ingredientCount: number): Dish
   const ingredients = Array.from({ length: ingredientCount }, (_, i) => ({
     id: `${id}-entry-${i + 1}`,
     ingredientId: `ing-${i + 1}`,
-    name: `Ingredient ${i + 1}`,
+    label: `Ingredient ${i + 1}`,
     amount: (i + 1) * 10,
     unit: "g",
     displayAmount: `${(i + 1) * 10} g`,
@@ -356,7 +356,7 @@ describe("Dish Repository D1 SQL Variable Limit Stress Tests", () => {
     expect(fetched?.recipe.ingredients).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(fetched?.recipe.ingredients[i].ingredientId).toBe(`ing-${i + 1}`);
-      expect(fetched?.recipe.ingredients[i].name).toBe(`Ingredient ${i + 1}`);
+      expect(fetched?.recipe.ingredients[i].label).toBe(`Ingredient ${i + 1}`);
       expect(fetched?.recipe.ingredients[i].amount).toBe((i + 1) * 10);
     }
 
@@ -438,8 +438,8 @@ describe("Dish Repository D1 SQL Variable Limit Stress Tests", () => {
     const fetched = await dishRepo.getById("dish-50");
     expect(fetched).not.toBeNull();
     expect(fetched?.recipe.ingredients).toHaveLength(50);
-    expect(fetched?.recipe.ingredients[0].name).toBe("Ingredient 1");
-    expect(fetched?.recipe.ingredients[49].name).toBe("Ingredient 50");
+    expect(fetched?.recipe.ingredients[0].label).toBe("Ingredient 1");
+    expect(fetched?.recipe.ingredients[49].label).toBe("Ingredient 50");
 
     const rows = sqlite
       .prepare("SELECT COUNT(*) as count FROM dish_ingredients WHERE dish_id = ?")
@@ -480,8 +480,8 @@ describe("Dish Repository D1 SQL Variable Limit Stress Tests", () => {
     const fetched = await dishRepo.getById("dish-100");
     expect(fetched).not.toBeNull();
     expect(fetched?.recipe.ingredients).toHaveLength(100);
-    expect(fetched?.recipe.ingredients[0].name).toBe("Ingredient 1");
-    expect(fetched?.recipe.ingredients[99].name).toBe("Ingredient 100");
+    expect(fetched?.recipe.ingredients[0].label).toBe("Ingredient 1");
+    expect(fetched?.recipe.ingredients[99].label).toBe("Ingredient 100");
 
     const rows = sqlite
       .prepare("SELECT COUNT(*) as count FROM dish_ingredients WHERE dish_id = ?")

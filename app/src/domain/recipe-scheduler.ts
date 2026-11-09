@@ -1,4 +1,10 @@
-import { recipeSchema, type RecipeJson, type RecipeStep } from "./recipe";
+import {
+  recipeEntryName,
+  recipeSchema,
+  type IngredientNameLookup,
+  type RecipeJson,
+  type RecipeStep,
+} from "./recipe";
 
 export interface RecipeGanttBar {
   stepId: string;
@@ -160,20 +166,39 @@ function criticalLengths(steps: RecipeStep[]): Map<string, number> {
   for (const step of steps) length(step);
   return memo;
 }
-function summarizeInputs(step: RecipeStep, recipe: RecipeJson): string[] {
-  return step.inputs.map((input) =>
-    input.type === "ingredient"
-      ? (recipe.ingredients.find((entry) => entry.id === input.ingredientEntryId)?.name ??
-        input.ingredientEntryId)
-      : input.type === "group"
-        ? (recipe.ingredientGroups.find((group) => group.id === input.groupId)?.label ??
-          input.groupId)
-        : (recipe.steps
-            .find((source) => source.id === input.fromStepId)
-            ?.outputs.find((output) => output.id === input.outputId)?.label ?? input.outputId),
+function summarizeInputs(
+  step: RecipeStep,
+  recipe: RecipeJson,
+  ingredients: IngredientNameLookup | undefined,
+): string[] {
+  return step.inputs.map((input) => {
+    if (input.type !== "ingredient") return summarizeOtherInput(input, recipe);
+    const entry = recipe.ingredients.find((item) => item.id === input.ingredientEntryId);
+    return entry ? recipeEntryName(entry, ingredients) : input.ingredientEntryId;
+  });
+}
+function summarizeOtherInput(
+  input: Exclude<RecipeStep["inputs"][number], { type: "ingredient" }>,
+  recipe: RecipeJson,
+): string {
+  if (input.type === "group")
+    return (
+      recipe.ingredientGroups.find((group) => group.id === input.groupId)?.label ?? input.groupId
+    );
+  return (
+    recipe.steps
+      .find((source) => source.id === input.fromStepId)
+      ?.outputs.find((output) => output.id === input.outputId)?.label ?? input.outputId
   );
 }
-export function computeRecipeGanttSchedule(input: RecipeJson | unknown): RecipeGanttSchedule {
+/**
+ * Schedules the recipe steps. `ingredients` (the master records by ID) supplies the names
+ * shown in each bar's input summary; without it, entries without a label show a placeholder.
+ */
+export function computeRecipeGanttSchedule(
+  input: RecipeJson | unknown,
+  ingredients?: IngredientNameLookup,
+): RecipeGanttSchedule {
   const checked = validateRecipeDag(input);
   if (!checked.success || !checked.data)
     throw new Error(`Invalid recipe DAG: ${checked.errors.join("; ")}`);
@@ -262,7 +287,7 @@ export function computeRecipeGanttSchedule(input: RecipeJson | unknown): RecipeG
         activeEndSec: times.activeEnd,
         endSec: times.end,
         dependsOnStepIds: [...step.dependsOnStepIds],
-        inputsSummary: summarizeInputs(step, recipe),
+        inputsSummary: summarizeInputs(step, recipe, ingredients),
         outputLabel: step.outputs.at(-1)?.label ?? null,
         isCriticalPath: criticalStepIds.has(step.id),
       };

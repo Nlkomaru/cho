@@ -1,37 +1,39 @@
 import type { Breadcrumb } from "./breadcrumbs";
 
+/** アプリ内でナビゲーションに出すパス。 */
+export type AppPath = "/" | "/dishes" | "/ingredients" | "/settings" | "/license";
+
 export interface NavItem {
   title: string;
-  url: string;
+  /** アプリ内リンクは `to`、外部リンクは `href` を持つ。 */
+  to?: AppPath;
+  href?: string;
+  /** 現在地判定に使うパスの接頭辞。`/` は完全一致で判定する。 */
+  match?: readonly string[];
   opensInNewTab?: boolean;
 }
 
-export type NavigationGroupTitle = "調理記録";
-
-export interface NavGroup {
-  title: NavigationGroupTitle;
-  items: readonly NavItem[];
-}
-
-export const navigationGroups: readonly NavGroup[] = [
-  {
-    title: "調理記録",
-    items: [{ title: "記録一覧", url: "/" }],
-  },
+/** ヘッダーの主要ナビゲーション。 */
+export const primaryNavigation: readonly NavItem[] = [
+  { title: "食事記録", to: "/", match: ["/", "/meals"] },
+  { title: "レシピ", to: "/dishes", match: ["/dishes"] },
+  { title: "材料", to: "/ingredients", match: ["/ingredients"] },
+  { title: "設定", to: "/settings", match: ["/settings"] },
 ];
 
+/** ヘッダー右側のリソースリンク。 */
 export const navigationResources: readonly NavItem[] = [
-  { title: "OSS ライセンス", url: "/license" },
-  {
-    title: "GitHub",
-    url: "https://github.com/Nlkomaru/cho",
-    opensInNewTab: true,
-  },
-  { title: "Storybook", url: "/storybook", opensInNewTab: true },
+  { title: "ライセンス", to: "/license", match: ["/license"] },
+  { title: "Storybook", href: "/storybook/", opensInNewTab: true },
+  { title: "GitHub", href: "https://github.com/Nlkomaru/cho", opensInNewTab: true },
 ];
 
-export const groupBreadcrumb = (title: NavigationGroupTitle): Breadcrumb => {
-  const group = navigationGroups.find((entry) => entry.title === title);
-  const landing = group?.items[0];
-  return landing ? { label: title, to: landing.url } : { label: title };
+export const isNavItemActive = (pathname: string, item: NavItem): boolean =>
+  (item.match ?? (item.to ? [item.to] : [])).some((prefix) =>
+    prefix === "/" ? pathname === "/" : pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+
+export const navItemBreadcrumb = (title: string): Breadcrumb => {
+  const item = primaryNavigation.find((entry) => entry.title === title);
+  return item?.to ? { label: item.title, to: item.to } : { label: title };
 };

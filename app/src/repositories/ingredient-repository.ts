@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { ingredientSchema, type Ingredient } from "../domain/ingredient";
 import type { createDbClient } from "../db/client";
 import { ingredients } from "../db/schema";
@@ -19,6 +19,7 @@ function fromRow(row: typeof ingredients.$inferSelect): Ingredient {
     inventiaItemId: row.inventiaItemId,
     latestUnitPriceYen: row.latestUnitPriceYen,
     latestPriceUpdatedAt: row.latestPriceUpdatedAt,
+    latestPriceAttemptedAt: row.latestPriceAttemptedAt,
     memo: row.memo,
   });
 }
@@ -36,6 +37,7 @@ function toValues(value: Ingredient) {
     inventiaItemId: value.inventiaItemId,
     latestUnitPriceYen: value.latestUnitPriceYen,
     latestPriceUpdatedAt: value.latestPriceUpdatedAt,
+    latestPriceAttemptedAt: value.latestPriceAttemptedAt,
     memo: value.memo,
   };
 }
@@ -53,20 +55,41 @@ export function createIngredientRepository(db: Database) {
       const [row] = await db.select().from(ingredients).where(eq(ingredients.id, id)).limit(1);
       return row ? fromRow(row) : null;
     },
+    async getByIds(ids: readonly string[]): Promise<Ingredient[]> {
+      const found: Ingredient[] = [];
+      // D1 allows at most 100 bound variables per statement.
+      for (let index = 0; index < ids.length; index += 90) {
+        const rows = await db
+          .select()
+          .from(ingredients)
+          .where(inArray(ingredients.id, ids.slice(index, index + 90)));
+        found.push(...rows.map(fromRow));
+      }
+      return found;
+    },
     async create(input: Ingredient): Promise<Ingredient> {
       const value = ingredientSchema.parse(input);
       const [row] = await db.insert(ingredients).values(toValues(value)).returning();
       if (!row) throw new Error("Ingredient insert returned no row");
       return fromRow(row);
     },
-    async update(id: string, changes: IngredientChanges): Promise<Ingredient | null> {
+    async update(
+      id: string,
+      changes: IngredientChanges,
+      onlyIfLinkedTo?: string,
+    ): Promise<Ingredient | null> {
       const existing = await this.getById(id);
       if (!existing) return null;
+      if (onlyIfLinkedTo !== undefined && existing.inventiaItemId !== onlyIfLinkedTo) return null;
       const value = ingredientSchema.parse({ ...existing, ...changes, id });
       const [row] = await db
         .update(ingredients)
         .set({ ...toValues(value), id: undefined, updatedAt: new Date().toISOString() })
-        .where(eq(ingredients.id, id))
+        .where(
+          onlyIfLinkedTo === undefined
+            ? eq(ingredients.id, id)
+            : and(eq(ingredients.id, id), eq(ingredients.inventiaItemId, onlyIfLinkedTo)),
+        )
         .returning();
       return row ? fromRow(row) : null;
     },

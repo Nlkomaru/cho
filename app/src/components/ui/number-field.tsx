@@ -1,4 +1,4 @@
-import { Field, NumberInput } from "@chakra-ui/react";
+import { Box, Field, NumberInput, chakra } from "@chakra-ui/react";
 
 export interface NumberFieldProps {
   label: string;
@@ -7,23 +7,76 @@ export interface NumberFieldProps {
   min?: number;
   max?: number;
   step?: number;
+  /** 入力欄の右端に表示する単位 ("g"、"人前" など)。 */
+  unit?: string;
+  size?: "sm" | "md";
+  /** ラベルを視覚的に隠す (表の中など)。 */
+  hideLabel?: boolean;
+  helperText?: string;
+  errorText?: string;
+  required?: boolean;
+  disabled?: boolean;
 }
 
-export function NumberField({ label, value, onChange, min, max, step }: NumberFieldProps) {
+/**
+ * 数値入力。値は文字列で受け渡し、入力途中の "1." なども保持する。
+ */
+export function NumberField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  unit,
+  size = "md",
+  hideLabel,
+  helperText,
+  errorText,
+  required,
+  disabled,
+}: NumberFieldProps) {
   return (
-    <Field.Root w="full">
-      <Field.Label>{label}</Field.Label>
+    <Field.Root
+      w="full"
+      minW="0"
+      invalid={Boolean(errorText)}
+      required={required}
+      disabled={disabled}
+    >
+      <Field.Label srOnly={hideLabel}>
+        {label}
+        <Field.RequiredIndicator />
+      </Field.Label>
       <NumberInput.Root
         w="full"
+        size={size}
         value={value}
         onValueChange={(details) => onChange(details.value)}
         min={min}
         max={max}
         step={step}
+        formatOptions={{ useGrouping: false, maximumFractionDigits: 6 }}
       >
-        <NumberInput.Input aria-label={label} />
-        <NumberInput.Control />
+        <Box position="relative">
+          <NumberInput.Input pe={unit ? "12" : "3"} textAlign="start" />
+          {unit ? (
+            <chakra.span
+              position="absolute"
+              insetEnd="3"
+              top="50%"
+              transform="translateY(-50%)"
+              color="fg.subtle"
+              fontSize="14px"
+              pointerEvents="none"
+            >
+              {unit}
+            </chakra.span>
+          ) : null}
+        </Box>
       </NumberInput.Root>
+      {helperText && !errorText ? <Field.HelperText>{helperText}</Field.HelperText> : null}
+      {errorText ? <Field.ErrorText>{errorText}</Field.ErrorText> : null}
     </Field.Root>
   );
 }

@@ -4,7 +4,6 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-r
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 import { system } from "../../theme";
-import { AppThemeProvider } from "../components/theme-provider";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
@@ -39,24 +38,16 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   return (
-    <AppThemeProvider>
-      <ChakraProvider value={system}>
-        <Outlet />
-      </ChakraProvider>
-    </AppThemeProvider>
+    <ChakraProvider value={system}>
+      <Outlet />
+    </ChakraProvider>
   );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja" suppressHydrationWarning>
+    <html lang="ja">
       <head>
-        {/* next-themes の inline script が参照する esbuild ヘルパー */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: "globalThis.__name = globalThis.__name || function (fn) { return fn; };",
-          }}
-        />
         <HeadContent />
       </head>
       <body>

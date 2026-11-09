@@ -1,15 +1,29 @@
-@import "@fontsource/poppins/400.css";
-@import "@fontsource/poppins/500.css";
-@import "@fontsource/poppins/600.css";
-@import "@fontsource/poppins/700.css";
+@import "@fontsource/onest/400.css";
+@import "@fontsource/onest/500.css";
+@import "@fontsource/onest/600.css";
 @import "@fontsource/noto-sans-jp/400.css";
 @import "@fontsource/noto-sans-jp/500.css";
 @import "@fontsource/noto-sans-jp/600.css";
-@import "@fontsource/noto-sans-jp/700.css";
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
 
 /*
- * フォントの @font-face のみをここで読み込む。
+ * フォントの @font-face と、テーマの型で書けない最小限の宣言だけを置く。
  * 色・背景・組版はテーマ側 (app/theme/global-css.ts) が単一の情報源。
  */
+
+/* テーマの型で表せない宣言だけをここに置く */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

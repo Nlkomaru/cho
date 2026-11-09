@@ -7,31 +7,38 @@ export interface DateFieldProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  /** ラベルを視覚的に隠す (ツールバーなど)。 */
+  hideLabel?: boolean;
+  size?: "sm" | "md";
 }
 
 /**
  * カレンダー値は `YYYY-MM-DD` のまま受け渡す。Date への変換は行わない。
  */
-export function DateField({ label, value, onChange, placeholder }: DateFieldProps) {
+export function DateField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  hideLabel,
+  size = "md",
+}: DateFieldProps) {
   return (
     <DatePicker.Root
       locale="ja-JP"
+      size={size}
       value={value ? [parseDate(value)] : []}
       onValueChange={(details) => onChange(details.value[0]?.toString() ?? "")}
     >
-      <DatePicker.Label>{label}</DatePicker.Label>
+      <DatePicker.Label srOnly={hideLabel}>{label}</DatePicker.Label>
       <DatePicker.Control>
-        <DatePicker.Input
-          placeholder={placeholder ?? "YYYY/MM/DD"}
-          borderColor="border.outline"
-          borderRadius="l3"
-        />
+        <DatePicker.Input placeholder={placeholder ?? "YYYY/MM/DD"} />
         <DatePicker.IndicatorGroup>
           <DatePicker.Trigger aria-label="カレンダーを開く">
-            <CalendarIcon aria-hidden="true" size={16} />
+            <CalendarIcon aria-hidden="true" size={16} strokeWidth={1.75} />
           </DatePicker.Trigger>
           <DatePicker.ClearTrigger aria-label="日付をクリア">
-            <XIcon aria-hidden="true" size={14} />
+            <XIcon aria-hidden="true" size={14} strokeWidth={1.75} />
           </DatePicker.ClearTrigger>
         </DatePicker.IndicatorGroup>
       </DatePicker.Control>

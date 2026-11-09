@@ -106,7 +106,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
       {
         id: "r-macaroni",
         ingredientId: "ing-macaroni",
-        name: "マカロニ",
+        label: null,
         amount: 100,
         unit: "g",
         displayAmount: "100g",
@@ -117,7 +117,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
       {
         id: "r-milk",
         ingredientId: "ing-milk",
-        name: "牛乳",
+        label: null,
         amount: 350,
         unit: "mL",
         displayAmount: "350mL",
@@ -128,7 +128,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
       {
         id: "r-onion",
         ingredientId: "ing-onion",
-        name: "玉ねぎ",
+        label: null,
         amount: 1,
         unit: "個",
         displayAmount: "1個",
@@ -139,7 +139,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
       {
         id: "r-spice",
         ingredientId: "ing-unregistered-spice",
-        name: "特製スパイス",
+        label: "特製スパイス",
         amount: 10,
         unit: "g",
         displayAmount: "10g",
@@ -172,6 +172,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
         outputs: [],
         completionCue: null,
         cautions: [],
+        imageIds: [],
       },
     ],
     globalCautions: [],
@@ -349,7 +350,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
           {
             id: "entry-1",
             ingredientId: "ing-macaroni",
-            name: "マカロニ",
+            label: null,
             amount: 150.5,
             unit: "g",
             displayAmount: "150.5g",
@@ -391,7 +392,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
           {
             id: "entry-1",
             ingredientId: "ing-onion",
-            name: "玉ねぎ",
+            label: null,
             amount: 2,
             unit: "個",
             displayAmount: "2個",
@@ -418,26 +419,30 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
     expect(item.estimatedCostYen).toBe(160); // 80 * 2 = 160
   });
 
-  test("resolves inventory key by ingredient name fallback when ID is absent", () => {
+  test("matches the master by ingredientId only, never by the entry wording", () => {
+    const entry = (id: string, ingredientId: string, label: string | null) => ({
+      id,
+      ingredientId,
+      label,
+      amount: 3,
+      unit: "個",
+      displayAmount: "3個",
+      role: "main" as const,
+      groupId: null,
+      prepNote: null,
+    });
     const result = calculatePurchaseList({
       recipe: {
         schemaVersion: "1.0",
         servings: 1,
-        summary: "Name fallback test",
+        summary: "ID matching test",
         equipment: [],
         ingredientGroups: [],
         ingredients: [
-          {
-            id: "entry-1",
-            ingredientId: "custom-unmapped-id",
-            name: "玉ねぎ",
-            amount: 3,
-            unit: "個",
-            displayAmount: "3個",
-            role: "main",
-            groupId: null,
-            prepNote: null,
-          },
+          // Same wording as a master ingredient, but an unknown ID: stays unregistered (no price)
+          entry("entry-1", "custom-unmapped-id", "玉ねぎ"),
+          // Recipe-specific wording: the purchase list shows what to buy (the master name)
+          entry("entry-2", "ing-onion", "玉ねぎ（飾り用）"),
         ],
         steps: [],
         globalCautions: [],
@@ -448,13 +453,18 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
       },
     });
 
-    expect(result.items).toHaveLength(1);
-    const item = result.items[0];
-    expect(item.stockPresence).toBe("sufficient");
-    expect(item.stockQuantity).toBe(5);
-    expect(item.shortageAmount).toBe(0);
-    expect(item.purchaseAmount).toBe(0);
-    expect(item.estimatedCostYen).toBe(0);
+    const [unmapped, onion] = result.items;
+    expect(unmapped.isUnregistered).toBe(true);
+    expect(unmapped.ingredientId).toBeNull();
+    expect(unmapped.name).toBe("玉ねぎ");
+    expect(unmapped.unitPriceYen).toBeNull();
+
+    expect(onion.isUnregistered).toBe(false);
+    expect(onion.ingredientId).toBe("ing-onion");
+    expect(onion.name).toBe("玉ねぎ");
+    // Inventory may still be keyed by the master name of a matched ingredient
+    expect(onion.stockPresence).toBe("sufficient");
+    expect(onion.stockQuantity).toBe(5);
   });
 
   test("handles empty recipe ingredients gracefully", () => {
@@ -556,7 +566,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
                   {
                     id: "entry-1",
                     ingredientId: createdIng.id,
-                    name: "グラタンマカロニ",
+                    label: null,
                     amount: 200,
                     unit: "g",
                     displayAmount: "200g",
@@ -589,6 +599,7 @@ describe("R3: Purchase & Shortage List Domain Engine (purchase-list.ts)", () => 
                     outputs: [],
                     completionCue: null,
                     cautions: [],
+                    imageIds: [],
                   },
                 ],
                 globalCautions: [],

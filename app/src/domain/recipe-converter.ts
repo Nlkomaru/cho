@@ -106,7 +106,8 @@ export function convertInventiaToCho(
     const entry: RecipeIngredientEntry = {
       id: entryId,
       ingredientId,
-      name: trimmedName,
+      // The source wording; saving the dish drops it when it matches the master name
+      label: trimmedName || null,
       amount: Math.max(0.001, Number(ing.amount) || 1),
       unit: ing.unit.trim() || "g",
       displayAmount: (ing.displayAmount ?? `${ing.amount}${ing.unit}`).trim(),
@@ -236,7 +237,7 @@ export function convertInventiaToCho(
 
     if (recipe.phases) {
       warnings.push(
-        `Ingredient "${entry.name}" was not assigned to any phase; auto-assigned to "${targetPhase}".`,
+        `Ingredient "${entry.label ?? entry.id}" was not assigned to any phase; auto-assigned to "${targetPhase}".`,
       );
     }
 
@@ -302,6 +303,7 @@ export function convertInventiaToCho(
       ],
       completionCue: `${meta.title}が完了した状態`,
       cautions: [],
+      imageIds: [],
     };
   });
 

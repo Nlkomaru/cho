@@ -26,7 +26,7 @@ describe("Empirical Challenger M3: MCP & REST Purchase List Adversarial Suite", 
     const recipeIngredients = ingredients.map((item, idx) => ({
       id: item.id ?? `entry-${idx + 1}`,
       ingredientId: item.ingredientId ?? `ing-adhoc-${idx + 1}`,
-      name: item.name,
+      label: item.name,
       amount: item.amount,
       unit: item.unit,
       displayAmount: item.displayAmount ?? `${item.amount}${item.unit}`,
@@ -64,6 +64,7 @@ describe("Empirical Challenger M3: MCP & REST Purchase List Adversarial Suite", 
         outputs: [{ id: "out-1", label: "Finished" }],
         completionCue: null,
         cautions: [],
+        imageIds: [],
       },
     ];
 
