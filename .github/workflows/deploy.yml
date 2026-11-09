@@ -106,7 +106,7 @@ jobs:
         # app/wrangler.jsonc so a preview can never inherit production stock
         # writes. Only this production step enables it; every other build
         # (including PR previews, which force "false") stays default-deny.
-        run: pnpm exec wrangler deploy --var INVENTIA_STOCK_WRITES_ENABLED:true
+        run: pnpm exec wrangler deploy --var INVENTIA_STOCK_WRITES_ENABLED:true --var MCP_MANAGEMENT_ENABLED:true
 
       - name: Upload settings encryption secret
         working-directory: app
@@ -117,4 +117,16 @@ jobs:
         run: |
           if [[ -n "$SETTINGS_ENCRYPTION_KEY" ]]; then
             printf '%s' "$SETTINGS_ENCRYPTION_KEY" | pnpm exec wrangler secret put SETTINGS_ENCRYPTION_KEY
+          fi
+      - name: Upload MCP management hash
+        working-directory: app
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MCP_MANAGEMENT_TOKEN_HASH: ${{ secrets.MCP_MANAGEMENT_TOKEN_HASH }}
+        run: |
+          if [[ -n "$MCP_MANAGEMENT_TOKEN_HASH" ]]; then
+            printf '%s' "$MCP_MANAGEMENT_TOKEN_HASH" | pnpm exec wrangler secret put MCP_MANAGEMENT_TOKEN_HASH
+          else
+            echo "::warning::MCP_MANAGEMENT_TOKEN_HASH is not configured; MCP management endpoints will return 503."
           fi

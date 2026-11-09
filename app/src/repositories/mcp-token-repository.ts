@@ -8,7 +8,6 @@ import { mcpApiTokens, mcpToolUsageDaily } from "../db/schema";
 export type McpTokenRecord = {
   id: string;
   name: string;
-  ownerSubject: string;
   prefix: string;
   secretHash: string;
   allowedTools: McpToolName[];
@@ -29,7 +28,6 @@ function parseToken(row: typeof mcpApiTokens.$inferSelect): McpTokenRecord {
   return {
     id: row.id,
     name: row.name,
-    ownerSubject: row.ownerSubject,
     prefix: row.prefix,
     secretHash: row.secretHash,
     allowedTools,
@@ -84,63 +82,32 @@ export function createMcpTokenRepository(db: Database) {
         .limit(1);
       return row ? parseToken(row) : null;
     },
-    async listByOwner(ownerSubject: string): Promise<McpTokenSummary[]> {
+    async listAll(): Promise<McpTokenSummary[]> {
       const rows = await db
         .select()
         .from(mcpApiTokens)
-        .where(eq(mcpApiTokens.ownerSubject, ownerSubject))
         .orderBy(asc(mcpApiTokens.createdAt), asc(mcpApiTokens.id));
       return rows.map(parseToken).map(summary);
     },
-    async revoke(id: string, ownerSubject: string, revokedAt: string): Promise<boolean> {
+    async revokeRoot(id: string, revokedAt: string): Promise<boolean> {
       const rows = await db
         .update(mcpApiTokens)
         .set({ revokedAt })
-        .where(
-          and(
-            eq(mcpApiTokens.id, id),
-            eq(mcpApiTokens.ownerSubject, ownerSubject),
-            isNull(mcpApiTokens.revokedAt),
-          ),
-        )
+        .where(and(eq(mcpApiTokens.id, id), isNull(mcpApiTokens.revokedAt)))
         .returning({ id: mcpApiTokens.id });
-      return rows.length > 0;
+      if (rows.length > 0) return true;
+      const [existing] = await db
+        .select({ id: mcpApiTokens.id })
+        .from(mcpApiTokens)
+        .where(eq(mcpApiTokens.id, id))
+        .limit(1);
+      return !!existing;
     },
-    async markUsed(id: string, lastUsedAt: string, olderThan: string): Promise<void> {
-      await db
-        .update(mcpApiTokens)
-        .set({ lastUsedAt })
-        .where(
-          and(
-            eq(mcpApiTokens.id, id),
-            or(isNull(mcpApiTokens.lastUsedAt), lte(mcpApiTokens.lastUsedAt, olderThan)),
-          ),
-        );
-    },
-    async recordToolCall(tokenId: string, toolName: string, utcDate: string): Promise<void> {
-      await db
-        .insert(mcpToolUsageDaily)
-        .values({ tokenId, toolName, utcDate, callCount: 1 })
-        .onConflictDoUpdate({
-          target: [
-            mcpToolUsageDaily.tokenId,
-            mcpToolUsageDaily.toolName,
-            mcpToolUsageDaily.utcDate,
-          ],
-          set: { callCount: sql`${mcpToolUsageDaily.callCount} + 1` },
-        });
-    },
-    async usageByOwner(
-      ownerSubject: string,
-      tokenId?: string,
-      interval?: { from?: string; to?: string },
-    ) {
-      const conditions = [eq(mcpApiTokens.ownerSubject, ownerSubject)];
-      if (tokenId) conditions.push(eq(mcpApiTokens.id, tokenId));
+    async usageRoot(tokenId?: string, interval?: { from?: string; to?: string }) {
       const tokens = await db
         .select({ id: mcpApiTokens.id, name: mcpApiTokens.name })
         .from(mcpApiTokens)
-        .where(and(...conditions))
+        .where(tokenId ? eq(mcpApiTokens.id, tokenId) : undefined)
         .orderBy(asc(mcpApiTokens.name), asc(mcpApiTokens.id));
       return Promise.all(
         tokens.map(async (token) => {
@@ -171,6 +138,30 @@ export function createMcpTokenRepository(db: Database) {
           };
         }),
       );
+    },
+    async markUsed(id: string, lastUsedAt: string, olderThan: string): Promise<void> {
+      await db
+        .update(mcpApiTokens)
+        .set({ lastUsedAt })
+        .where(
+          and(
+            eq(mcpApiTokens.id, id),
+            or(isNull(mcpApiTokens.lastUsedAt), lte(mcpApiTokens.lastUsedAt, olderThan)),
+          ),
+        );
+    },
+    async recordToolCall(tokenId: string, toolName: string, utcDate: string): Promise<void> {
+      await db
+        .insert(mcpToolUsageDaily)
+        .values({ tokenId, toolName, utcDate, callCount: 1 })
+        .onConflictDoUpdate({
+          target: [
+            mcpToolUsageDaily.tokenId,
+            mcpToolUsageDaily.toolName,
+            mcpToolUsageDaily.utcDate,
+          ],
+          set: { callCount: sql`${mcpToolUsageDaily.callCount} + 1` },
+        });
     },
   };
 }

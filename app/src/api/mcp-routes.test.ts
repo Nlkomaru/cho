@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { expect, test } from "vite-plus/test";
 import { z } from "zod";
 
@@ -139,7 +138,7 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
   const env = { DB: binding, IMAGES_BUCKET: {} as R2Bucket } as ApiBindings;
   try {
     const tokens = createMcpTokenService(createDbClient(binding));
-    const issued = await tokens.issue("admin-subject", {
+    const issued = await tokens.issueRoot({
       name: "Integration test client",
       allowedTools: [
         "list_ingredients",
@@ -159,7 +158,7 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
     expect(stored.secret_hash).not.toBe(issued.secret);
     expect(stored.allowed_tools).toContain("create_recipe");
     expect(JSON.stringify(stored)).not.toContain(issued.secret);
-    const listed = await tokens.list("admin-subject");
+    const listed = await tokens.listRoot();
     expect(listed).toHaveLength(1);
     expect(listed[0]).not.toHaveProperty("secret");
     expect(listed[0]).not.toHaveProperty("ownerSubject");
@@ -254,116 +253,149 @@ test("MCP HTTP requests register ingredients and recipes, record meals, and coun
     const persisted = sqlite.prepare("SELECT * FROM mcp_api_tokens WHERE id = ?").get(issued.id);
     expect(JSON.stringify(persisted)).not.toContain(marker);
 
-    const issuer = "https://cho-mcp-usage-test.cloudflareaccess.com";
-    const audience = "cho-mcp-usage-audience";
-    const { privateKey, publicKey } = await generateKeyPair("RS256");
-    const jwk = await exportJWK(publicKey);
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () =>
-      new Response(
-        JSON.stringify({ keys: [{ ...jwk, kid: "cho-usage-key", alg: "RS256", use: "sig" }] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    try {
-      const jwt = await new SignJWT({ email: "admin@example.com" })
-        .setProtectedHeader({ alg: "RS256", kid: "cho-usage-key" })
-        .setIssuer(issuer)
-        .setAudience(audience)
-        .setSubject("admin-subject")
-        .setExpirationTime("5m")
-        .sign(privateKey);
-      const accessEnv = {
-        ...env,
-        CLOUDFLARE_ACCESS_ISSUER: issuer,
-        CLOUDFLARE_ACCESS_AUDIENCE: audience,
-        MCP_ADMIN_SUBJECTS: "admin-subject",
-      };
-      const missingAccess = await api.fetch(new Request("http://localhost/api/mcp/tokens"), env);
-      expect(missingAccess.status).toBe(401);
-      const issuedByApi = await api.fetch(
-        new Request("http://localhost/api/mcp/tokens", {
-          method: "POST",
-          headers: {
-            "Cf-Access-Jwt-Assertion": jwt,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ name: "API-issued client", allowedTools: ["list_ingredients"] }),
+    const managerToken = `cho_mgr_${"a".repeat(64)}`;
+    const managerHash = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(managerToken))),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const managerEnv = {
+      ...env,
+      MCP_MANAGEMENT_ENABLED: "true",
+      MCP_MANAGEMENT_TOKEN_HASH: managerHash,
+    };
+    const missingConfiguration = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens"),
+      env,
+    );
+    expect(missingConfiguration.headers.get("Cache-Control")).toBe("no-store");
+    const malformedConfiguration = await api.fetch(new Request("http://localhost/api/mcp/tokens"), {
+      ...managerEnv,
+      MCP_MANAGEMENT_TOKEN_HASH: "malformed",
+    });
+    expect(malformedConfiguration.status).toBe(503);
+    const missingBearer = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens"),
+      managerEnv,
+    );
+    expect(missingBearer.headers.get("Cache-Control")).toBe("no-store");
+    const invalidBearer = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens", {
+        headers: { Authorization: `Bearer ${managerToken.slice(0, -1)}b` },
+      }),
+      managerEnv,
+    );
+    expect(invalidBearer.status).toBe(401);
+    const clientBearer = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens", {
+        headers: { Authorization: `Bearer ${issued.secret}` },
+      }),
+      managerEnv,
+    );
+    expect(clientBearer.status).toBe(401);
+    const issueResponse = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${managerToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Managed client",
+          allowedTools: ["list_ingredients"],
         }),
-        accessEnv,
-      );
-      expect(issuedByApi.status).toBe(201);
-      const apiToken = z
-        .object({ id: z.string(), secret: z.string() })
-        .parse(await issuedByApi.json());
-      const listedByApi = await api.fetch(
-        new Request("http://localhost/api/mcp/tokens", {
-          headers: { "Cf-Access-Jwt-Assertion": jwt },
+      }),
+      managerEnv,
+    );
+    expect(issueResponse.headers.get("Cache-Control")).toBe("no-store");
+    const managedToken = (await issueResponse.json()) as { id: string; secret: string };
+    expect(managedToken.secret).toMatch(/^cho_mcp_[0-9a-f]{64}$/);
+    const newOwner = sqlite
+      .prepare("SELECT owner_subject FROM mcp_api_tokens WHERE id = ?")
+      .get(managedToken.id) as { owner_subject: string };
+    expect(newOwner.owner_subject).toBe("cho-management-operator");
+
+    sqlite
+      .prepare("UPDATE mcp_api_tokens SET owner_subject = ? WHERE id = ?")
+      .run("legacy-owner-from-access", issued.id);
+    const caseInsensitiveBearer = await api.fetch(
+      new Request("http://localhost/api/mcp/tokens", {
+        headers: { Authorization: `bEaReR ${managerToken}` },
+      }),
+      managerEnv,
+    );
+    expect(caseInsensitiveBearer.headers.get("Cache-Control")).toBe("no-store");
+    const listedTokens = await caseInsensitiveBearer.json();
+    expect(listedTokens).toMatchObject({
+      tokens: expect.arrayContaining([
+        expect.objectContaining({ id: issued.id, name: "Integration test client" }),
+      ]),
+    });
+    expect(JSON.stringify(listedTokens)).not.toContain("secretHash");
+    expect(JSON.stringify(listedTokens)).not.toContain("ownerSubject");
+    expect(JSON.stringify(listedTokens)).not.toContain(issued.secret);
+    expect(JSON.stringify(listedTokens)).not.toContain(managedToken.secret);
+
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const usageResponse = await api.fetch(
+      new Request(
+        `http://localhost/api/mcp/usage?tokenId=${issued.id}&from=${todayUtc}&to=${todayUtc}`,
+        { headers: { Authorization: `Bearer ${managerToken}` } },
+      ),
+      managerEnv,
+    );
+    expect(usageResponse.headers.get("Cache-Control")).toBe("no-store");
+    const usageBody = await usageResponse.json();
+    expect(usageBody).toMatchObject({
+      usage: [
+        expect.objectContaining({
+          tokenId: issued.id,
+          totalCalls: 6,
+          tools: expect.arrayContaining([
+            expect.objectContaining({ toolName: "create_ingredient", totalCalls: 2 }),
+          ]),
         }),
-        accessEnv,
-      );
-      expect(listedByApi.status).toBe(200);
-      const listedTokens = await listedByApi.json();
-      expect(JSON.stringify(listedTokens)).not.toContain(apiToken.secret);
-      expect(JSON.stringify(listedTokens)).not.toContain("secretHash");
-      expect(JSON.stringify(listedTokens)).not.toContain("ownerSubject");
-      const revoked = await api.fetch(
-        new Request(`http://localhost/api/mcp/tokens/${apiToken.id}`, {
-          method: "DELETE",
-          headers: { "Cf-Access-Jwt-Assertion": jwt },
+      ],
+    });
+    expect(JSON.stringify(usageBody)).not.toContain(issued.secret);
+
+    const revoked = await api.fetch(
+      new Request(`http://localhost/api/mcp/tokens/${issued.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${managerToken}` },
+      }),
+      managerEnv,
+    );
+    expect(revoked.headers.get("Cache-Control")).toBe("no-store");
+    const repeatedRevoke = await api.fetch(
+      new Request(`http://localhost/api/mcp/tokens/${issued.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${managerToken}` },
+      }),
+      managerEnv,
+    );
+    expect(repeatedRevoke.headers.get("Cache-Control")).toBe("no-store");
+    const preservedOwner = sqlite
+      .prepare("SELECT owner_subject FROM mcp_api_tokens WHERE id = ?")
+      .get(issued.id) as { owner_subject: string };
+    expect(preservedOwner.owner_subject).toBe("legacy-owner-from-access");
+    const revokedCall = await api.fetch(
+      new Request("http://localhost/api/mcp", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${issued.secret}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list_ingredients", arguments: {} },
         }),
-        accessEnv,
-      );
-      expect(revoked.status).toBe(204);
-      const revokedCall = await api.fetch(
-        new Request("http://localhost/api/mcp", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiToken.secret}`,
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: { name: "list_ingredients", arguments: {} },
-          }),
-        }),
-        env,
-      );
-      expect(revokedCall.status).toBe(401);
-      const todayUtc = new Date().toISOString().slice(0, 10);
-      const usageResponse = await api.fetch(
-        new Request(
-          `http://localhost/api/mcp/usage?tokenId=${issued.id}&from=${todayUtc}&to=${todayUtc}`,
-          {
-            headers: { "Cf-Access-Jwt-Assertion": jwt },
-          },
-        ),
-        accessEnv,
-      );
-      expect(usageResponse.status).toBe(200);
-      const usageBody = await usageResponse.json();
-      expect(JSON.stringify(usageBody)).not.toContain(marker);
-      expect(JSON.stringify(usageBody)).not.toContain(issued.secret);
-      expect(usageBody).toMatchObject({
-        usage: [
-          {
-            tokenId: issued.id,
-            totalCalls: 6,
-            tools: expect.arrayContaining([
-              expect.objectContaining({ toolName: "create_ingredient", totalCalls: 2 }),
-              expect.objectContaining({ toolName: "create_recipe", totalCalls: 1 }),
-              expect.objectContaining({ toolName: "record_meal", totalCalls: 1 }),
-              expect.objectContaining({ toolName: "list_ingredients", totalCalls: 1 }),
-              expect.objectContaining({ toolName: "list_recipes", totalCalls: 1 }),
-            ]),
-          },
-        ],
-      });
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+      }),
+      env,
+    );
+    expect(revokedCall.status).toBe(401);
   } finally {
     sqlite.close();
   }
@@ -373,7 +405,7 @@ test("MCP tool allowlists hide and reject tools outside the token grant", async 
   const { sqlite, binding } = database();
   const env = { DB: binding, IMAGES_BUCKET: {} as R2Bucket } as ApiBindings;
   try {
-    const issued = await createMcpTokenService(createDbClient(binding)).issue("admin-subject", {
+    const issued = await createMcpTokenService(createDbClient(binding)).issueRoot({
       name: "Read-only client",
       allowedTools: ["list_ingredients"],
     });
@@ -504,7 +536,7 @@ test("MCP does not dispatch a tool when the usage aggregate write fails", async 
   const { sqlite, binding } = database();
   const env = { DB: binding, IMAGES_BUCKET: {} as R2Bucket } as ApiBindings;
   try {
-    const issued = await createMcpTokenService(createDbClient(binding)).issue("admin-subject", {
+    const issued = await createMcpTokenService(createDbClient(binding)).issueRoot({
       name: "Usage outage client",
       allowedTools: ["create_ingredient"],
     });

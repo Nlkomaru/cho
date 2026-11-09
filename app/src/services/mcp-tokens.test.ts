@@ -35,12 +35,11 @@ function database() {
   return { sqlite, binding };
 }
 
-test("MCP tokens expire and revoke, and usage totals are owner-scoped by interval", async () => {
+test("MCP tokens expire and revoke, and root usage totals respect the interval", async () => {
   const { sqlite, binding } = database();
   const service = createMcpTokenService(createDbClient(binding));
   try {
-    const issued = await service.issue(
-      "owner-subject",
+    const issued = await service.issueRoot(
       {
         name: "Meal assistant",
         allowedTools: ["list_ingredients", "record_meal"],
@@ -55,9 +54,9 @@ test("MCP tokens expire and revoke, and usage totals are owner-scoped by interva
       allowedTools: ["list_ingredients", "record_meal"],
     });
     await service.authenticate(issued.secret, new Date("2026-11-09T00:04:59.000Z"));
-    expect((await service.list("owner-subject"))[0]?.lastUsedAt).toBe("2026-11-09T00:00:00.000Z");
+    expect((await service.listRoot())[0]?.lastUsedAt).toBe("2026-11-09T00:00:00.000Z");
     await service.authenticate(issued.secret, new Date("2026-11-09T00:05:01.000Z"));
-    expect((await service.list("owner-subject"))[0]?.lastUsedAt).toBe("2026-11-09T00:05:01.000Z");
+    expect((await service.listRoot())[0]?.lastUsedAt).toBe("2026-11-09T00:05:01.000Z");
     expect(
       await service.authenticate(issued.secret, new Date("2026-11-10T00:00:00.000Z")),
     ).toBeNull();
@@ -79,7 +78,7 @@ test("MCP tokens expire and revoke, and usage totals are owner-scoped by interva
     );
     await service.recordToolCall(issued.id, "record_meal", new Date("2026-11-09T10:00:00.000Z"));
     await service.recordToolCall(issued.id, "record_meal", new Date("2026-11-10T00:00:00.000Z"));
-    const usage = await service.usage("owner-subject", issued.id, {
+    const usage = await service.usageRoot(issued.id, {
       from: "2026-11-08",
       to: "2026-11-09",
     });
@@ -102,7 +101,7 @@ test("MCP tokens expire and revoke, and usage totals are owner-scoped by interva
         ],
       },
     ]);
-    const singleDay = await service.usage("owner-subject", issued.id, {
+    const singleDay = await service.usageRoot(issued.id, {
       from: "2026-11-09",
       to: "2026-11-09",
     });
@@ -110,21 +109,18 @@ test("MCP tokens expire and revoke, and usage totals are owner-scoped by interva
       totalCalls: 1,
       tools: [{ toolName: "record_meal", totalCalls: 1 }],
     });
-    expect(await service.usage("different-owner")).toEqual([]);
-    expect(
-      await service.revoke(issued.id, "owner-subject", new Date("2026-11-09T12:00:00.000Z")),
-    ).toBe(true);
+    expect(await service.revokeRoot(issued.id, new Date("2026-11-09T12:00:00.000Z"))).toBe(true);
     expect(
       await service.authenticate(issued.secret, new Date("2026-11-09T12:01:00.000Z")),
     ).toBeNull();
-    expect(await service.revoke(issued.id, "owner-subject")).toBe(false);
+    expect(await service.revokeRoot(issued.id)).toBe(true);
     const stored = sqlite
       .prepare("SELECT secret_hash FROM mcp_api_tokens WHERE id = ?")
       .get(issued.id) as {
       secret_hash: string;
     };
     expect(stored.secret_hash).not.toBe(issued.secret);
-    expect(await service.list("owner-subject")).toEqual([
+    expect(await service.listRoot()).toEqual([
       expect.objectContaining({ id: issued.id, revokedAt: "2026-11-09T12:00:00.000Z" }),
     ]);
   } finally {

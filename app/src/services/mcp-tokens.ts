@@ -27,6 +27,32 @@ export type McpPrincipal = {
 };
 
 type Database = AppDatabase;
+const MANAGEMENT_OWNER_SUBJECT = "cho-management-operator";
+
+export type McpManagementPrincipal = { kind: "operator" };
+
+export async function verifyMcpManagementBearer(
+  authorization: string | undefined,
+  configuredHash: string | undefined,
+): Promise<McpManagementPrincipal | null> {
+  const match = authorization?.match(/^Bearer (.+)$/i);
+  if (
+    !match ||
+    !/^cho_mgr_[0-9a-f]{64}$/.test(match[1]) ||
+    !configuredHash ||
+    !/^[0-9a-f]{64}$/.test(configuredHash)
+  )
+    return null;
+  const digest = await hashSecret(match[1]);
+  let difference = 0;
+  for (let index = 0; index < 64; index++)
+    difference |= digest.charCodeAt(index) ^ configuredHash.charCodeAt(index);
+  return difference === 0 ? { kind: "operator" } : null;
+}
+
+export function isMcpManagementEnabled(value: string | undefined): boolean {
+  return value === "true";
+}
 
 function encodeHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -39,40 +65,37 @@ async function hashSecret(secret: string): Promise<string> {
 
 export function createMcpTokenService(db: Database) {
   const repository = createMcpTokenRepository(db);
+  async function issue(input: IssueMcpTokenInput, now: Date) {
+    if (input.expiresAt && Date.parse(input.expiresAt) <= now.getTime())
+      throw new RangeError("Token expiry must be in the future");
+    const random = crypto.getRandomValues(new Uint8Array(32));
+    const secret = `cho_mcp_${encodeHex(random)}`;
+    const id = crypto.randomUUID();
+    const createdAt = now.toISOString();
+    const expiresAt = input.expiresAt ?? null;
+    const allowedTools = [...new Set(input.allowedTools)];
+    await repository.create({
+      id,
+      name: input.name,
+      ownerSubject: MANAGEMENT_OWNER_SUBJECT,
+      prefix: secret.slice(0, 16),
+      secretHash: await hashSecret(secret),
+      allowedTools,
+      createdAt,
+      expiresAt,
+    });
+    return {
+      id,
+      name: input.name,
+      prefix: secret.slice(0, 16),
+      secret,
+      allowedTools,
+      createdAt,
+      expiresAt,
+    };
+  }
   return {
-    async issue(
-      ownerSubject: string,
-      input: IssueMcpTokenInput,
-      now = new Date(),
-    ): Promise<IssuedMcpToken> {
-      if (input.expiresAt && Date.parse(input.expiresAt) <= now.getTime())
-        throw new RangeError("Token expiry must be in the future");
-      const random = crypto.getRandomValues(new Uint8Array(32));
-      const secret = `cho_mcp_${encodeHex(random)}`;
-      const id = crypto.randomUUID();
-      const createdAt = now.toISOString();
-      const expiresAt = input.expiresAt ?? null;
-      const allowedTools = [...new Set(input.allowedTools)];
-      await repository.create({
-        id,
-        name: input.name,
-        ownerSubject,
-        prefix: secret.slice(0, 16),
-        secretHash: await hashSecret(secret),
-        allowedTools,
-        createdAt,
-        expiresAt,
-      });
-      return {
-        id,
-        name: input.name,
-        prefix: secret.slice(0, 16),
-        secret,
-        allowedTools,
-        createdAt,
-        expiresAt,
-      };
-    },
+    issueRoot: (input: IssueMcpTokenInput, now = new Date()) => issue(input, now),
     async authenticate(secret: string, now = new Date()): Promise<McpPrincipal | null> {
       const token = await repository.getByHash(await hashSecret(secret));
       if (
@@ -86,11 +109,10 @@ export function createMcpTokenService(db: Database) {
       await repository.markUsed(token.id, timestamp, cutoff);
       return { id: token.id, allowedTools: token.allowedTools };
     },
-    list: (ownerSubject: string) => repository.listByOwner(ownerSubject),
-    revoke: (id: string, ownerSubject: string, now = new Date()) =>
-      repository.revoke(id, ownerSubject, now.toISOString()),
-    usage: (ownerSubject: string, tokenId?: string, interval?: { from?: string; to?: string }) =>
-      repository.usageByOwner(ownerSubject, tokenId, interval),
+    listRoot: () => repository.listAll(),
+    revokeRoot: (id: string, now = new Date()) => repository.revokeRoot(id, now.toISOString()),
+    usageRoot: (tokenId?: string, interval?: { from?: string; to?: string }) =>
+      repository.usageRoot(tokenId, interval),
     recordToolCall: (tokenId: string, toolName: McpToolName, now = new Date()) =>
       repository.recordToolCall(tokenId, toolName, now.toISOString().slice(0, 10)),
   };
