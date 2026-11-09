@@ -118,7 +118,7 @@ jobs:
 
           tables="$(jq -r '.[].results[]?.name' "$tables_json")"
           missing_tables=()
-          for table in ingredients media_images dishes dish_ingredients meal_logs meal_log_items app_settings; do
+          for table in ingredients media_images dishes dish_ingredients meal_logs meal_log_items app_settings mcp_api_tokens mcp_tool_usage_daily; do
             if ! grep -qxF "$table" <<<"$tables"; then
               missing_tables+=("$table")
             fi
@@ -153,8 +153,109 @@ jobs:
             migrate_hint
             exit 1
           fi
+          tokens_columns="$(mktemp)"
+          usage_columns="$(mktemp)"
+          tokens_sql="$(mktemp)"
+          usage_sql="$(mktemp)"
+          usage_foreign_keys="$(mktemp)"
+          indexes="$(mktemp)"
+          token_owner_index="$(mktemp)"
+          usage_date_index="$(mktemp)"
+          for check in \
+            "PRAGMA table_info(mcp_api_tokens)|$tokens_columns" \
+            "PRAGMA table_info(mcp_tool_usage_daily)|$usage_columns" \
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mcp_api_tokens';|$tokens_sql" \
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mcp_tool_usage_daily';|$usage_sql" \
+            "PRAGMA foreign_key_list(mcp_tool_usage_daily)|$usage_foreign_keys" \
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('mcp_api_tokens_owner_idx', 'mcp_tool_usage_date_idx');|$indexes" \
+            "PRAGMA index_info(mcp_api_tokens_owner_idx);|$token_owner_index" \
+            "PRAGMA index_info(mcp_tool_usage_date_idx);|$usage_date_index"; do
+            command="${check%%|*}"
+            output="${check#*|}"
+            if ! query "$command" >"$output"; then
+              echo "::error::Read-only MCP D1 schema query failed for ${command}."
+              jq -c '.error? // .errors? // .' "$output" 2>/dev/null || cat "$output"
+              exit 1
+            fi
+          done
 
-          echo "Production D1 schema OK: 7 required tables present."
+          require_column() {
+            local metadata="$1" name="$2" type="$3" not_null="$4" primary_key="$5"
+            jq -e --arg name "$name" --arg type "$type" --argjson notNull "$not_null" --argjson primaryKey "$primary_key" \
+              '([.[].results[]? | select(.name == $name)][0] // {}) |
+               (.name == $name and (.type | ascii_downcase) == $type and .notnull == $notNull and .pk == $primaryKey)' \
+              "$metadata" >/dev/null
+          }
+          schema_error=0
+          for column in id name owner_subject prefix secret_hash allowed_tools created_at; do
+            primary_key=0
+            [[ "$column" == id ]] && primary_key=1
+            if ! require_column "$tokens_columns" "$column" text 1 "$primary_key"; then
+              echo "::error::mcp_api_tokens.$column is missing or has the wrong type or constraints."
+              schema_error=1
+            fi
+          done
+          for column in expires_at revoked_at last_used_at; do
+            if ! require_column "$tokens_columns" "$column" text 0 0; then
+              echo "::error::mcp_api_tokens.$column is missing or has the wrong type or nullability."
+              schema_error=1
+            fi
+          done
+          for field in token_id:1 tool_name:2 utc_date:3; do
+            column="${field%%:*}"
+            primary_key="${field##*:}"
+            if ! require_column "$usage_columns" "$column" text 1 "$primary_key"; then
+              echo "::error::mcp_tool_usage_daily.$column is missing or has the wrong type or constraints."
+              schema_error=1
+            fi
+          done
+          if ! require_column "$usage_columns" call_count integer 1 0; then
+            echo "::error::mcp_tool_usage_daily.call_count is missing or has the wrong type or constraints."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]? | select(.name == "created_at")][0].dflt_value | ascii_downcase == "current_timestamp"' "$tokens_columns" >/dev/null; then
+            echo "::error::mcp_api_tokens.created_at is missing its migration default."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]? | select(.name == "call_count")][0].dflt_value == "0"' "$usage_columns" >/dev/null; then
+            echo "::error::mcp_tool_usage_daily.call_count is missing its migration default."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]? | select(.pk > 0) | [.pk, .name]] | sort_by(.[0]) | map(.[1]) == ["token_id", "tool_name", "utc_date"]' "$usage_columns" >/dev/null; then
+            echo "::error::mcp_tool_usage_daily is missing its composite primary key."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]? | select(.table == "mcp_api_tokens" and .from == "token_id" and .to == "id" and .on_delete == "CASCADE")] | length == 1' "$usage_foreign_keys" >/dev/null; then
+            echo "::error::mcp_tool_usage_daily.token_id is missing its cascading token foreign key."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]?.sql | select(type == "string") | gsub("[`\\n]"; " ") | test("secret_hash\\s+text\\s+not\\s+null\\s+unique"; "i")] | length == 1' "$tokens_sql" >/dev/null; then
+            echo "::error::mcp_api_tokens.secret_hash is missing its unique constraint."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]?.sql | select(type == "string") | gsub("[`\\n]"; " ") | test("call_count\\s+integer\\s+not\\s+null\\s+default\\s+0\\s+check\\s*\\(\\s*call_count\\s*>=\\s*0\\s*\\)"; "i")] | length == 1' "$usage_sql" >/dev/null; then
+            echo "::error::mcp_tool_usage_daily.call_count is missing its non-negative check constraint."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]?.name] | sort == ["mcp_api_tokens_owner_idx", "mcp_tool_usage_date_idx"]' "$indexes" >/dev/null; then
+            echo "::error::MCP management indexes are missing from Production D1."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]?.name] == ["owner_subject", "created_at"]' "$token_owner_index" >/dev/null; then
+            echo "::error::mcp_api_tokens_owner_idx does not match its migration columns."
+            schema_error=1
+          fi
+          if ! jq -e '[.[].results[]?.name] == ["utc_date"]' "$usage_date_index" >/dev/null; then
+            echo "::error::mcp_tool_usage_date_idx does not match its migration columns."
+            schema_error=1
+          fi
+          if (( schema_error != 0 )); then
+            migrate_hint
+            exit 1
+          fi
+
+
+          echo "Production D1 schema OK: 9 required tables present, including MCP token and usage schemas."
           echo "app_settings columns: ${column_metadata}"
 
       - name: Set deployment metadata
@@ -176,6 +277,7 @@ jobs:
           config.vars = {
             ...(config.vars ?? {}),
             INVENTIA_STOCK_WRITES_ENABLED: "false",
+            MCP_MANAGEMENT_ENABLED: "false",
           };
           config.workers_dev = true;
           config.preview_urls = true;
