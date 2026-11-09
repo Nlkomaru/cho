@@ -1,13 +1,21 @@
 import { Box, Button, chakra, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { createFileRoute } from "@tanstack/react-router";
+import { createColumnHelper, FlexRender, tableFeatures, useTable } from "@tanstack/react-table";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 
 import { Feedback } from "../../../components/ui/feedback";
+import {
+  FoodBodyCell,
+  FoodHeaderCell,
+  formatNutritionAmount,
+  formatPrice,
+  InventiaIconLink,
+  TableFrame,
+} from "../../../components/ui/food-table";
 import { List, ListItem } from "../../../components/ui/list";
 import { Numeric } from "../../../components/ui/numeric";
 import { Page, PageHeader } from "../../../components/ui/page";
-import { NutritionLine } from "../-components/nutrition-line";
 import { Section } from "../../../components/ui/section";
 import { FormField } from "../-components/form-field";
 import { SelectControl } from "../-components/select-control";
@@ -98,6 +106,98 @@ const numberField = (value: string, label: string) => {
   return number;
 };
 
+interface IngredientTableMeta {
+  onEdit: (item: Ingredient) => void;
+}
+
+const features = tableFeatures({ tableMeta: {} as IngredientTableMeta });
+const columnHelper = createColumnHelper<typeof features, Ingredient>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("name", {
+    id: "name",
+    header: "品目名",
+    cell: ({ row }) => {
+      const item = row.original;
+      return (
+        <Box minW="0">
+          <Text fontWeight="medium" color="fg.subtle">
+            {item.name}
+          </Text>
+          <Text textStyle="caption" color="fg.muted">
+            基準: {item.nutritionBasisAmount} {item.baseUnit} ·{" "}
+            {item.baseDimension === "mass"
+              ? "質量"
+              : item.baseDimension === "volume"
+                ? "体積"
+                : "個数"}
+            {item.gramPerUnit !== null ? ` · 1単位 ${item.gramPerUnit} g` : ""}
+          </Text>
+        </Box>
+      );
+    },
+  }),
+  columnHelper.display({
+    id: "caloriesKcal",
+    header: "エネルギー",
+    cell: ({ row }) => formatNutritionAmount(row.original.nutritionPerBasis.caloriesKcal, "kcal"),
+  }),
+  columnHelper.display({
+    id: "proteinG",
+    header: "P",
+    cell: ({ row }) => formatNutritionAmount(row.original.nutritionPerBasis.proteinG, "g"),
+  }),
+  columnHelper.display({
+    id: "fatG",
+    header: "F",
+    cell: ({ row }) => formatNutritionAmount(row.original.nutritionPerBasis.fatG, "g"),
+  }),
+  columnHelper.display({
+    id: "carbohydrateG",
+    header: "C",
+    cell: ({ row }) => formatNutritionAmount(row.original.nutritionPerBasis.carbohydrateG, "g"),
+  }),
+  columnHelper.display({
+    id: "fiberG",
+    header: "食物繊維",
+    cell: ({ row }) => formatNutritionAmount(row.original.nutritionPerBasis.fiberG, "g"),
+  }),
+  columnHelper.display({
+    id: "saltEquivalentG",
+    header: "食塩",
+    cell: ({ row }) => formatNutritionAmount(row.original.nutritionPerBasis.saltEquivalentG, "g"),
+  }),
+  columnHelper.display({
+    id: "price",
+    header: "価格",
+    cell: ({ row }) => formatPrice(row.original.latestUnitPriceYen),
+  }),
+  columnHelper.display({
+    id: "inventia",
+    header: "Inventia",
+    cell: ({ row }) => <InventiaIconLink itemId={row.original.inventiaItemId} />,
+  }),
+  columnHelper.display({
+    id: "actions",
+    header: "操作",
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as IngredientTableMeta | undefined;
+      return (
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={(e) => {
+            e.stopPropagation();
+            meta?.onEdit(row.original);
+          }}
+        >
+          編集
+        </Button>
+      );
+    },
+  }),
+]);
+
 function IngredientsPage() {
   const [items, setItems] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,6 +229,7 @@ function IngredientsPage() {
       setLoading(false);
     }
   }, []);
+
   useEffect(() => {
     void loadIngredients();
   }, [loadIngredients]);
@@ -143,9 +244,11 @@ function IngredientsPage() {
         )
       : items;
   }, [items, query]);
+
   function setField<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
+
   function startEdit(item: Ingredient) {
     setEditing(item.id);
     setForm({
@@ -166,15 +269,23 @@ function IngredientsPage() {
       memo: item.memo ?? "",
       micronutrients: item.nutritionPerBasis.micronutrients.map((micro) => ({ ...micro })),
     });
+    setInventiaQuery(item.name);
+    setMatches([]);
+    setSelectedMatch("");
     setNotice("");
     setError("");
   }
+
   function newIngredient() {
     setEditing(null);
     setForm(emptyForm());
+    setInventiaQuery("");
+    setMatches([]);
+    setSelectedMatch("");
     setNotice("");
     setError("");
   }
+
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -233,6 +344,7 @@ function IngredientsPage() {
       setSaving(false);
     }
   }
+
   async function estimate() {
     setEstimating(true);
     setError("");
@@ -273,6 +385,7 @@ function IngredientsPage() {
       setEstimating(false);
     }
   }
+
   async function searchInventia(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -297,6 +410,7 @@ function IngredientsPage() {
       setError(cause instanceof Error ? cause.message : "Inventia を検索できませんでした。");
     }
   }
+
   async function syncInventia(ingredient: Ingredient) {
     const selected = matches.find((match) => match.id === selectedMatch);
     if (!selected) {
@@ -336,6 +450,7 @@ function IngredientsPage() {
       setBusyId("");
     }
   }
+
   async function readStock(ingredient: Ingredient) {
     setBusyId(ingredient.id);
     setError("");
@@ -354,6 +469,7 @@ function IngredientsPage() {
       setBusyId("");
     }
   }
+
   async function consumeStock(ingredient: Ingredient) {
     const amount = Number(stockAmount[ingredient.id] ?? "");
     if (!Number.isInteger(amount) || amount <= 0) {
@@ -396,12 +512,14 @@ function IngredientsPage() {
       setBusyId("");
     }
   }
+
   function addMicro() {
     setField("micronutrients", [
       ...form.micronutrients,
       { key: "", label: "", amount: 0, unit: "mg" },
     ]);
   }
+
   function updateMicro(index: number, key: keyof Micro, value: string) {
     setField(
       "micronutrients",
@@ -412,6 +530,18 @@ function IngredientsPage() {
       ),
     );
   }
+
+  const table = useTable({
+    features,
+    columns,
+    data: visible,
+    getRowId: (item) => item.id,
+    meta: {
+      onEdit: startEdit,
+    },
+  });
+
+  const editingItem = editing ? (items.find((item) => item.id === editing) ?? null) : null;
 
   return (
     <Page>
@@ -447,168 +577,211 @@ function IngredientsPage() {
           <Feedback tone="status" role="status" ariaLive="polite">
             材料を読み込み中…
           </Feedback>
-        ) : visible.length === 0 ? (
-          <Feedback tone="status" role="status">
-            {items.length ? "検索結果がありません。" : "材料はまだ登録されていません。"}
-          </Feedback>
         ) : (
-          <List>
-            {visible.map((item) => (
-              <ListItem key={item.id}>
-                <Stack
-                  direction={{ base: "column", sm: "row" }}
-                  justify="space-between"
-                  align={{ base: "stretch", sm: "flex-start" }}
-                  gap="3"
-                >
-                  <Box minW="0">
-                    <Text as="h2" textStyle="heading.sm">
-                      {item.name}
-                    </Text>
-                    <Text textStyle="caption">
-                      基準: {item.nutritionBasisAmount} {item.baseUnit} · {item.baseDimension}
-                      {item.gramPerUnit !== null ? ` · 1単位 ${item.gramPerUnit} g` : ""}
-                    </Text>
-                  </Box>
-                  <Button variant="outline" onClick={() => startEdit(item)}>
-                    編集
-                  </Button>
-                </Stack>
-                <Text textStyle="body.sm">
-                  <NutritionLine nutrition={item.nutritionPerBasis} />
-                </Text>
-                {item.nutritionPerBasis.micronutrients.length ? (
-                  <Text textStyle="caption">
-                    {item.nutritionPerBasis.micronutrients
-                      .map((micro) => `${micro.label} ${micro.amount} ${micro.unit}`)
-                      .join(" · ")}
-                  </Text>
-                ) : null}
-                <Text textStyle="caption">
-                  最新価格:{" "}
-                  {item.latestUnitPriceYen === null ? (
-                    "未取得"
-                  ) : (
-                    <Numeric size="sm">¥{item.latestUnitPriceYen}</Numeric>
-                  )}{" "}
-                  ·{" "}
-                  {item.latestPriceUpdatedAt ? (
-                    <Numeric size="sm">
-                      {new Date(item.latestPriceUpdatedAt).toLocaleString("ja-JP")}
-                    </Numeric>
-                  ) : (
-                    "更新日時なし"
-                  )}{" "}
-                  · Inventia ID: {item.inventiaItemId ?? "未連携"}
-                </Text>
-                {item.inventiaItemId ? (
-                  <Stack as="section" aria-label={`${item.name} の在庫`} gap="2">
-                    <Text textStyle="caption">
-                      在庫:{" "}
-                      {stock[item.id]
-                        ? stock[item.id].found
-                          ? `${stock[item.id].currentQuantity ?? "—"} ${stock[item.id].baseUnit ?? item.baseUnit}`
-                          : "取得できません（検索結果に紐付け品目なし）"
-                        : "未取得"}
-                    </Text>
-                    <Stack
-                      direction={{ base: "column", sm: "row" }}
-                      gap="2"
-                      align={{ base: "stretch", sm: "end" }}
-                    >
-                      <Button
-                        variant="outline"
-                        onClick={() => void readStock(item)}
-                        loading={busyId === item.id}
-                      >
-                        在庫を確認
-                      </Button>
-                      <FormField label={`消費量（${stock[item.id]?.baseUnit ?? item.baseUnit}）`}>
-                        <Input
-                          type="number"
-                          min="1"
-                          step="1"
-                          inputMode="numeric"
-                          value={stockAmount[item.id] ?? ""}
-                          onChange={(event) => {
-                            setStockAmount((current) => ({
-                              ...current,
-                              [item.id]: event.target.value,
-                            }));
-                            setStockRequestKeys((current) => {
-                              const next = { ...current };
-                              delete next[item.id];
-                              return next;
-                            });
-                          }}
-                        />
-                      </FormField>
-                      <Button
-                        variant="outline"
-                        onClick={() => void consumeStock(item)}
-                        loading={busyId === item.id}
-                      >
-                        在庫を消費
-                      </Button>
-                    </Stack>
-                  </Stack>
-                ) : null}
-                <chakra.form onSubmit={searchInventia}>
-                  <Stack
-                    direction={{ base: "column", sm: "row" }}
-                    gap="2"
-                    align={{ base: "stretch", sm: "end" }}
-                  >
-                    <FormField label="Inventia 品目検索" htmlFor={`inventia-query-${item.id}`}>
-                      <Input
-                        id={`inventia-query-${item.id}`}
-                        value={inventiaQuery}
-                        onChange={(event) => setInventiaQuery(event.target.value)}
-                        placeholder={item.name}
-                      />
-                    </FormField>
-                    <Button type="submit" variant="outline">
-                      品目を検索
-                    </Button>
-                  </Stack>
-                </chakra.form>
-                {matches.length ? (
-                  <Stack
-                    direction={{ base: "column", sm: "row" }}
-                    gap="2"
-                    align={{ base: "stretch", sm: "end" }}
-                  >
-                    <FormField label="検索結果から選択" htmlFor={`inventia-match-${item.id}`}>
-                      <SelectControl
-                        id={`inventia-match-${item.id}`}
-                        value={selectedMatch}
-                        onChange={(event) => setSelectedMatch(event.target.value)}
-                      >
-                        <option value="">品目を選択</option>
-                        {matches.map((match) => (
-                          <option key={match.id} value={match.id}>
-                            {match.name} · {match.baseUnit} · 在庫 {match.currentQuantity}
-                          </option>
-                        ))}
-                      </SelectControl>
-                    </FormField>
-                    <Button
-                      colorPalette="red"
-                      onClick={() => void syncInventia(item)}
-                      disabled={!selectedMatch}
-                      loading={busyId === item.id}
-                    >
-                      価格を同期
-                    </Button>
-                  </Stack>
-                ) : null}
-                {item.memo ? <Text textStyle="caption">メモ: {item.memo}</Text> : null}
-              </ListItem>
+          <TableFrame
+            busy={loading}
+            empty={visible.length === 0}
+            emptyMessage={
+              items.length ? "検索結果がありません。" : "材料はまだ登録されていません。"
+            }
+            head={table.getHeaderGroups().map((group) => (
+              <chakra.tr key={group.id}>
+                {group.headers.map((header) => {
+                  const id = header.column.id;
+                  const align =
+                    id === "name"
+                      ? "left"
+                      : id === "inventia" || id === "actions"
+                        ? "center"
+                        : "right";
+                  const width =
+                    id === "actions"
+                      ? "72px"
+                      : id === "inventia"
+                        ? "64px"
+                        : id === "caloriesKcal"
+                          ? "110px"
+                          : id === "name"
+                            ? undefined
+                            : "88px";
+                  return (
+                    <FoodHeaderCell key={header.id} align={align} width={width}>
+                      <FlexRender header={header} />
+                    </FoodHeaderCell>
+                  );
+                })}
+              </chakra.tr>
             ))}
-          </List>
+          >
+            {table.getRowModel().rows.map((row) => {
+              const isSelected = editing === row.original.id;
+              return (
+                <chakra.tr
+                  key={row.id}
+                  cursor="pointer"
+                  bg={isSelected ? "red.subtle" : undefined}
+                  _hover={{ bg: isSelected ? "red.subtle" : "bg.subtle" }}
+                  transition="colors 0.15s ease"
+                  onClick={() => {
+                    if (window.getSelection()?.isCollapsed === false) return;
+                    startEdit(row.original);
+                  }}
+                >
+                  {row.getAllCells().map((cell) => {
+                    const id = cell.column.id;
+                    const align =
+                      id === "name"
+                        ? "left"
+                        : id === "inventia" || id === "actions"
+                          ? "center"
+                          : "right";
+                    return (
+                      <FoodBodyCell key={cell.id} align={align}>
+                        <FlexRender cell={cell} />
+                      </FoodBodyCell>
+                    );
+                  })}
+                </chakra.tr>
+              );
+            })}
+          </TableFrame>
         )}
       </Section>
-      <Section title={editing ? "材料を編集" : "材料を登録"} label="材料の登録・編集">
+
+      <Section
+        title={editing ? `材料を編集: ${editingItem?.name ?? ""}` : "材料を登録"}
+        label="材料の登録・編集"
+      >
+        {editingItem ? (
+          <Box mb="6" p="4" border="1px solid" borderColor="border" borderRadius="md" bg="bg.panel">
+            <Stack gap="4">
+              <Text textStyle="heading.xs">連携・在庫状況</Text>
+              <Text textStyle="caption">
+                最新価格:{" "}
+                {editingItem.latestUnitPriceYen === null ? (
+                  "未取得"
+                ) : (
+                  <Numeric size="sm">¥{editingItem.latestUnitPriceYen}</Numeric>
+                )}{" "}
+                ·{" "}
+                {editingItem.latestPriceUpdatedAt ? (
+                  <Numeric size="sm">
+                    {new Date(editingItem.latestPriceUpdatedAt).toLocaleString("ja-JP")}
+                  </Numeric>
+                ) : (
+                  "更新日時なし"
+                )}{" "}
+                · Inventia ID: {editingItem.inventiaItemId ?? "未連携"}
+              </Text>
+              {editingItem.inventiaItemId ? (
+                <Stack as="section" aria-label={`${editingItem.name} の在庫`} gap="2">
+                  <Text textStyle="caption">
+                    在庫:{" "}
+                    {stock[editingItem.id]
+                      ? stock[editingItem.id].found
+                        ? `${stock[editingItem.id].currentQuantity ?? "—"} ${stock[editingItem.id].baseUnit ?? editingItem.baseUnit}`
+                        : "取得できません（検索結果に紐付け品目なし）"
+                      : "未取得"}
+                  </Text>
+                  <Stack
+                    direction={{ base: "column", sm: "row" }}
+                    gap="2"
+                    align={{ base: "stretch", sm: "end" }}
+                  >
+                    <Button
+                      variant="outline"
+                      onClick={() => void readStock(editingItem)}
+                      loading={busyId === editingItem.id}
+                    >
+                      在庫を確認
+                    </Button>
+                    <FormField
+                      label={`消費量（${stock[editingItem.id]?.baseUnit ?? editingItem.baseUnit}）`}
+                    >
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputMode="numeric"
+                        value={stockAmount[editingItem.id] ?? ""}
+                        onChange={(event) => {
+                          setStockAmount((current) => ({
+                            ...current,
+                            [editingItem.id]: event.target.value,
+                          }));
+                          setStockRequestKeys((current) => {
+                            const next = { ...current };
+                            delete next[editingItem.id];
+                            return next;
+                          });
+                        }}
+                      />
+                    </FormField>
+                    <Button
+                      variant="outline"
+                      onClick={() => void consumeStock(editingItem)}
+                      loading={busyId === editingItem.id}
+                    >
+                      在庫を消費
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : null}
+
+              <chakra.form onSubmit={searchInventia}>
+                <Stack
+                  direction={{ base: "column", sm: "row" }}
+                  gap="2"
+                  align={{ base: "stretch", sm: "end" }}
+                >
+                  <FormField label="Inventia 品目検索" htmlFor={`inventia-query-${editingItem.id}`}>
+                    <Input
+                      id={`inventia-query-${editingItem.id}`}
+                      value={inventiaQuery}
+                      onChange={(event) => setInventiaQuery(event.target.value)}
+                      placeholder={editingItem.name}
+                    />
+                  </FormField>
+                  <Button type="submit" variant="outline">
+                    品目を検索
+                  </Button>
+                </Stack>
+              </chakra.form>
+
+              {matches.length ? (
+                <Stack
+                  direction={{ base: "column", sm: "row" }}
+                  gap="2"
+                  align={{ base: "stretch", sm: "end" }}
+                >
+                  <FormField label="検索結果から選択" htmlFor={`inventia-match-${editingItem.id}`}>
+                    <SelectControl
+                      id={`inventia-match-${editingItem.id}`}
+                      value={selectedMatch}
+                      onChange={(event) => setSelectedMatch(event.target.value)}
+                    >
+                      <option value="">品目を選択</option>
+                      {matches.map((match) => (
+                        <option key={match.id} value={match.id}>
+                          {match.name} · {match.baseUnit} · 在庫 {match.currentQuantity}
+                        </option>
+                      ))}
+                    </SelectControl>
+                  </FormField>
+                  <Button
+                    colorPalette="red"
+                    onClick={() => void syncInventia(editingItem)}
+                    disabled={!selectedMatch}
+                    loading={busyId === editingItem.id}
+                  >
+                    価格を同期
+                  </Button>
+                </Stack>
+              ) : null}
+            </Stack>
+          </Box>
+        ) : null}
+
         <chakra.form onSubmit={save}>
           <Stack gap="5">
             <FormField label="材料名" htmlFor="ingredient-name">
