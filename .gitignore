@@ -12,6 +12,7 @@ storybook-static
 .vinxi
 __unconfig*
 todos.json
+.agents
 
 .dev.vars*
 !.dev.vars.example
