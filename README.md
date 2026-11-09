@@ -107,6 +107,7 @@ preview は production D1 を共有します。リセット後は production の
 - Cloudflare: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`
 - R2 preview QR artifacts only: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_S3_ENDPOINT`
 - アプリの暗号化: `SETTINGS_ENCRYPTION_KEY`
+- MCP 管理: `MCP_MANAGEMENT_TOKEN_HASH`（管理 Bearer キーの SHA-256 ハッシュ）
 
 `SETTINGS_ENCRYPTION_KEY` は32バイトの暗号化キーを標準 Base64 で表した値です。既存の暗号化データがある場合は、そのデータを暗号化した元のキーを GitHub Secrets に登録して維持してください。既存データの有無や元のキーが不明な場合、新しいランダムキーで置き換えないでください。新しいキーの生成は、新規 DB または既存データの扱いを決定した運用担当者の明示的な判断に限ります。キーの値は表示・コミットしません。
 
@@ -128,6 +129,57 @@ Cho の Cloudflare Access 認証は変更しません。Inventia 連携のため
 `INVENTIA_STOCK_WRITES_ENABLED` は `app/wrangler.jsonc` に置きません。未設定時はアプリ側で在庫消費を拒否します。production の deploy step だけが `wrangler deploy --var INVENTIA_STOCK_WRITES_ENABLED:true` で有効化し、有効な Provider ID がある場合に在庫消費を許可します。手動の `wrangler deploy` でも var を渡さない限り在庫消費は無効のままです。PR preview は生成 config で同じ値を明示的に `"false"` にします。CI の config 書き換えがスキップされた場合も、preview にはこの var が無いため stock writes は既定で無効のままです。品目参照には `INVENTIA_BASE_URL`、有効な保存済みトークン、対応する `SETTINGS_ENCRYPTION_KEY` が必要です。preview にこれらを渡さない場合、画面に設定不足を表示し、Inventia のデータは参照できません。preview の read-only 制限は Inventia の在庫変更に対する制限です。Cho の production D1 に対する既存の書き込み権限は変更しません。
 
 Inventia API が Cloudflare Access の保護対象である環境では、許可された `CLOUDFLARE_ACCESS_CLIENT_ID` と `CLOUDFLARE_ACCESS_CLIENT_SECRET` も必要です。API トークンの代わりにはなりません。
+
+## MCP サーバー
+
+`POST /api/mcp` は、ステートレスな Streamable HTTP MCP エンドポイントです。`list_ingredients`、`create_ingredient`、`list_recipes`、`create_recipe`、`record_meal` を提供します。API トークンには、明示したツールだけを許可できます。食事の記録は Cho に保存し、Inventia の在庫は変更しません。
+
+### MCP と Cloudflare Access
+
+MCP の管理 API は Cloudflare Access JWT ではなく、専用の Bearer 管理キーで認証します。Cloudflare Access のポリシーでは、次のパスだけをバイパス対象にしてください。
+
+- `/api/mcp`
+- `/api/mcp/tokens`
+- `/api/mcp/tokens/*`
+- `/api/mcp/usage`
+
+`/api/*` 全体をバイパスしてはいけません。設定、AI、品目、料理、食事、画像、在庫など他の API はアプリ側の Bearer 認証を持たず、全体バイパスすると保護されなくなります。画面やそれ以外の API は引き続き Access で保護します。
+
+ブラウザーから `/api/mcp` を呼ぶ場合は `MCP_ALLOWED_ORIGINS` に Origin の完全一致リストを設定します。Origin がない MCP クライアントは許可し、Origin がある要求は許可リストにない場合に拒否します。
+
+### 管理キーを準備する
+
+1. 信頼できるローカル端末で、管理キーとハッシュを生成します。
+
+   ```bash
+   manager_key="cho_mgr_$(openssl rand -hex 32)"
+   manager_hash="$(printf '%s' "$manager_key" | sha256sum | cut -d ' ' -f1)"
+   printf '%s\n' "$manager_key"
+   printf '%s\n' "$manager_hash"
+   unset manager_key manager_hash
+   ```
+
+   1行目の出力を安全なパスワード保管庫に保存し、2行目の64桁の小文字16進値だけを GitHub Actions secret `MCP_MANAGEMENT_TOKEN_HASH` に登録してください。管理キー本体をリポジトリや CI ログに保存しないでください。
+
+2. Production workflow は `MCP_MANAGEMENT_ENABLED=true` を明示し、`MCP_MANAGEMENT_TOKEN_HASH` を Worker secret として設定します。キーをローテーションするには新しいキーを作り、GitHub secret を置き換えて Production workflow を実行します。新しいバージョンが有効になった後は以前のキーを破棄してください。
+
+キー設定がない、またはハッシュが64桁の小文字16進値でない場合、管理 API は D1 に触れず `503` を返します。キーがない、または一致しない要求には `401` を返します。認証には `Authorization: Bearer <管理キー>` を使います。Bearer scheme の大文字小文字は区別しません。
+
+### 名前付きクライアントキーを管理する
+
+Settings 画面の「MCP クライアントキー」で管理キーを入力します。管理キーは画面のメモリー内だけに保持され、ブラウザーの保存領域には書き込みません。名前と許可するツールを指定してクライアントキーを発行し、表示された `cho_mcp_` キーをその場で安全に保存します。秘密値は発行時だけ表示されます。キー一覧では有効期限と失効状態を確認し、既存キーを失効できます。
+
+新しいキーの秘密値ではなく SHA-256 ハッシュを D1 に保存します。管理者は過去の所有者情報が異なる既存キーも一覧、使用状況確認、失効できます。既存の所有者データは書き換えません。Better Auth の一度だけ表示する API key パターンに倣ったライフサイクルを使いますが、Cho にはユーザーセッションがないため Better Auth 自体は導入しません。
+
+MCP クライアントは `Authorization: Bearer <クライアントキー>` を付けて `POST /api/mcp` を呼び出します。管理キーは MCP 実行 API の認証には使えず、クライアントキーは管理 API の認証には使えません。サーバーは許可されていないツールを一覧から隠し、そのツールへの呼び出しを拒否します。
+
+### 使用状況を確認する
+
+`GET /api/mcp/usage` はクライアントキーごと、ツールごとの合計と UTC 日別の件数を返します。`tokenId`、`from`、`to` で絞り込めます。日付の範囲は両端を含みます。Cho は登録済みツールの呼び出しを実行前に数えます。入力検証や処理に失敗した呼び出しも含みます。件数を保存できない場合、ツールを実行しません。Cho は引数、応答、食事データ、エラー本文、トークン文字列を使用状況に保存しません。
+
+PR preview は Production D1 を共有するため、Worker の設定で `MCP_MANAGEMENT_ENABLED=false` にし、管理 API を D1 に触れる前に拒否します。管理ハッシュ secret が Worker から継承された場合も同じです。Preview workflow は管理キーのハッシュを渡しません。また、プレビューをアップロードする前に `mcp_api_tokens` と `mcp_tool_usage_daily` の列、制約、index を Production D1 に対して読み取り専用で確認し、不足または不一致なら停止します。Preview workflow は remote migration を実行しません。Production Deploy workflow が merge 後に migration を適用するため、テーブルがまだない PR preview は利用できません。Settings の管理機能は Production で利用してください。
+
+Cho の MCP Bearer キーは独自の事前設定方式です。Cho は OAuth 認可サーバーを提供しないため、この MCP エンドポイントは OAuth との相互運用を主張しません。
 
 ## Theme and styling
 

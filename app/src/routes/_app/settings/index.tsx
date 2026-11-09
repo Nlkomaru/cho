@@ -8,6 +8,7 @@ import { FormField } from "../-components/form-field";
 import { errorMessageFrom } from "../../../lib/api-error";
 import { Page, PageHeader } from "../../../components/ui/page";
 import { Section } from "../../../components/ui/section";
+import { McpManagement } from "../../../components/mcp-management";
 
 export const Route = createFileRoute("/_app/settings/")({
   staticData: { breadcrumbs: [{ label: "設定" }] },
@@ -289,6 +290,7 @@ function SettingsPage() {
           </Stack>
         </chakra.form>
       ) : null}
+      <McpManagement />
     </Page>
   );
 }
