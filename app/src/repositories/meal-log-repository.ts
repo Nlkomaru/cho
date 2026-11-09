@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, like, lte, or } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { mealLogSchema, type MealLog } from "../domain/ingredient";
 import type { createDbClient } from "../db/client";
 import { mealLogItems, mealLogs, mediaImages } from "../db/schema";
@@ -13,6 +14,17 @@ type MealLogFilter = {
   q?: string;
 };
 type InventiaConsumptionStatus = MealLog["inventiaConsumptionStatus"];
+
+const MEAL_LOG_ITEM_CHUNK_SIZE = 8;
+
+function chunkArray<T>(items: readonly T[], size: number): T[][] {
+  if (size <= 0) throw new RangeError("Chunk size must be positive");
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
 function parseJson(value: string | null): unknown {
   return value === null ? null : JSON.parse(value);
@@ -204,11 +216,18 @@ export function createMealLogRepository(db: Database) {
     async create(input: MealLog): Promise<MealLog> {
       const log = mealLogSchema.parse(input);
       await assertImages(log.imageIds, null);
+      const rows = itemRows(log);
+      const itemInserts =
+        rows.length === 0
+          ? []
+          : chunkArray(rows, MEAL_LOG_ITEM_CHUNK_SIZE).map((chunk) =>
+              db.insert(mealLogItems).values(chunk),
+            );
       await db.batch([
         db.insert(mealLogs).values(logValues(log)),
-        db.insert(mealLogItems).values(itemRows(log)),
+        ...itemInserts,
         ...imageUpdates(log),
-      ]);
+      ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
       const created = await getById(log.id);
       if (!created) throw new Error("Meal log insert completed without a readable row");
       return created;
@@ -232,6 +251,13 @@ export function createMealLogRepository(db: Database) {
             .where(eq(mediaImages.id, image.id)),
         );
       const values = logValues(log);
+      const rows = itemRows(log);
+      const itemInserts =
+        rows.length === 0
+          ? []
+          : chunkArray(rows, MEAL_LOG_ITEM_CHUNK_SIZE).map((chunk) =>
+              db.insert(mealLogItems).values(chunk),
+            );
       await db.batch([
         db
           .update(mealLogs)
@@ -250,10 +276,10 @@ export function createMealLogRepository(db: Database) {
           })
           .where(eq(mealLogs.id, id)),
         db.delete(mealLogItems).where(eq(mealLogItems.mealLogId, id)),
-        db.insert(mealLogItems).values(itemRows(log)),
+        ...itemInserts,
         ...detachImageUpdates,
         ...imageUpdates(log),
-      ]);
+      ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
       return getById(id);
     },
     async delete(id: string): Promise<MealLog | null> {

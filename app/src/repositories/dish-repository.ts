@@ -1,10 +1,22 @@
 import { asc, eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { dishSchema, type Dish } from "../domain/ingredient";
 import type { createDbClient } from "../db/client";
 import { dishIngredients, dishes } from "../db/schema";
 
 type Database = ReturnType<typeof createDbClient>;
 type DishChanges = Partial<Omit<Dish, "id">>;
+
+const INGREDIENT_CHUNK_SIZE = 8;
+
+function chunkArray<T>(items: readonly T[], size: number): T[][] {
+  if (size <= 0) throw new RangeError("Chunk size must be positive");
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
 function fromRow(row: typeof dishes.$inferSelect): Dish {
   return dishSchema.parse({
@@ -70,9 +82,16 @@ export function createDishRepository(db: Database) {
     },
     async create(input: Dish): Promise<Dish> {
       const dish = dishSchema.parse(input);
-      await db.batch([
-        db.insert(dishes).values(dishValues(dish)),
-        db.insert(dishIngredients).values(dishIngredientValues(dish)),
+      const ingredientRows = dishIngredientValues(dish);
+      const ingredientInserts =
+        ingredientRows.length === 0
+          ? []
+          : chunkArray(ingredientRows, INGREDIENT_CHUNK_SIZE).map((chunk) =>
+              db.insert(dishIngredients).values(chunk),
+            );
+      await db.batch([db.insert(dishes).values(dishValues(dish)), ...ingredientInserts] as [
+        BatchItem<"sqlite">,
+        ...BatchItem<"sqlite">[],
       ]);
       const [row] = await db.select().from(dishes).where(eq(dishes.id, dish.id)).limit(1);
       if (!row) throw new Error("Dish insert completed without a readable row");
@@ -93,14 +112,21 @@ export function createDishRepository(db: Database) {
         coverImageId: updateValues.coverImageId,
         notes: updateValues.notes,
       };
+      const ingredientRows = dishIngredientValues(dish);
+      const ingredientInserts =
+        ingredientRows.length === 0
+          ? []
+          : chunkArray(ingredientRows, INGREDIENT_CHUNK_SIZE).map((chunk) =>
+              db.insert(dishIngredients).values(chunk),
+            );
       await db.batch([
         db
           .update(dishes)
           .set({ ...values, updatedAt: new Date().toISOString() })
           .where(eq(dishes.id, id)),
         db.delete(dishIngredients).where(eq(dishIngredients.dishId, id)),
-        db.insert(dishIngredients).values(dishIngredientValues(dish)),
-      ]);
+        ...ingredientInserts,
+      ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
       return this.getById(id);
     },
     async delete(id: string): Promise<Dish | null> {
