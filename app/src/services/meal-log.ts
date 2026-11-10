@@ -9,7 +9,11 @@ import {
   type MealPeriodTotals,
   type MealSummary,
 } from "../domain/ingredient";
-import { calculateIngredientCost, calculateIngredientNutrition } from "../domain/ingredient";
+import {
+  calculateDishNutrition,
+  calculateIngredientCost,
+  calculateIngredientNutrition,
+} from "../domain/ingredient";
 import { scaleNutritionFacts, sumNutritionFacts } from "../domain/nutrition";
 import type { NutritionFacts } from "../domain/nutrition";
 import {
@@ -183,32 +187,41 @@ export function createMealLogService({
           const dish = await dishRepository.getById(item.dishId);
           if (!dish) throw new Error(`Unknown dish: ${item.dishId}`);
           const manual = item.estimationSource === "manual";
-          const nutrition =
-            manual && item.nutrition
-              ? item.nutrition
-              : dish.totalNutrition
-                ? scaleNutritionFacts(dish.totalNutrition, item.servingsFactor)
-                : null;
-          const breakdown = await Promise.all(
+          const resolved = await Promise.all(
             dish.recipe.ingredients.map(async (entry) => {
               const ingredient = await ingredientRepository.getById(entry.ingredientId);
               if (!ingredient)
                 throw new Error(
                   `Unknown ingredient ${entry.ingredientId} referenced by dish ${dish.id}`,
                 );
-              const amount = (entry.amount / dish.servings) * item.servingsFactor;
-              const cost = calculateIngredientCost(ingredient, amount);
-              return cost === null
-                ? null
-                : {
-                    ingredientId: ingredient.id,
-                    name: ingredient.name,
-                    amount,
-                    unit: ingredient.baseUnit,
-                    costYen: cost,
-                  };
+              return { ingredient, amount: entry.amount };
             }),
           );
+          // From the current ingredients, like the price; the stored dish total can predate them
+          const nutrition =
+            manual && item.nutrition
+              ? item.nutrition
+              : resolved.length > 0
+                ? scaleNutritionFacts(
+                    calculateDishNutrition(resolved, dish.servings),
+                    item.servingsFactor,
+                  )
+                : dish.totalNutrition
+                  ? scaleNutritionFacts(dish.totalNutrition, item.servingsFactor)
+                  : null;
+          const breakdown = resolved.map(({ ingredient, amount: entryAmount }) => {
+            const amount = (entryAmount / dish.servings) * item.servingsFactor;
+            const cost = calculateIngredientCost(ingredient, amount);
+            return cost === null
+              ? null
+              : {
+                  ingredientId: ingredient.id,
+                  name: ingredient.name,
+                  amount,
+                  unit: ingredient.baseUnit,
+                  costYen: cost,
+                };
+          });
           const priceYen =
             manual && item.priceYen !== null
               ? item.priceYen
