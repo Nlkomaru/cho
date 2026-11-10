@@ -581,3 +581,31 @@ test("changing the basis amount of a linked ingredient converts the price again"
   expect(updated?.latestUnitPriceYen).toBe(0.8);
   expect(getStored().latestUnitPriceYen).toBe(0.8);
 });
+
+test("an unlinked ingredient takes a hand-entered price, a linked one keeps the Inventia price", async () => {
+  const { service, getStored } = fixture();
+  await service.update("flour", { latestUnitPriceYen: 12 });
+  expect(getStored().latestUnitPriceYen).toBe(80);
+
+  await service.update("flour", { inventiaItemId: null, latestUnitPriceYen: 30 });
+  expect(getStored()).toMatchObject({ inventiaItemId: null, latestUnitPriceYen: 30 });
+  expect(getStored().latestPriceUpdatedAt).not.toBeNull();
+
+  await service.update("flour", { name: "Bread flour" });
+  expect(getStored().latestUnitPriceYen).toBe(30);
+  await service.update("flour", { latestUnitPriceYen: null });
+  expect(getStored()).toMatchObject({ latestUnitPriceYen: null, latestPriceUpdatedAt: null });
+});
+
+test("a new unlinked ingredient stores its hand-entered price", async () => {
+  const { service } = fixture();
+  const created = await service.create({
+    ...initialIngredient,
+    id: "sugar",
+    inventiaItemId: null,
+    latestUnitPriceYen: 25,
+    latestPriceUpdatedAt: null,
+  });
+  expect(created.latestUnitPriceYen).toBe(25);
+  expect(created.latestPriceUpdatedAt).not.toBeNull();
+});

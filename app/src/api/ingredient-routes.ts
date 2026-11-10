@@ -24,6 +24,14 @@ const userIngredientFields = {
   nutritionPerBasis: nutritionFactsSchema,
   gramPerUnit: ingredientSchema.shape.gramPerUnit.optional(),
   memo: ingredientSchema.shape.memo.optional(),
+  latestUnitPriceYen: z
+    .number()
+    .min(0)
+    .nullable()
+    .optional()
+    .describe(
+      "Hand-entered unit price in yen per nutritionBasisAmount (e.g. per 100 g). Only used while the ingredient is not linked to Inventia; a linked ingredient takes its price from Inventia.",
+    ),
 };
 const createIngredientRequestSchema = z
   .object(userIngredientFields)
@@ -151,7 +159,7 @@ ingredientRoutes.openapi(createIngredientRoute, async (context) => {
       gramPerUnit: input.gramPerUnit ?? null,
       memo: input.memo ?? null,
       inventiaItemId: null,
-      latestUnitPriceYen: null,
+      latestUnitPriceYen: input.latestUnitPriceYen ?? null,
       latestPriceUpdatedAt: null,
     });
     return context.json(ingredient, 201);

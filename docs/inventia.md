@@ -18,6 +18,14 @@ Cho は Inventia の API（`inv_` API トークン認証）と連携し、品目
 - `usable` / `capabilities.readItems`: Worker 内で復号と設定検証ができることを表します（Inventia への実通信成功を保証するものではありません）。
 - `issue`: 利用できない場合の理由を返します。D1 のテーブル不足などの保存先エラーは、未設定状態に置き換えずエラーとして返します。
 
+## 材料の単価
+
+材料の単価（`latestUnitPriceYen`、栄養価の基準量あたりの円）は、Inventia と連携している材料では Inventia の価格を使います。連携していない材料は、材料の編集画面の「単価（手入力）」、`POST/PATCH /api/ingredients`、MCP の `create_ingredient` / `update_ingredient` で手入力できます。
+
+- 連携中の材料に送った手入力の単価は無視します。
+- 手入力の単価がある材料を Inventia と連携し、Inventia に価格が無い場合は手入力の単価を残します。
+- 連携を解除すると単価は空になります。
+
 ## 在庫消費の保護（`INVENTIA_STOCK_WRITES_ENABLED`）
 
 `INVENTIA_STOCK_WRITES_ENABLED` は `app/wrangler.jsonc` には定義せず、未設定時はアプリ側で在庫消費を拒否します。

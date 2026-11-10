@@ -35,6 +35,8 @@ export interface IngredientForm extends NutritionForm {
   baseUnit: string;
   nutritionBasisAmount: string;
   gramPerUnit: string;
+  /** 手入力の単価 (基準量あたり、円)。Inventia と連携していないときだけ使う。 */
+  unitPriceYen: string;
   memo: string;
 }
 
@@ -47,6 +49,8 @@ export interface IngredientPayload {
   nutritionPerBasis: NutritionFacts;
   gramPerUnit: number | null;
   memo: string | null;
+  /** 手入力の単価。Inventia と連携している材料では送らない (Inventia の価格を使う)。 */
+  latestUnitPriceYen?: number | null;
 }
 
 /** POST /api/ai/estimate-ingredient の結果。 */
@@ -58,6 +62,7 @@ export const emptyIngredientForm = (): IngredientForm => ({
   baseUnit: "g",
   nutritionBasisAmount: "100",
   gramPerUnit: "",
+  unitPriceYen: "",
   caloriesKcal: "0",
   proteinG: "0",
   fatG: "0",
@@ -86,6 +91,7 @@ export const ingredientFormFrom = (item: Ingredient): IngredientForm => ({
   baseUnit: item.baseUnit,
   nutritionBasisAmount: String(item.nutritionBasisAmount),
   gramPerUnit: optional(item.gramPerUnit),
+  unitPriceYen: item.inventiaItemId ? "" : optional(item.latestUnitPriceYen),
   memo: item.memo ?? "",
   ...nutritionFormFrom(item.nutritionPerBasis),
 });
@@ -108,8 +114,11 @@ const requiredNumber = (value: string, label: string) => {
 const optionalNumber = (value: string, label: string) =>
   value.trim() ? requiredNumber(value, label) : null;
 
-/** フォームを API の本文に変換する。不正な値があれば Error を投げる。 */
-export const payloadFromForm = (form: IngredientForm): IngredientPayload => ({
+/**
+ * フォームを API の本文に変換する。不正な値があれば Error を投げる。
+ * `manualPrice` が false (Inventia と連携中) なら単価は送らない。
+ */
+export const payloadFromForm = (form: IngredientForm, manualPrice = true): IngredientPayload => ({
   name: form.name.trim(),
   baseDimension: form.baseDimension,
   baseUnit: form.baseUnit.trim(),
@@ -130,6 +139,7 @@ export const payloadFromForm = (form: IngredientForm): IngredientPayload => ({
   },
   gramPerUnit: optionalNumber(form.gramPerUnit, "1単位あたりのグラム数"),
   memo: form.memo.trim() || null,
+  ...(manualPrice ? { latestUnitPriceYen: optionalNumber(form.unitPriceYen, "単価") } : {}),
 });
 
 /** "100g あたり" / "1個 あたり" */
