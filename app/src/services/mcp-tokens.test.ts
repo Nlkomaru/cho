@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 
 import { createDbClient } from "../db/client";
 import { createMcpTokenService, isMcpManagementEnabled } from "./mcp-tokens";
@@ -36,6 +36,8 @@ function database() {
 }
 
 test("MCP tokens expire and revoke, and root usage totals respect the interval", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-09T00:00:00.000Z"));
   const { sqlite, binding } = database();
   const service = createMcpTokenService(createDbClient(binding));
   try {
@@ -136,6 +138,7 @@ test("MCP tokens expire and revoke, and root usage totals respect the interval",
     expect(listIngredientsTool?.lastUsedDate).toBe("2026-11-08");
   } finally {
     sqlite.close();
+    vi.useRealTimers();
   }
 });
 
