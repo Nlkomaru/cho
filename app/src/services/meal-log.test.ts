@@ -154,7 +154,7 @@ test("snapshots self-cooked item price, nutrition, and ingredient costs; memo pa
   const created = await state.service.create(mealInput);
   expect(created.items[0]?.priceYen).toBe(50);
   expect(created.totalPriceYen).toBe(50);
-  expect(created.items[0]?.nutrition?.caloriesKcal).toBe(100);
+  expect(created.items[0]?.nutrition?.caloriesKcal).toBe(50);
   expect(created.items[0]?.ingredientCostBreakdown).toEqual([
     { ingredientId: "tomato", name: "Tomato", amount: 20, unit: "g", costYen: 20 },
     { ingredientId: "tomato", name: "Tomato", amount: 30, unit: "g", costYen: 30 },
@@ -523,9 +523,18 @@ test("meal totals add the priced items and the salt that is known", async () => 
     ],
   });
   expect(created.totalPriceYen).toBe(130);
-  expect(created.totalNutrition?.saltEquivalentG).toBeCloseTo(0.2);
+  expect(created.totalNutrition?.saltEquivalentG).toBeCloseTo(0.1);
   const cleared = await state.service.update("meal-1", { totalPriceYen: 999 });
   expect(cleared?.totalPriceYen).toBe(999);
   const restored = await state.service.update("meal-1", { totalPriceYen: null });
   expect(restored?.totalPriceYen).toBe(130);
+});
+
+test("recipe items take nutrition from the current ingredients, not a stale dish total", async () => {
+  const stale: Dish = { ...dish, totalNutrition: { ...facts, saltEquivalentG: null } };
+  const state = fixture(ingredient(100), stale);
+  const created = await state.service.create(mealInput);
+  // 50 g of tomato per serving at 0.2 g salt per 100 g
+  expect(created.items[0]?.nutrition?.saltEquivalentG).toBeCloseTo(0.1);
+  expect(created.totalNutrition?.saltEquivalentG).toBeCloseTo(0.1);
 });
