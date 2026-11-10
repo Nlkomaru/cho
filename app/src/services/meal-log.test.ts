@@ -481,7 +481,7 @@ test("meal price comes from current ingredient prices, not the cached dish cost"
   expect(meal.items[0]?.priceYen).toBeCloseTo(50);
 });
 
-test("a partly priced dish gives the meal no price", async () => {
+test("a dish without any priced ingredient gives the meal no price", async () => {
   const unpriced = fixture(ingredient(null), { ...dish, totalCostYen: 165.3, costMissingCount: 0 });
   const meal = await unpriced.service.create({
     ...mealInput,
@@ -537,4 +537,41 @@ test("recipe items take nutrition from the current ingredients, not a stale dish
   // 50 g of tomato per serving at 0.2 g salt per 100 g
   expect(created.items[0]?.nutrition?.saltEquivalentG).toBeCloseTo(0.1);
   expect(created.totalNutrition?.saltEquivalentG).toBeCloseTo(0.1);
+});
+
+test("a partly priced dish prices the meal item from the priced ingredients and keeps its name", async () => {
+  const onion: Ingredient = { ...ingredient(null), id: "onion", name: "Onion" };
+  const base = recipe();
+  const mixed: Dish = {
+    ...dish,
+    recipe: {
+      ...base,
+      ingredients: base.ingredients.map((entry) =>
+        entry.id === "tomato-b" ? { ...entry, ingredientId: "onion", name: "Onion" } : entry,
+      ),
+    },
+  };
+  const service = createMealLogService({
+    repository: {
+      list: async () => [],
+      getById: async () => null,
+      create: async (input) => input,
+      update: async () => null,
+      delete: async () => null,
+      setInventiaConsumptionStatus: async () => false,
+    },
+    dishRepository: { getById: async () => mixed },
+    ingredientRepository: {
+      getById: async (id) => (id === "tomato" ? ingredient(100) : id === "onion" ? onion : null),
+    },
+  });
+  const meal = await service.create({
+    ...mealInput,
+    items: [{ ...mealInput.items[0], name: "Grilled tomato" }],
+  });
+  // 20 g of tomato per serving at 100 yen per 100 g; the onion has no price
+  expect(meal.items[0]?.priceYen).toBeCloseTo(20);
+  expect(meal.items[0]?.ingredientCostBreakdown).toHaveLength(1);
+  expect(meal.items[0]?.name).toBe("Grilled tomato");
+  expect(meal.totalPriceYen).toBeCloseTo(20);
 });

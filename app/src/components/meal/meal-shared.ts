@@ -171,7 +171,7 @@ export const emptyFacts = (): NutritionFacts => ({
 });
 
 /**
- * レシピを品目にする。原価は材料の単価がそろっているときだけ (一部欠けるなら料金なし)。
+ * レシピを品目にする。料金はレシピの原価 (単価のある材料の合計)。単価が 1 つも無ければ料金なし。
  */
 export function dishMealItem(dish: Dish, factor: number): MealItem {
   const servingsFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
@@ -180,10 +180,7 @@ export function dishMealItem(dish: Dish, factor: number): MealItem {
     dishId: dish.id,
     ingredientId: null,
     servingsFactor,
-    priceYen:
-      dish.totalCostYen === null || dish.costMissingCount > 0
-        ? null
-        : dish.totalCostYen * servingsFactor,
+    priceYen: dish.totalCostYen === null ? null : dish.totalCostYen * servingsFactor,
     nutrition: dish.totalNutrition
       ? scaleNutritionFacts(dish.totalNutrition, servingsFactor)
       : null,
