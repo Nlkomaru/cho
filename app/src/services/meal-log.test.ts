@@ -489,3 +489,43 @@ test("a partly priced dish gives the meal no price", async () => {
   });
   expect(meal.items[0]?.priceYen).toBeNull();
 });
+
+test("meal totals add the priced items and the salt that is known", async () => {
+  const state = fixture();
+  const created = await state.service.create({
+    ...mealInput,
+    items: [
+      { ...mealInput.items[0] },
+      {
+        id: "item-2",
+        dishId: null,
+        ingredientId: null,
+        name: "Miso soup",
+        servingsFactor: 1,
+        priceYen: 80,
+        nutrition: { ...facts, saltEquivalentG: null },
+        ingredientCostBreakdown: [],
+        estimationSource: "manual" as const,
+        sortOrder: 1,
+      },
+      {
+        id: "item-3",
+        dishId: null,
+        ingredientId: null,
+        name: "Rice",
+        servingsFactor: 1,
+        priceYen: null,
+        nutrition: { ...facts, saltEquivalentG: 0 },
+        ingredientCostBreakdown: [],
+        estimationSource: "manual" as const,
+        sortOrder: 2,
+      },
+    ],
+  });
+  expect(created.totalPriceYen).toBe(130);
+  expect(created.totalNutrition?.saltEquivalentG).toBeCloseTo(0.2);
+  const cleared = await state.service.update("meal-1", { totalPriceYen: 999 });
+  expect(cleared?.totalPriceYen).toBe(999);
+  const restored = await state.service.update("meal-1", { totalPriceYen: null });
+  expect(restored?.totalPriceYen).toBe(130);
+});

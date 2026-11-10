@@ -12,6 +12,8 @@ export interface NumberFieldProps {
   size?: "sm" | "md";
   /** ラベルを視覚的に隠す (表の中など)。 */
   hideLabel?: boolean;
+  /** 空欄のときに薄く見せる値 (空欄で使われる既定値など)。 */
+  placeholder?: string;
   helperText?: string;
   errorText?: string;
   required?: boolean;
@@ -31,6 +33,7 @@ export function NumberField({
   unit,
   size = "md",
   hideLabel,
+  placeholder,
   helperText,
   errorText,
   required,
@@ -59,7 +62,7 @@ export function NumberField({
         formatOptions={{ useGrouping: false, maximumFractionDigits: 6 }}
       >
         <Box position="relative">
-          <NumberInput.Input pe={unit ? "12" : "3"} textAlign="start" />
+          <NumberInput.Input pe={unit ? "12" : "3"} textAlign="start" placeholder={placeholder} />
           {unit ? (
             <chakra.span
               position="absolute"

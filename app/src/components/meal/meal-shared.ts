@@ -1,4 +1,4 @@
-import type { NutritionFacts } from "@/domain/nutrition";
+import { scaleNutritionFacts, type NutritionFacts } from "@/domain/nutrition";
 import { errorMessageFrom } from "@/lib/api-error";
 import { formatDateJa } from "@/lib/format";
 
@@ -169,6 +169,44 @@ export const emptyFacts = (): NutritionFacts => ({
   saltEquivalentG: null,
   micronutrients: [],
 });
+
+/**
+ * レシピを品目にする。原価は材料の単価がそろっているときだけ (一部欠けるなら料金なし)。
+ */
+export function dishMealItem(dish: Dish, factor: number): MealItem {
+  const servingsFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  return {
+    name: dish.name,
+    dishId: dish.id,
+    ingredientId: null,
+    servingsFactor,
+    priceYen:
+      dish.totalCostYen === null || dish.costMissingCount > 0
+        ? null
+        : dish.totalCostYen * servingsFactor,
+    nutrition: dish.totalNutrition
+      ? scaleNutritionFacts(dish.totalNutrition, servingsFactor)
+      : null,
+    estimationSource: "recipe",
+  };
+}
+
+/** 品目の料金の合計。料金のある品目だけを足し、1 つも無ければ null。 */
+export function sumItemPrices(items: readonly Pick<MealItem, "priceYen">[]): number | null {
+  const prices = items
+    .map((item) => item.priceYen)
+    .filter((price): price is number => price !== null);
+  return prices.length ? prices.reduce((sum, price) => sum + price, 0) : null;
+}
+
+/** 品目名から作る記録のタイトル ("サバの塩焼き・味噌汁・ごはん")。 */
+export function titleFromItems(items: readonly Pick<MealItem, "name">[]): string {
+  return items
+    .map((item) => item.name.trim())
+    .filter(Boolean)
+    .join("・")
+    .slice(0, 120);
+}
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);

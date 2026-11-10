@@ -1,8 +1,7 @@
 import { Box, Checkbox, Flex, Input, SimpleGrid, Stack, Textarea, chakra } from "@chakra-ui/react";
-import { Sparkles } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { NutritionInline } from "@/components/food/nutrition-inline";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
 import { TimeField } from "@/components/ui/time-field";
@@ -18,7 +17,6 @@ import {
   calculateIngredientNutrition,
   type Ingredient,
 } from "@/domain/ingredient";
-import { scaleNutritionFacts } from "@/domain/nutrition";
 import { formatYen } from "@/lib/format";
 
 import { MealItemsEditor, blankMealItem } from "./meal-items-editor";
@@ -26,11 +24,14 @@ import { MealPhotoTiles, type MealPhoto } from "./meal-photo-tiles";
 import {
   api,
   combineLocalDateTime,
+  dishMealItem,
   imageUrl,
   localCalendarDate,
   localTimeValue,
   sourceOptions,
+  sumItemPrices,
   timingFromDate,
+  titleFromItems,
   timingOptions,
   type Analysis,
   type CreatedMeal,
@@ -44,15 +45,18 @@ import {
 export type MealEntryMethod = "ai" | "recipe" | "ingredient" | "manual";
 
 const methodItems = [
-  { value: "ai", label: "AI解析" },
+  { value: "manual", label: "手入力" },
   { value: "recipe", label: "レシピ" },
   { value: "ingredient", label: "材料" },
-  { value: "manual", label: "手入力" },
+  { value: "ai", label: "AI解析" },
 ] as const;
 
 const MAX_PHOTOS = 4;
 
 type PhotoEntry = MealPhoto & { file?: File; id?: string };
+
+const isBlank = (item: MealItem) =>
+  !item.name.trim() && item.priceYen === null && item.nutrition === null;
 
 export interface MealEntryDrawerProps {
   open: boolean;
@@ -64,12 +68,13 @@ export interface MealEntryDrawerProps {
   /** レシピから記録するときの料理 ID (`/?dishId=` から)。 */
   initialDishId?: string;
   initialServings?: number;
-  /** 開いたときの入力方法。既定は AI 解析 (料理 ID があればレシピ)。 */
+  /** 開いたときの品目の追加方法。既定は手入力 (料理 ID があればレシピ)。 */
   initialMethod?: MealEntryMethod;
 }
 
 /**
- * 食事の記録・編集ドロワー。上で入力方法を選び、その方法の項目 → 共通項目 → 写真の順に並べる。
+ * 食事の記録・編集ドロワー。品目の一覧 → 品目の追加 (手入力・レシピ・材料・AI解析) → 共通項目 → 写真の順に並べる。
+ * 1 食に複数の品目を持たせ、品目ごとにレシピとつなげる。
  */
 export function MealEntryDrawer({
   open,
@@ -81,7 +86,7 @@ export function MealEntryDrawer({
   initialMethod,
 }: MealEntryDrawerProps) {
   const editing = Boolean(meal);
-  const [method, setMethod] = useState<MealEntryMethod>("ai");
+  const [method, setMethod] = useState<MealEntryMethod>("manual");
   const [source, setSource] = useState<Source>("other");
   const [title, setTitle] = useState("");
   const [place, setPlace] = useState("");
@@ -92,10 +97,10 @@ export function MealEntryDrawer({
   const [items, setItems] = useState<MealItem[]>([]);
   const [itemsDirty, setItemsDirty] = useState(false);
   const [itemsGeneration, setItemsGeneration] = useState(0);
-  const [analyzed, setAnalyzed] = useState(false);
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [hint, setHint] = useState("");
-  const [dishes, setDishes] = useState<Dish[]>([]);
+  const [dishes, setDishes] = useState<Dish[] | null>(null);
+  const [dishError, setDishError] = useState("");
   const [dishId, setDishId] = useState("");
   const [servings, setServings] = useState("1");
   const [stock, setStock] = useState(false);
@@ -111,30 +116,32 @@ export function MealEntryDrawer({
   useEffect(() => {
     if (!open) return;
     const now = new Date();
-    const start: MealEntryMethod = meal
-      ? "manual"
-      : (initialMethod ?? (initialDishId ? "recipe" : "ai"));
-    setMethod(start);
+    setMethod(initialMethod ?? (initialDishId ? "recipe" : "manual"));
     setSource(meal?.sourceType ?? (initialDishId ? "self_cooked" : "other"));
     setTitle(meal?.title ?? "");
     setPlace(meal?.placeName ?? "");
     setDateValue(localCalendarDate(meal ? new Date(meal.eatenAt) : now));
     setTimeValue(localTimeValue(meal ? new Date(meal.eatenAt) : now));
     setTiming(meal?.mealTiming ?? timingFromDate(now));
-    setPrice(meal?.totalPriceYen == null ? "" : String(meal.totalPriceYen));
+    // 品目の合計と同じなら入力欄は空にし、品目を変えたときに合計が追従するようにする
+    setPrice(
+      meal?.totalPriceYen == null || meal.totalPriceYen === sumItemPrices(meal.items)
+        ? ""
+        : String(meal.totalPriceYen),
+    );
     setItems(
       meal
         ? meal.items.map(({ ingredientCostBreakdown: _breakdown, ...item }) => ({ ...item }))
-        : start === "manual"
-          ? [blankMealItem()]
-          : [],
+        : initialDishId
+          ? []
+          : [blankMealItem()],
     );
     setItemsDirty(false);
     setItemsGeneration((value) => value + 1);
-    setAnalyzed(false);
     setPhotos((meal?.imageIds ?? []).map((id) => ({ key: id, id, src: imageUrl(id) })));
     setHint("");
-    setDishes([]);
+    setDishes(null);
+    setDishError("");
     setIngredients([]);
     setDishId(initialDishId ?? "");
     setServings(String(initialServings));
@@ -154,24 +161,27 @@ export function MealEntryDrawer({
     };
   }, []);
 
+  // 品目ごとにレシピをつなげるので、開いたら常に読み込む
   useEffect(() => {
-    if (!open || method !== "recipe" || dishes.length) return;
+    if (!open || dishes || dishError) return;
     let cancelled = false;
     api<Dish[]>("/api/dishes")
       .then((list) => {
         if (cancelled) return;
         setDishes(list);
         const dish = initialDishId ? list.find((entry) => entry.id === initialDishId) : undefined;
-        if (dish) applyDish(dish, initialServings);
+        if (dish && !meal) appendItems([dishMealItem(dish, initialServings)]);
       })
-      .catch((cause: unknown) =>
-        setError(cause instanceof Error ? cause.message : "レシピを読み込めませんでした。"),
-      );
+      // 手入力だけなら困らないので、レシピの欄にだけ出す
+      .catch((cause: unknown) => {
+        if (!cancelled)
+          setDishError(cause instanceof Error ? cause.message : "レシピを読み込めませんでした。");
+      });
     return () => {
       cancelled = true;
     };
-    // applyDish は state 更新だけなので依存に含めない
-  }, [open, method, dishes.length, initialDishId, initialServings]);
+    // appendItems は state 更新だけなので依存に含めない
+  }, [open, dishes, dishError, meal, initialDishId, initialServings]);
 
   useEffect(() => {
     if (!open || method !== "ingredient" || ingredients.length) return;
@@ -189,7 +199,7 @@ export function MealEntryDrawer({
   }, [open, method, ingredients.length]);
 
   const dishOptions = useMemo(
-    () => dishes.map((dish) => ({ value: dish.id, label: dish.name })),
+    () => (dishes ?? []).map((dish) => ({ value: dish.id, label: dish.name })),
     [dishes],
   );
   const ingredientOptions = useMemo(
@@ -197,72 +207,60 @@ export function MealEntryDrawer({
     [ingredients],
   );
   const selectedIngredient = ingredients.find((entry) => entry.id === ingredientId);
+  const itemsTotal = sumItemPrices(items);
+  const suggestedTitle = titleFromItems(items);
+  const hasDishItem = items.some((item) => item.dishId);
 
-  function replaceItems(next: MealItem[]) {
+  function changeItems(next: MealItem[]) {
     setItems(next);
+    setItemsDirty(true);
+  }
+
+  /** 空の品目を捨てて後ろに足す。入力途中の栄養価は作り直す。 */
+  function appendItems(next: MealItem[], drop: (item: MealItem) => boolean = () => false) {
+    setItems((current) => [...current.filter((item) => !isBlank(item) && !drop(item)), ...next]);
     setItemsDirty(true);
     setItemsGeneration((value) => value + 1);
   }
 
-  function changeMethod(next: MealEntryMethod) {
-    setMethod(next);
-    setError("");
-    if (next === "manual" && items.length === 0) replaceItems([blankMealItem()]);
-  }
-
-  function applyDish(dish: Dish, factor: number) {
-    const servingsFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
-    const cost =
-      dish.totalCostYen === null || dish.costMissingCount > 0
-        ? null
-        : dish.totalCostYen * servingsFactor;
-    setDishId(dish.id);
-    setSource("self_cooked");
-    setTitle(dish.name);
-    setPrice(cost === null ? "" : String(Math.round(cost)));
-    replaceItems([
-      {
-        name: dish.name,
-        dishId: dish.id,
-        servingsFactor,
-        priceYen: cost,
-        nutrition: dish.totalNutrition
-          ? scaleNutritionFacts(dish.totalNutrition, servingsFactor)
-          : null,
-        estimationSource: "recipe",
-      },
-    ]);
-  }
-
-  function chooseDish(id: string, factor = Number(servings)) {
-    const dish = dishes.find((entry) => entry.id === id);
+  function addDish() {
+    const dish = dishes?.find((entry) => entry.id === dishId);
     if (!dish) {
-      setDishId("");
+      setError("レシピを選択してください。");
       return;
     }
-    applyDish(dish, factor);
+    setError("");
+    if (source === "other") setSource("self_cooked");
+    appendItems([dishMealItem(dish, Number(servings))]);
+    setDishId("");
+    setServings("1");
   }
 
-  function chooseIngredient(id: string, amount = 0) {
+  function chooseIngredient(id: string) {
     setIngredientId(id);
     const ingredient = ingredients.find((entry) => entry.id === id);
-    if (!ingredient) {
-      setIngredientQty("");
+    setIngredientQty(ingredient ? String(ingredient.nutritionBasisAmount) : "");
+  }
+
+  function addIngredient() {
+    const quantity = Number(ingredientQty);
+    if (!selectedIngredient || !(quantity > 0)) {
+      setError("材料と分量を入力してください。");
       return;
     }
-    const quantity = amount > 0 ? amount : ingredient.nutritionBasisAmount;
-    setIngredientQty(String(quantity));
-    if (!title.trim()) setTitle(ingredient.name);
-    replaceItems([
+    setError("");
+    appendItems([
       {
-        name: ingredient.name,
-        ingredientId: ingredient.id,
-        servingsFactor: quantity / ingredient.nutritionBasisAmount,
-        priceYen: calculateIngredientCost(ingredient, quantity),
-        nutrition: calculateIngredientNutrition(ingredient, quantity),
+        name: selectedIngredient.name,
+        ingredientId: selectedIngredient.id,
+        servingsFactor: quantity / selectedIngredient.nutritionBasisAmount,
+        priceYen: calculateIngredientCost(selectedIngredient, quantity),
+        nutrition: calculateIngredientNutrition(selectedIngredient, quantity),
         estimationSource: "ingredient",
       },
     ]);
+    setIngredientId("");
+    setIngredientQty("");
   }
 
   function addPhotos(files: File[]) {
@@ -316,18 +314,18 @@ export function MealEntryDrawer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageIds, textHint: hint || undefined, sourceType: source }),
       });
-      setTitle(result.suggestedTitle);
-      setPlace(result.suggestedPlaceName ?? "");
-      setPrice(result.totalPriceYen?.toString() ?? "");
-      replaceItems(
+      if (!title.trim()) setTitle(result.suggestedTitle);
+      if (!place.trim()) setPlace(result.suggestedPlaceName ?? "");
+      // 解析し直したときは前回の推定を置き換え、手で直した品目やレシピの品目は残す
+      appendItems(
         result.items.map((item) => ({
           name: item.name,
           priceYen: item.estimatedPriceYen,
           nutrition: item.nutrition,
           estimationSource: "ai",
         })),
+        (item) => item.estimationSource === "ai",
       );
-      setAnalyzed(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "AI解析に失敗しました。");
     } finally {
@@ -342,18 +340,10 @@ export function MealEntryDrawer({
     }
     const validItems = items.filter((item) => item.name.trim().length > 0);
     if (validItems.length === 0) {
-      setError(
-        method === "ai"
-          ? "写真を解析するか、手入力で品目を入力してください。"
-          : method === "recipe"
-            ? "レシピを選択してください。"
-            : method === "ingredient"
-              ? "材料を選択してください。"
-              : "品目名を1つ以上入力してください。",
-      );
+      setError("品目を1つ以上追加してください。");
       return;
     }
-    const consumeStock = !editing && stock && method === "recipe";
+    const consumeStock = !editing && stock && validItems.some((item) => item.dishId);
     if (consumeStock && source !== "self_cooked") {
       setError("在庫を消費するには、区分を「自炊」にしてください。");
       return;
@@ -367,7 +357,7 @@ export function MealEntryDrawer({
         mealTiming: timing,
         sourceType: source,
         placeName: place.trim() || null,
-        title: title.trim(),
+        title: title.trim() || titleFromItems(validItems),
         totalPriceYen: price === "" ? null : Number(price),
         imageIds,
       };
@@ -427,7 +417,6 @@ export function MealEntryDrawer({
   }
 
   const busy = working !== "";
-  const preview = items[0];
   const photoTiles = (
     <Field label="写真">
       <MealPhotoTiles
@@ -465,7 +454,7 @@ export function MealEntryDrawer({
             type="submit"
             variant="primary"
             loading={working === "save"}
-            disabled={busy || (!savedMealId && !title.trim())}
+            disabled={busy || (!savedMealId && !title.trim() && !suggestedTitle)}
           >
             {savedMealId ? "在庫消費を再試行" : "保存"}
           </Button>
@@ -479,64 +468,70 @@ export function MealEntryDrawer({
           </Feedback>
         ) : null}
 
-        {editing ? null : (
-          <Box>
-            <SegmentedControl
-              label="入力方法"
-              size="sm"
-              value={method}
-              onChange={changeMethod}
-              items={methodItems}
+        <Stack gap="3">
+          <Flex justify="space-between" align="baseline" gap="3">
+            <chakra.h3 textStyle="heading.group" color="fg.strong">
+              品目
+            </chakra.h3>
+            <chakra.span textStyle="body.sm" color="fg.muted" fontVariantNumeric="tabular-nums">
+              {items.length}品 · 合計 {formatYen(itemsTotal)}
+            </chakra.span>
+          </Flex>
+          {items.length ? (
+            <MealItemsEditor
+              items={items}
+              resetKey={itemsGeneration}
+              disabled={busy}
+              dishes={dishes ?? undefined}
+              onChange={changeItems}
             />
-          </Box>
-        )}
+          ) : (
+            <chakra.p textStyle="body.sm" color="fg.muted">
+              品目はまだありません。下から追加してください。
+            </chakra.p>
+          )}
+        </Stack>
 
-        {method === "ai" && !editing ? (
-          <Stack gap="5">
-            {photoTiles}
-            <Field label="料理・レシートについて">
-              <Textarea
-                value={hint}
-                rows={3}
-                placeholder="例: 学食のカレー大盛り"
-                onChange={(event) => setHint(event.currentTarget.value)}
-              />
-            </Field>
+        <Stack gap="4" bg="bg.subtle" px="4" py="4">
+          <SegmentedControl
+            label="品目の追加方法"
+            size="sm"
+            value={method}
+            onChange={(next) => {
+              setMethod(next);
+              setError("");
+            }}
+            items={methodItems}
+          />
+
+          {method === "manual" ? (
             <Button
+              type="button"
               variant="secondary"
               size="sm"
               alignSelf="flex-start"
-              loading={working === "analyze"}
-              disabled={busy || (photos.length === 0 && !hint.trim())}
-              onClick={() => void analyze()}
+              disabled={busy}
+              onClick={() => {
+                setItems((current) => [...current, blankMealItem()]);
+                setItemsDirty(true);
+              }}
             >
-              <Sparkles strokeWidth={1.75} />
-              解析する
+              <Plus strokeWidth={1.75} />
+              品目を追加
             </Button>
-            {analyzed ? (
-              <MealItemsEditor
-                items={items}
-                resetKey={itemsGeneration}
-                disabled={busy}
-                onChange={(next) => {
-                  setItems(next);
-                  setItemsDirty(true);
-                }}
-              />
-            ) : null}
-          </Stack>
-        ) : null}
+          ) : null}
 
-        {method === "recipe" && !editing ? (
-          <Stack gap="5">
-            <SimpleGrid columns={{ base: 1, sm: 3 }} gap="4">
+          {method === "recipe" && dishError ? <Feedback tone="error">{dishError}</Feedback> : null}
+
+          {method === "recipe" && !dishError ? (
+            <SimpleGrid columns={{ base: 1, sm: 3 }} gap="4" alignItems="end">
               <Box gridColumn={{ sm: "span 2" }}>
-                <Field label="レシピ" required>
+                <Field label="レシピ">
                   <NativeSelect
                     value={dishId}
-                    placeholder={dishes.length ? "選択" : "読み込み中"}
+                    placeholder={dishes ? "選択" : "読み込み中"}
                     options={dishOptions}
-                    onChange={(value) => chooseDish(value)}
+                    onChange={setDishId}
                   />
                 </Field>
               </Box>
@@ -546,34 +541,31 @@ export function MealEntryDrawer({
                 value={servings}
                 min={0.1}
                 step={0.5}
-                onChange={(value) => {
-                  setServings(value);
-                  if (dishId) chooseDish(dishId, Number(value));
-                }}
+                onChange={setServings}
               />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                justifySelf="flex-start"
+                disabled={busy || !dishId}
+                onClick={addDish}
+              >
+                <Plus strokeWidth={1.75} />
+                レシピを追加
+              </Button>
             </SimpleGrid>
-            {preview?.dishId ? <ItemPreview item={preview} /> : null}
-            <Checkbox.Root
-              checked={stock}
-              onCheckedChange={(details) => setStock(Boolean(details.checked))}
-            >
-              <Checkbox.HiddenInput />
-              <Checkbox.Control />
-              <Checkbox.Label>Inventia の在庫を消費する</Checkbox.Label>
-            </Checkbox.Root>
-          </Stack>
-        ) : null}
+          ) : null}
 
-        {method === "ingredient" && !editing ? (
-          <Stack gap="5">
-            <SimpleGrid columns={{ base: 1, sm: 3 }} gap="4">
+          {method === "ingredient" ? (
+            <SimpleGrid columns={{ base: 1, sm: 3 }} gap="4" alignItems="end">
               <Box gridColumn={{ sm: "span 2" }}>
-                <Field label="材料" required>
+                <Field label="材料">
                   <NativeSelect
                     value={ingredientId}
                     placeholder={ingredients.length ? "選択" : "読み込み中"}
                     options={ingredientOptions}
-                    onChange={(value) => chooseIngredient(value)}
+                    onChange={chooseIngredient}
                   />
                 </Field>
               </Box>
@@ -584,32 +576,67 @@ export function MealEntryDrawer({
                 min={0}
                 step={1}
                 disabled={!selectedIngredient}
-                onChange={(value) => {
-                  setIngredientQty(value);
-                  const quantity = Number(value);
-                  if (quantity > 0) chooseIngredient(ingredientId, quantity);
-                }}
+                onChange={setIngredientQty}
               />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                justifySelf="flex-start"
+                disabled={busy || !selectedIngredient}
+                onClick={addIngredient}
+              >
+                <Plus strokeWidth={1.75} />
+                材料を追加
+              </Button>
             </SimpleGrid>
-            {preview?.ingredientId ? <ItemPreview item={preview} /> : null}
-          </Stack>
-        ) : null}
+          ) : null}
 
-        {method === "manual" || editing ? (
-          <MealItemsEditor
-            items={items}
-            resetKey={itemsGeneration}
-            disabled={busy}
-            onChange={(next) => {
-              setItems(next);
-              setItemsDirty(true);
-            }}
-          />
+          {method === "ai" ? (
+            <Stack gap="5">
+              {photoTiles}
+              <Field label="料理・レシートについて">
+                <Textarea
+                  value={hint}
+                  rows={3}
+                  placeholder="例: サバの塩焼き定食。味噌汁とごはん付き"
+                  onChange={(event) => setHint(event.currentTarget.value)}
+                />
+              </Field>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                alignSelf="flex-start"
+                loading={working === "analyze"}
+                disabled={busy || (photos.length === 0 && !hint.trim())}
+                onClick={() => void analyze()}
+              >
+                <Sparkles strokeWidth={1.75} />
+                解析して追加
+              </Button>
+            </Stack>
+          ) : null}
+        </Stack>
+
+        {!editing && hasDishItem ? (
+          <Checkbox.Root
+            checked={stock}
+            onCheckedChange={(details) => setStock(Boolean(details.checked))}
+          >
+            <Checkbox.HiddenInput />
+            <Checkbox.Control />
+            <Checkbox.Label>レシピの材料を Inventia の在庫から消費する</Checkbox.Label>
+          </Checkbox.Root>
         ) : null}
 
         <Stack gap="5" pt="6" borderTopWidth="1px" borderColor="border">
-          <Field label="料理名" required>
-            <Input value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
+          <Field label="タイトル" helperText="空欄なら品目名をつなげて付けます">
+            <Input
+              value={title}
+              placeholder={suggestedTitle || "例: 夕ごはん"}
+              onChange={(event) => setTitle(event.currentTarget.value)}
+            />
           </Field>
           <SimpleGrid templateColumns="minmax(0, 1.3fr) minmax(0, 1fr)" gap="4">
             <DateField label="日付" value={dateValue} onChange={setDateValue} />
@@ -639,31 +666,16 @@ export function MealEntryDrawer({
               label="合計料金"
               unit="円"
               value={price}
+              placeholder={itemsTotal === null ? undefined : String(Math.round(itemsTotal))}
+              helperText="空欄なら品目の合計"
               min={0}
               step={1}
               onChange={setPrice}
             />
           </SimpleGrid>
-          {method !== "ai" || editing ? photoTiles : null}
+          {method !== "ai" ? photoTiles : null}
         </Stack>
       </Stack>
     </FormDrawer>
-  );
-}
-
-/** レシピ・材料から作った品目の確認表示。 */
-function ItemPreview({ item }: { item: MealItem }) {
-  return (
-    <Box bg="bg.subtle" px="4" py="3">
-      <Flex justify="space-between" align="baseline" gap="3">
-        <chakra.span fontWeight="500" color="fg.strong" minW="0" overflowWrap="anywhere">
-          {item.name}
-        </chakra.span>
-        <chakra.span fontWeight="500" color="fg.strong" fontVariantNumeric="tabular-nums">
-          {formatYen(item.priceYen)}
-        </chakra.span>
-      </Flex>
-      <NutritionInline facts={item.nutrition} size="xs" />
-    </Box>
   );
 }

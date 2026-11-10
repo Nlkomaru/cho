@@ -1,5 +1,5 @@
 import { Box, Grid, Skeleton, Stack, chakra } from "@chakra-ui/react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Fragment } from "react";
 
 import { MetaSeparator, PageHeader } from "@/components/layout/page-header";
@@ -27,6 +27,7 @@ export interface MealDetailViewProps {
 
 /**
  * 食事詳細ページの本体 (データ取得なし)。見出し → 写真 → 合計 → 品目と原価・在庫。
+ * 合計の料金は記録の料金 (空欄で保存すれば品目の料金の合計)。材料原価はレシピの品目の内訳。
  */
 export function MealDetailView({
   meal,
@@ -100,13 +101,25 @@ export function MealDetailView({
         alignItems="start"
       >
         <Box gridColumn={{ lg: "span 8" }} minW="0">
-          <Section title="品目" meta={`${meal.items.length}品`}>
+          <Section
+            title="品目"
+            meta={`${meal.items.length}品`}
+            actions={
+              onEdit ? (
+                // レシピ・材料・AI解析からの追加は編集ドロワーで行う
+                <Button variant="ghost" size="sm" onClick={onEdit}>
+                  <Plus strokeWidth={1.75} />
+                  品目を追加
+                </Button>
+              ) : null
+            }
+          >
             <MealItemsTable items={meal.items} />
           </Section>
         </Box>
         <Stack gridColumn={{ lg: "span 4" }} gap={{ base: "10", md: "12" }} minW="0">
           {hasCostBreakdown(meal.items) ? (
-            <Section title="材料原価">
+            <Section title="レシピの材料原価">
               <MealCostList items={meal.items} />
             </Section>
           ) : null}
