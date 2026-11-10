@@ -74,6 +74,14 @@ const ingredientInput = ingredientObjectSchema
   })
   .extend({
     id: idempotencyId,
+    latestUnitPriceYen: z
+      .number()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe(
+        "Hand-entered unit price in yen per nutritionBasisAmount (e.g. per 100 g). Only used while the ingredient is not linked to Inventia; a linked ingredient takes its price from Inventia",
+      ),
     inventiaItemId: inventiaItemIdSchema
       .nullable()
       .optional()

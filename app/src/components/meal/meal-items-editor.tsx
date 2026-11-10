@@ -77,7 +77,14 @@ export function MealItemsEditor({
     const previous = item.dishId ? dishes?.find((entry) => entry.id === item.dishId) : undefined;
     // 自分で付けた品目名は残し、空かレシピ名のままなら新しいレシピ名にする
     const keepName = item.name.trim() !== "" && item.name !== previous?.name;
-    replace(index, { ...item, ...linked, name: keepName ? item.name : linked.name });
+    // 手で入れた料金は残し、料金が無いときだけレシピの原価を使う
+    const keepPrice = !item.dishId && item.priceYen !== null;
+    replace(index, {
+      ...item,
+      ...linked,
+      name: keepName ? item.name : linked.name,
+      ...(keepPrice ? { priceYen: item.priceYen, estimationSource: "manual" as const } : {}),
+    });
   };
 
   return (

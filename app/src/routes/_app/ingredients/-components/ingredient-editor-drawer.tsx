@@ -69,6 +69,7 @@ export function IngredientEditorDrawer({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const ingredientId = ingredient?.id;
+  const linked = Boolean(ingredient?.inventiaItemId);
 
   // 開くたび・対象が変わるたびにフォームを作り直す
   // 同じ材料の更新 (Inventia 連携など) では入力中の内容を消さないよう、id だけを見る
@@ -87,7 +88,7 @@ export function IngredientEditorDrawer({
     setNotice("");
     let payload: IngredientPayload;
     try {
-      payload = payloadFromForm(form);
+      payload = payloadFromForm(form, !linked);
     } catch (cause) {
       setError(messageOf(cause, "入力内容を確認してください。"));
       return;
@@ -231,6 +232,19 @@ export function IngredientEditorDrawer({
                 onChange={(next) => set("gramPerUnit", next)}
               />
             </Grid>
+            {linked ? null : (
+              <Grid templateColumns={{ base: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" }}>
+                <NumberField
+                  label="単価（手入力）"
+                  unit="円"
+                  min={0}
+                  step={1}
+                  value={form.unitPriceYen}
+                  helperText={`${basis}。Inventia と連携すると Inventia の価格を使います`}
+                  onChange={(next) => set("unitPriceYen", next)}
+                />
+              </Grid>
+            )}
           </Stack>
 
           <NutritionFields

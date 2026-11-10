@@ -73,6 +73,14 @@ export const updateIngredientInputSchema = z
     nutritionPerBasis: nutritionFactsSchema.optional(),
     gramPerUnit: z.number().positive().nullable().optional(),
     memo: z.string().trim().max(2000).nullable().optional(),
+    latestUnitPriceYen: z
+      .number()
+      .min(0)
+      .nullable()
+      .optional()
+      .describe(
+        "Hand-entered unit price in yen per nutritionBasisAmount (e.g. per 100 g). Only used while the ingredient is not linked to Inventia; a linked ingredient takes its price from Inventia; null clears it",
+      ),
   })
   .strict()
   .refine((data) => Boolean(data.id || data.ingredientId), {

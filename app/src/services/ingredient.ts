@@ -141,19 +141,28 @@ export function createIngredientService({
       priceFound: false,
     };
   }
+  /** Price fields for a hand-entered unit price (per basis amount) on an unlinked ingredient. */
+  const manualPriceFields = (price: number | null) => ({
+    latestUnitPriceYen: price,
+    latestPriceUpdatedAt: price === null ? null : new Date().toISOString(),
+  });
   return {
     list: () => repository.list(),
     get: (id: string) => repository.getById(id),
     async create(input: Ingredient) {
-      if (input.inventiaItemId === null) return repository.create(input);
+      if (input.inventiaItemId === null)
+        return repository.create({ ...input, ...manualPriceFields(input.latestUnitPriceYen) });
       return repository.create({
         ...input,
         ...(await resolveLink({ ...input, inventiaItemId: null }, input.inventiaItemId)).fields,
       });
     },
-    async update(id: string, changes: Partial<Omit<Ingredient, "id">>) {
+    async update(id: string, input: Partial<Omit<Ingredient, "id">>) {
       const current = await repository.getById(id);
       if (!current) return null;
+      // A hand-entered price only applies while the ingredient is not linked to Inventia
+      const { latestUnitPriceYen: manualPrice, ...changes } = input;
+      const manual = manualPrice === undefined ? {} : manualPriceFields(manualPrice);
       const dimensionChanged =
         changes.baseDimension !== undefined && changes.baseDimension !== current.baseDimension;
       const unitChanged = changes.baseUnit !== undefined && changes.baseUnit !== current.baseUnit;
@@ -175,7 +184,8 @@ export function createIngredientService({
             latestPriceUpdatedAt: price.ok ? new Date().toISOString() : null,
           });
         }
-        return repository.update(id, { ...changes, ...unitReset });
+        const unlinked = !current.inventiaItemId || dimensionChanged || unitChanged;
+        return repository.update(id, { ...changes, ...unitReset, ...(unlinked ? manual : {}) });
       }
       if (requested === null)
         return repository.update(id, {
@@ -183,6 +193,7 @@ export function createIngredientService({
           inventiaItemId: null,
           latestUnitPriceYen: null,
           latestPriceUpdatedAt: null,
+          ...manual,
         });
       if (
         requested === current.inventiaItemId &&

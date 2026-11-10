@@ -222,21 +222,22 @@ export function createMealLogService({
                   costYen: cost,
                 };
           });
+          // Priced from current ingredient prices; like the dish cost, unpriced ingredients
+          // are left out, and only a dish with no priced ingredient has no meal price.
+          const priced = breakdown.filter((entry) => entry !== null);
           const priceYen =
             manual && item.priceYen !== null
               ? item.priceYen
-              : // Priced from current ingredient prices; a partly priced dish has no meal price.
-                breakdown.length === 0 || breakdown.some((entry) => entry === null)
+              : priced.length === 0
                 ? null
-                : breakdown.reduce((sum, entry) => sum + (entry?.costYen ?? 0), 0);
+                : priced.reduce((sum, entry) => sum + entry.costYen, 0);
           return {
             ...item,
-            name: dish.name,
+            // A meal item may be named differently from its recipe ("サバの塩焼き" for a fish recipe)
+            name: item.name.trim() || dish.name,
             nutrition,
             priceYen,
-            ingredientCostBreakdown: breakdown.filter(
-              (entry): entry is NonNullable<typeof entry> => entry !== null,
-            ),
+            ingredientCostBreakdown: priced,
           };
         }
         if (item.ingredientId) {
