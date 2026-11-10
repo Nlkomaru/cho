@@ -100,6 +100,24 @@ describe("REST image routes", () => {
     });
   });
 
+  test("environments without the R2 binding answer 503 instead of failing", async () => {
+    setup();
+    const { body } = await upload(jpeg, "image/jpeg");
+    const redirect = await api.fetch(
+      new Request(`http://localhost/api/images/${String(body.id)}`),
+      harness.env,
+    );
+    const signed = redirect.headers.get("Location") ?? "";
+    Object.assign(harness.env, { IMAGES_BUCKET: undefined });
+    const read = await api.fetch(new Request(signed), harness.env);
+    expect(read.status).toBe(503);
+    expect(await read.json()).toEqual({
+      error: "Image storage is not available in this environment.",
+    });
+    const stored = await upload(png, "image/png");
+    expect(stored.response.status).toBe(503);
+  });
+
   test("signed reads are cacheable for the signature lifetime", async () => {
     setup();
     const { body } = await upload(jpeg, "image/jpeg");

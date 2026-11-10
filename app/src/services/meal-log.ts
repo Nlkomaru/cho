@@ -105,11 +105,9 @@ export function summarizeMeals(
   let proteinG = 0;
   let fatG = 0;
   let carbohydrateG = 0;
-  let fiberG = 0;
-  let saltEquivalentG = 0;
+  let fiberG: number | null = null;
+  let saltEquivalentG: number | null = null;
   let nutritionComplete = true;
-  let fiberComplete = true;
-  let saltComplete = true;
   for (const meal of meals) {
     const eaten = Date.parse(meal.eatenAt);
     if (!Number.isFinite(eaten) || eaten < start || eaten > nowMs) continue;
@@ -123,10 +121,10 @@ export function summarizeMeals(
     proteinG += facts.proteinG;
     fatG += facts.fatG;
     carbohydrateG += facts.carbohydrateG;
-    if (facts.fiberG === null) fiberComplete = false;
-    else fiberG += facts.fiberG;
-    if (facts.saltEquivalentG === null) saltComplete = false;
-    else saltEquivalentG += facts.saltEquivalentG;
+    // Fiber and salt are optional per meal; sum the meals that have them
+    if (facts.fiberG !== null) fiberG = (fiberG ?? 0) + facts.fiberG;
+    if (facts.saltEquivalentG !== null)
+      saltEquivalentG = (saltEquivalentG ?? 0) + facts.saltEquivalentG;
   }
   return {
     priceYen,
@@ -134,9 +132,17 @@ export function summarizeMeals(
     proteinG: nutritionComplete ? proteinG : null,
     fatG: nutritionComplete ? fatG : null,
     carbohydrateG: nutritionComplete ? carbohydrateG : null,
-    fiberG: nutritionComplete && fiberComplete ? fiberG : null,
-    saltEquivalentG: nutritionComplete && saltComplete ? saltEquivalentG : null,
+    fiberG: nutritionComplete ? fiberG : null,
+    saltEquivalentG: nutritionComplete ? saltEquivalentG : null,
   };
+}
+
+/** The meal price from its items: the priced items added up, or null when none has a price. */
+export function sumItemPrices(items: readonly Pick<MealLogItem, "priceYen">[]): number | null {
+  const prices = items
+    .map((item) => item.priceYen)
+    .filter((price): price is number => price !== null);
+  return prices.length > 0 ? prices.reduce((sum, price) => sum + price, 0) : null;
 }
 
 function mergeRange(
@@ -257,11 +263,7 @@ export function createMealLogService({
       id: input.id ?? newId(),
       items,
       inventiaConsumptionStatus: null,
-      totalPriceYen:
-        input.totalPriceYen ??
-        (items.every((item) => item.priceYen !== null)
-          ? items.reduce((sum, item) => sum + (item.priceYen ?? 0), 0)
-          : null),
+      totalPriceYen: input.totalPriceYen ?? sumItemPrices(items),
       totalNutrition:
         input.totalNutrition ??
         (items.every((item) => item.nutrition !== null) ? sumNutritionFacts(nutritionItems) : null),
@@ -373,7 +375,11 @@ export function createMealLogService({
         return repository.update(id, {
           ...changes,
           items: current.items,
-          totalPriceYen: changes.totalPriceYen ?? current.totalPriceYen,
+          // An explicit null drops a typed-in total and goes back to the item sum
+          totalPriceYen:
+            changes.totalPriceYen === null
+              ? sumItemPrices(current.items)
+              : (changes.totalPriceYen ?? current.totalPriceYen),
           totalNutrition: changes.totalNutrition ?? current.totalNutrition,
         });
       }

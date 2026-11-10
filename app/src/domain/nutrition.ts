@@ -41,14 +41,22 @@ export function scaleNutritionFacts(facts: NutritionFacts, factor: number): Nutr
   };
 }
 
+/** Adds an optional nutrient; null only while no input has provided a value. */
+const addOptional = (total: number | null, value: number | null) =>
+  value === null ? total : (total ?? 0) + value;
+
+/**
+ * Sums nutrition facts. Fiber and salt add up the inputs that have a value, so one input
+ * without them does not blank the whole total; they stay null only when no input has them.
+ */
 export function sumNutritionFacts(factsList: readonly NutritionFacts[]): NutritionFacts {
   const result: NutritionFacts = {
     caloriesKcal: 0,
     proteinG: 0,
     fatG: 0,
     carbohydrateG: 0,
-    fiberG: 0,
-    saltEquivalentG: 0,
+    fiberG: factsList.length === 0 ? 0 : null,
+    saltEquivalentG: factsList.length === 0 ? 0 : null,
     micronutrients: [],
   };
   const micros = new Map<string, MicronutrientEntry>();
@@ -57,10 +65,8 @@ export function sumNutritionFacts(factsList: readonly NutritionFacts[]): Nutriti
     result.proteinG += facts.proteinG;
     result.fatG += facts.fatG;
     result.carbohydrateG += facts.carbohydrateG;
-    if (facts.fiberG === null) result.fiberG = null;
-    else if (result.fiberG !== null) result.fiberG += facts.fiberG;
-    if (facts.saltEquivalentG === null) result.saltEquivalentG = null;
-    else if (result.saltEquivalentG !== null) result.saltEquivalentG += facts.saltEquivalentG;
+    result.fiberG = addOptional(result.fiberG, facts.fiberG);
+    result.saltEquivalentG = addOptional(result.saltEquivalentG, facts.saltEquivalentG);
     for (const entry of facts.micronutrients) {
       const key = `${entry.key}\u0000${entry.unit}`;
       const previous = micros.get(key);

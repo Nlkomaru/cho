@@ -14,6 +14,10 @@ import {
 import type { ApiBindings } from "./index";
 
 const SIGNED_URL_LIFETIME_SECONDS = 5 * 60;
+const STORAGE_UNAVAILABLE = "Image storage is not available in this environment.";
+
+/** Preview Workers are deployed without the production R2 binding. */
+const hasImageStorage = (env: ApiBindings) => Boolean(env.IMAGES_BUCKET);
 
 /** `executionCtx` throws outside a Worker request (tests); the purge is then skipped. */
 export function waitUntilOf(context: {
@@ -83,6 +87,10 @@ const uploadImageRoute = createRoute({
       description: "Image upload failed.",
       content: { "application/json": { schema: errorSchema } },
     },
+    503: {
+      description: "Image storage is not bound (preview deployments).",
+      content: { "application/json": { schema: errorSchema } },
+    },
   },
 });
 
@@ -100,6 +108,7 @@ imageRoutes.openapi(uploadImageRoute, async (context) => {
     return context.json({ error: "Image exceeds the 10 MiB upload limit." }, 413);
   const encryptionKey = context.env.SETTINGS_ENCRYPTION_KEY;
   if (!encryptionKey) return context.json({ error: "Image signing is not configured." }, 500);
+  if (!hasImageStorage(context.env)) return context.json({ error: STORAGE_UNAVAILABLE }, 503);
 
   const db = createDbClient(context.env.DB);
   try {
@@ -191,6 +200,10 @@ const getImageRoute = createRoute({
       description: "Image signing or retrieval failed.",
       content: { "application/json": { schema: errorSchema } },
     },
+    503: {
+      description: "Image storage is not bound (preview deployments).",
+      content: { "application/json": { schema: errorSchema } },
+    },
   },
 });
 
@@ -231,6 +244,7 @@ imageRoutes.openapi(getImageRoute, async (context) => {
   } catch {
     return context.json({ error: "Image signature verification failed." }, 500);
   }
+  if (!hasImageStorage(context.env)) return context.json({ error: STORAGE_UNAVAILABLE }, 503);
   try {
     const image = await getImage(context.env.IMAGES_BUCKET, metadata.objectKey);
     if (!image) return context.json({ error: "Image not found." }, 404);

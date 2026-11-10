@@ -36,3 +36,20 @@ test("nutrition sums combine matching nutrient key and unit but retain distinct 
     { key: "iron", label: "Iron", amount: 0.1, unit: "g" },
   ]);
 });
+
+test("nutrition sums add the salt and fiber that are known instead of dropping them", () => {
+  const result = sumNutritionFacts([
+    facts({ fiberG: 1.5, saltEquivalentG: 1.2 }),
+    facts({ fiberG: null, saltEquivalentG: null }),
+    facts({ fiberG: 0.5, saltEquivalentG: 0.3 }),
+  ]);
+  expect(result.fiberG).toBeCloseTo(2);
+  expect(result.saltEquivalentG).toBeCloseTo(1.5);
+});
+
+test("nutrition sums keep salt unknown only when no input has it", () => {
+  const result = sumNutritionFacts([facts(), facts()]);
+  expect(result.fiberG).toBeNull();
+  expect(result.saltEquivalentG).toBeNull();
+  expect(sumNutritionFacts([]).saltEquivalentG).toBe(0);
+});

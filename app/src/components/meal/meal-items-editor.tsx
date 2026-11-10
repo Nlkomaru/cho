@@ -1,14 +1,15 @@
-import { Box, Collapsible, Flex, Input, SimpleGrid, Stack, chakra } from "@chakra-ui/react";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Box, Collapsible, Flex, Input, SimpleGrid, chakra } from "@chakra-ui/react";
+import { ChevronDown, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { NutritionInline } from "@/components/food/nutrition-inline";
 import { Button, IconButton } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { NumberField } from "@/components/ui/number-field";
 import type { NutritionFacts } from "@/domain/nutrition";
 
-import { emptyFacts, type MealItem } from "./meal-shared";
+import { dishMealItem, emptyFacts, type Dish, type MealItem } from "./meal-shared";
 
 type FactKey = Exclude<keyof NutritionFacts, "micronutrients">;
 
@@ -23,101 +24,154 @@ const factFields: { key: FactKey; label: string; unit: string }[] = [
 
 export const blankMealItem = (): MealItem => ({ name: "", priceYen: null, nutrition: null });
 
+const sourceLabel: Partial<Record<NonNullable<MealItem["estimationSource"]>, string>> = {
+  ingredient: "材料から",
+  ai: "AI推定",
+};
+
 export interface MealItemsEditorProps {
   items: readonly MealItem[];
   onChange(items: MealItem[]): void;
   disabled?: boolean;
   /** 品目を丸ごと差し替えたとき (AI 解析など) に変えると、入力途中の栄養価を捨てる。 */
   resetKey?: number;
+  /** 渡すと品目ごとにレシピをつなげる。 */
+  dishes?: readonly Dish[];
 }
 
 /**
- * 品目の編集。品目名と料金を並べ、栄養価は開閉式で入力する。
+ * 品目の編集。品目名と料金を並べ、レシピとのつながりと栄養価をその下に置く。
  */
-export function MealItemsEditor({ items, onChange, disabled, resetKey = 0 }: MealItemsEditorProps) {
+export function MealItemsEditor({
+  items,
+  onChange,
+  disabled,
+  resetKey = 0,
+  dishes,
+}: MealItemsEditorProps) {
   // 途中の品目を消すと位置がずれるので、そのときも入力途中の値を捨てる
   const [removals, setRemovals] = useState(0);
+  const dishOptions = useMemo(
+    () => (dishes ?? []).map((dish) => ({ value: dish.id, label: dish.name })),
+    [dishes],
+  );
+  const replace = (index: number, next: MealItem) =>
+    onChange(items.map((item, i) => (i === index ? next : item)));
   const update = (index: number, patch: Partial<MealItem>) => {
     const manual = "priceYen" in patch || "nutrition" in patch;
-    onChange(
-      items.map((item, i) =>
-        i === index
-          ? { ...item, ...patch, ...(manual ? { estimationSource: "manual" as const } : {}) }
-          : item,
-      ),
-    );
+    replace(index, {
+      ...items[index],
+      ...patch,
+      ...(manual ? { estimationSource: "manual" as const } : {}),
+    });
+  };
+  const link = (index: number, dishId: string, factor: number) => {
+    const item = items[index];
+    const dish = dishes?.find((entry) => entry.id === dishId);
+    if (!dish) {
+      // つながりだけ外し、料金と栄養価は手入力の値として残す
+      replace(index, { ...item, dishId: null, estimationSource: "manual" });
+      return;
+    }
+    const linked = dishMealItem(dish, factor);
+    const previous = item.dishId ? dishes?.find((entry) => entry.id === item.dishId) : undefined;
+    // 自分で付けた品目名は残し、空かレシピ名のままなら新しいレシピ名にする
+    const keepName = item.name.trim() !== "" && item.name !== previous?.name;
+    replace(index, { ...item, ...linked, name: keepName ? item.name : linked.name });
   };
 
   return (
-    <Stack gap="0">
-      <chakra.ol listStyle="none" m="0" p="0">
-        {items.map((item, index) => (
-          <chakra.li
-            // 品目は並べ替えないので位置をキーにする
-            key={`${resetKey}-${removals}-${index}`}
-            py="4"
-            borderTopWidth="1px"
-            borderColor="border"
-            _first={{ pt: "0", borderTopWidth: "0" }}
-          >
-            <Flex gap="3" align="flex-end">
-              <Box flex="1" minW="0">
-                <Field label={`品目 ${index + 1}`} required={index === 0}>
-                  <Input
-                    value={item.name}
+    <chakra.ol listStyle="none" m="0" p="0">
+      {items.map((item, index) => (
+        <chakra.li
+          // 品目は並べ替えないので位置をキーにする
+          key={`${resetKey}-${removals}-${index}`}
+          py="4"
+          borderTopWidth="1px"
+          borderColor="border"
+          _first={{ pt: "0", borderTopWidth: "0" }}
+        >
+          <Flex gap="3" align="flex-end">
+            <Box flex="1" minW="0">
+              <Field label={`品目 ${index + 1}`} required={index === 0}>
+                <Input
+                  value={item.name}
+                  disabled={disabled}
+                  onChange={(event) => update(index, { name: event.currentTarget.value })}
+                />
+              </Field>
+            </Box>
+            <Box w="32" flexShrink="0">
+              <NumberField
+                label="料金"
+                unit="円"
+                value={item.priceYen === null ? "" : String(item.priceYen)}
+                min={0}
+                step={1}
+                disabled={disabled}
+                onChange={(value) =>
+                  update(index, { priceYen: value === "" ? null : Number(value) })
+                }
+              />
+            </Box>
+            <IconButton
+              aria-label={`品目 ${index + 1} を削除`}
+              variant="ghost"
+              size="md"
+              disabled={disabled}
+              onClick={() => {
+                setRemovals((count) => count + 1);
+                onChange(items.filter((_, position) => position !== index));
+              }}
+            >
+              <Trash2 strokeWidth={1.75} />
+            </IconButton>
+          </Flex>
+          {dishes && !item.ingredientId ? (
+            <SimpleGrid columns={{ base: 1, sm: 3 }} gap="3" mt="3">
+              <Box gridColumn={{ sm: "span 2" }}>
+                <Field label="レシピ">
+                  <NativeSelect
+                    size="sm"
+                    value={item.dishId ?? ""}
+                    placeholder={dishes.length ? "つながない" : "レシピがありません"}
+                    options={dishOptions}
                     disabled={disabled}
-                    onChange={(event) => update(index, { name: event.currentTarget.value })}
+                    onChange={(value) => link(index, value, item.servingsFactor ?? 1)}
                   />
                 </Field>
               </Box>
-              <Box w="32" flexShrink="0">
+              {item.dishId ? (
                 <NumberField
-                  label="料金"
-                  unit="円"
-                  value={item.priceYen === null ? "" : String(item.priceYen)}
-                  min={0}
-                  step={1}
+                  label="人前数"
+                  unit="人前"
+                  size="sm"
+                  value={String(item.servingsFactor ?? 1)}
+                  min={0.1}
+                  step={0.5}
                   disabled={disabled}
-                  onChange={(value) =>
-                    update(index, { priceYen: value === "" ? null : Number(value) })
-                  }
+                  onChange={(value) => {
+                    const factor = Number(value);
+                    if (item.dishId && factor > 0) link(index, item.dishId, factor);
+                  }}
                 />
-              </Box>
-              <IconButton
-                aria-label={`品目 ${index + 1} を削除`}
-                variant="ghost"
-                size="md"
-                disabled={disabled || items.length === 1}
-                onClick={() => {
-                  setRemovals((count) => count + 1);
-                  onChange(items.filter((_, position) => position !== index));
-                }}
-              >
-                <Trash2 strokeWidth={1.75} />
-              </IconButton>
-            </Flex>
-            <NutritionEditor
-              value={item.nutrition}
-              disabled={disabled}
-              onChange={(nutrition) => update(index, { nutrition })}
-            />
-          </chakra.li>
-        ))}
-      </chakra.ol>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        alignSelf="flex-start"
-        mt="2"
-        ms="-3"
-        disabled={disabled}
-        onClick={() => onChange([...items, blankMealItem()])}
-      >
-        <Plus strokeWidth={1.75} />
-        品目を追加
-      </Button>
-    </Stack>
+              ) : null}
+            </SimpleGrid>
+          ) : item.estimationSource && sourceLabel[item.estimationSource] ? (
+            <chakra.p textStyle="caption" color="fg.subtle" mt="2">
+              {sourceLabel[item.estimationSource]}
+            </chakra.p>
+          ) : null}
+          <NutritionEditor
+            // レシピや人前数を変えたら入力欄を新しい栄養価で作り直す
+            key={`${item.dishId ?? ""}:${item.servingsFactor ?? 1}`}
+            value={item.nutrition}
+            disabled={disabled}
+            onChange={(nutrition) => update(index, { nutrition })}
+          />
+        </chakra.li>
+      ))}
+    </chakra.ol>
   );
 }
 
