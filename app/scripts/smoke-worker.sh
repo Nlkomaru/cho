@@ -27,7 +27,8 @@ let config = await readFile(sourcePath, "utf8");
 const databaseIdMatches = config.match(/"database_id"\s*:\s*"[^"]*"/g) ?? [];
 if (databaseIdMatches.length !== 1) throw new Error(`Expected one database_id field, found ${databaseIdMatches.length}`);
 config = config
-  .replace('"main": "@tanstack/react-start/server-entry"', '"main": "./dist/server/index.js"')
+  .replace('"main": "@tanstack/react-start/server-entry"', '"main": "./.cloudflare/output/v1/workers/default/bundle/index.js"')
+  .replace('"directory": "./dist/client"', '"directory": "./.cloudflare/output/v1/workers/default/assets"')
   .replace(/"database_id"\s*:\s*"[^"]*"/, '"database_id": "33333333-3333-4333-8333-333333333333"');
 const varsMatches = config.match(/"vars"\s*:\s*\{/g) ?? [];
 if (varsMatches.length !== 1) throw new Error(`Expected one vars object, found ${varsMatches.length}`);
