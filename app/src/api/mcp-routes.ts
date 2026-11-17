@@ -123,6 +123,7 @@ mcpRoutes.put("/api/mcp/uploads/:imageId", async (context) => {
       bytes,
       declaredType: contentType,
       id: imageId.data,
+      optimizeQueue: context.env.IMAGE_OPTIMIZE_QUEUE,
     });
     schedulePurge(db, context.env.IMAGES_BUCKET, waitUntilOf(context));
     return context.json(
