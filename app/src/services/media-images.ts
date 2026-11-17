@@ -4,6 +4,7 @@ import {
   createMediaImageRepository,
   type MediaImage,
 } from "../repositories/media-image-repository";
+import { enqueueImageOptimization, type ImageOptimizeMessage } from "./image-optimizer";
 import { deleteImage, putImage } from "./image-storage";
 
 type Database = ReturnType<typeof createDbClient>;
@@ -83,6 +84,8 @@ export interface StoreImageInput {
   /** Pre-issued image ID (signed MCP uploads); a new UUID otherwise. */
   id?: string;
   maxBytes?: number;
+  /** Optional queue to asynchronously optimize uploaded images to WebP. */
+  optimizeQueue?: Queue<ImageOptimizeMessage>;
 }
 
 /**
@@ -96,6 +99,7 @@ export async function storeImage({
   declaredType,
   id = crypto.randomUUID(),
   maxBytes = MAX_IMAGE_BYTES,
+  optimizeQueue,
 }: StoreImageInput): Promise<MediaImage> {
   if (bytes.byteLength === 0) throw new ImageUploadError("Uploaded file must not be empty.", 400);
   if (bytes.byteLength > maxBytes) throw new ImageUploadError(tooLargeMessage(maxBytes), 413);
@@ -113,8 +117,9 @@ export async function storeImage({
   const repository = createMediaImageRepository(db);
   const objectKey = `images/${crypto.randomUUID()}`;
   await putImage(bucket, objectKey, bytes, contentType);
+  let created: MediaImage;
   try {
-    return await repository.create({
+    created = await repository.create({
       id,
       targetType: "unassigned",
       targetId: "unassigned",
@@ -131,6 +136,10 @@ export async function storeImage({
     await deleteImage(bucket, objectKey).catch(() => undefined);
     throw error;
   }
+  await enqueueImageOptimization(optimizeQueue, created).catch((error) => {
+    console.error(`Failed to enqueue image optimization for ${created.id}:`, error);
+  });
+  return created;
 }
 
 /** Deletes an image that is not attached to anything. */

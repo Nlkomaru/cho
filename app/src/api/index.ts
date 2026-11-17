@@ -15,10 +15,13 @@ import { settingsRoutes } from "./settings-routes";
 import { mealLogSchema } from "../domain/ingredient";
 import { nutritionFactsSchema } from "../domain/nutrition";
 import { recipeSchema } from "../domain/recipe";
+import type { ImageOptimizeMessage } from "../services/image-optimizer";
 
 export type ApiBindings = {
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
+  IMAGES?: ImagesBinding;
+  IMAGE_OPTIMIZE_QUEUE?: Queue<ImageOptimizeMessage>;
   INVENTIA_BASE_URL?: string;
   SETTINGS_ENCRYPTION_KEY?: string;
   CLOUDFLARE_ACCESS_CLIENT_ID?: string;

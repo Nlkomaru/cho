@@ -749,6 +749,7 @@ export function createMcpServer(
           bytes,
           declaredType: input.contentType ?? null,
           maxBytes: input.url ? MAX_IMAGE_BYTES : MAX_INLINE_IMAGE_BYTES,
+          optimizeQueue: env.IMAGE_OPTIMIZE_QUEUE,
         });
         schedulePurge(db, env.IMAGES_BUCKET, options.waitUntil);
         return mcpSuccess({
