@@ -266,6 +266,8 @@ jobs:
         run: echo "VITE_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_ENV"
 
       - name: Build app
+        env:
+          CHO_PREVIEW: "true"
         run: pnpm run build
 
       - name: Save Vite Task cache
@@ -314,6 +316,7 @@ jobs:
 
       - name: Upload preview aliases
         env:
+          CHO_PREVIEW: "true"
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_DATABASE_ID: ${{ env.CLOUDFLARE_DATABASE_ID || secrets.CLOUDFLARE_DATABASE_ID }}
@@ -347,7 +350,7 @@ jobs:
 
           upload() {
             local alias="$1" message="$2" attempt log rc
-            local -a args=(--prebuilt --mode preview --preview-alias "$alias" --tag "$alias" --message "$message")
+            local -a args=(--prebuilt --mode production --preview-alias "$alias" --tag "$alias" --message "$message")
             if [[ -n "$secrets_file" ]]; then
               args+=(--secrets-file "$secrets_file")
             fi

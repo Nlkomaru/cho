@@ -1,7 +1,7 @@
 import { bindings, defineConfig } from "cf/config";
 
 export default defineConfig(({ isPreview, mode }) => {
-  const preview = isPreview || mode === "preview";
+  const preview = isPreview || mode === "preview" || process.env.CHO_PREVIEW === "true";
   const smoke = mode === "smoke";
   const production = mode === "production" && !preview && !smoke;
   const databaseId =
