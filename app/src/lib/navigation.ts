@@ -1,7 +1,7 @@
 import type { Breadcrumb } from "./breadcrumbs";
 
 /** アプリ内でナビゲーションに出すパス。 */
-export type AppPath = "/" | "/dishes" | "/ingredients" | "/settings" | "/license";
+export type AppPath = "/" | "/dishes" | "/foods" | "/ingredients" | "/settings" | "/license";
 
 export interface NavItem {
   title: string;
@@ -17,6 +17,7 @@ export interface NavItem {
 export const primaryNavigation: readonly NavItem[] = [
   { title: "食事記録", to: "/", match: ["/", "/meals"] },
   { title: "レシピ", to: "/dishes", match: ["/dishes"] },
+  { title: "定番食品", to: "/foods", match: ["/foods"] },
   { title: "材料", to: "/ingredients", match: ["/ingredients"] },
   { title: "設定", to: "/settings", match: ["/settings"] },
 ];

@@ -88,6 +88,21 @@ export const dishIngredients = sqliteTable(
   ],
 );
 
+export const foods = sqliteTable(
+  "foods",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    category: text("category"),
+    servingLabel: text("serving_label").notNull(),
+    priceYen: real("price_yen"),
+    nutritionJson: text("nutrition_json").notNull(),
+    memo: text("memo"),
+    ...timestamps,
+  },
+  (table) => [index("foods_name_idx").on(table.name)],
+);
+
 export const mealLogs = sqliteTable(
   "meal_logs",
   {
@@ -111,7 +126,6 @@ export const mealLogs = sqliteTable(
     totalNutritionJson: text("total_nutrition_json"),
     rating: integer("rating"),
     memo: text("memo"),
-    inventiaConsumptionStatus: text("inventia_consumption_status"),
     ...timestamps,
   },
   (table) => [index("meal_logs_eaten_at_idx").on(table.eatenAt)],
@@ -126,6 +140,7 @@ export const mealLogItems = sqliteTable(
       .references(() => mealLogs.id, { onDelete: "cascade" }),
     dishId: text("dish_id").references(() => dishes.id, { onDelete: "set null" }),
     ingredientId: text("ingredient_id").references(() => ingredients.id, { onDelete: "set null" }),
+    foodId: text("food_id").references(() => foods.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     servingsFactor: real("servings_factor").notNull().default(1),
     priceYen: real("price_yen"),
@@ -138,6 +153,7 @@ export const mealLogItems = sqliteTable(
     index("meal_log_items_log_order_idx").on(table.mealLogId, table.sortOrder),
     index("meal_log_items_dish_idx").on(table.dishId),
     index("meal_log_items_ingredient_idx").on(table.ingredientId),
+    index("meal_log_items_food_idx").on(table.foodId),
   ],
 );
 

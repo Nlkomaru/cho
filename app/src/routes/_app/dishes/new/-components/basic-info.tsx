@@ -1,33 +1,40 @@
 import { Grid, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import type { ReactNode } from "react";
 
+import { RECIPE_STATUS_OPTIONS, recipeStatusMeta } from "@/components/recipe/recipe-labels";
 import { Field } from "@/components/ui/field";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import type { RecipeStatus } from "@/domain/recipe";
 
 import { DraftNumberInput } from "./draft-number-input";
 import { fieldIds, type DishFields } from "./recipe-draft";
 import { TagInput } from "./tag-input";
 
 export interface BasicInfoProps extends DishFields {
+  status: RecipeStatus;
   summary: string | null;
   equipment: readonly string[];
   errors?: Readonly<Record<string, string>>;
   /** 表紙画像の入力 (ImageUpload)。 */
   cover?: ReactNode;
   onFieldsChange(patch: Partial<DishFields>): void;
+  onStatusChange(status: RecipeStatus): void;
   onSummaryChange(summary: string | null): void;
   onEquipmentChange(equipment: string[]): void;
 }
 
-/** 表紙画像・料理名・カテゴリ・人前・概要・器具。 */
+/** 表紙画像・料理名・カテゴリ・人前・ステータス・概要・器具。 */
 export function BasicInfo({
   name,
   category,
   servings,
+  status,
   summary,
   equipment,
   errors = {},
   cover,
   onFieldsChange,
+  onStatusChange,
   onSummaryChange,
   onEquipmentChange,
 }: BasicInfoProps) {
@@ -72,6 +79,17 @@ export function BasicInfo({
           />
         </Field>
       </Grid>
+      <Field label="ステータス" helperText={recipeStatusMeta(status).description}>
+        <SegmentedControl
+          label="レシピのステータス"
+          value={status}
+          onChange={onStatusChange}
+          items={RECIPE_STATUS_OPTIONS.map((option) => ({
+            value: option.value,
+            label: option.label,
+          }))}
+        />
+      </Field>
       <Field label="概要">
         <Textarea
           maxLength={500}

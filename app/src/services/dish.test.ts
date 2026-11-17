@@ -1,7 +1,8 @@
 import { expect, test } from "vite-plus/test";
 import type { Dish, Ingredient } from "../domain/ingredient";
 import { recipeSchema } from "../domain/recipe";
-import { createDishService, type DishRepository } from "./dish";
+import { createDishService, type DishInventiaClient, type DishRepository } from "./dish";
+import type { InventiaStockAdjustRequest } from "./inventia-client";
 
 const facts = {
   caloriesKcal: 100,
@@ -150,7 +151,10 @@ function serviceWithPrices(prices: Record<string, number | null>) {
   return createDishService({
     repository,
     ingredientRepository: {
-      getById: async (id) => ({ ...ingredientFor(id), latestUnitPriceYen: prices[id] ?? null }),
+      getById: async (id) => ({
+        ...ingredientFor(id),
+        latestUnitPriceYen: prices[id] ?? null,
+      }),
       getByIds: async (ids) =>
         ids.map((id) => ({ ...ingredientFor(id), latestUnitPriceYen: prices[id] ?? null })),
     },
@@ -176,4 +180,152 @@ test("a fully priced dish reports no missing ingredients", async () => {
   const created = await service.create(dishFor(0, ["a", "b"]));
   expect(created.totalCostYen).toBeCloseTo(30);
   expect(created.costMissingCount).toBe(0);
+});
+
+test("recipe.status defaults to spark when omitted", async () => {
+  const dish = dishFor(0, ["a"]);
+  expect(dish.recipe.status).toBe("spark");
+
+  const service = serviceWithPrices({ a: 10 });
+  const created = await service.create(dish);
+  expect(created.recipe.status).toBe("spark");
+});
+
+test("consumeStock aggregates duplicate ingredients, scales by servings, and calls adjustStock", async () => {
+  const dish: Dish = {
+    ...dishFor(1, ["tomato", "tomato", "salt"]),
+    servings: 2,
+  };
+  const ingredients: Record<string, Ingredient> = {
+    tomato: { ...ingredientFor("tomato"), name: "Tomato", inventiaItemId: "inv-tomato" },
+    salt: { ...ingredientFor("salt"), name: "Salt", inventiaItemId: null },
+  };
+  const calls: Array<{ id: string; input: InventiaStockAdjustRequest }> = [];
+  const inventiaClient: DishInventiaClient = {
+    getItem: async (id) => ({
+      id,
+      name: "Tomato",
+      baseUnit: "g",
+      baseDimension: "mass",
+      currentQuantity: 1000,
+    }),
+    adjustStock: async (id, input) => {
+      calls.push({ id, input });
+      return {
+        itemId: id,
+        currentQuantity: 1000 + input.delta,
+        allocations: [],
+      };
+    },
+  };
+  const service = createDishService({
+    repository: { getById: async () => dish } as unknown as DishRepository,
+    ingredientRepository: {
+      getById: async (id) => ingredients[id] ?? null,
+      getByIds: async (ids) => ids.flatMap((id) => (ingredients[id] ? [ingredients[id]] : [])),
+    },
+    inventiaClient,
+    providerId: "prov-1",
+  });
+
+  // dish has 2x 100g tomato = 200g for 2 servings; consuming 3 servings = 300g
+  const results = await service.consumeStock("dish-1", {
+    servings: 3,
+    idempotencyKey: "batch-1",
+  });
+
+  expect(calls).toEqual([
+    {
+      id: "inv-tomato",
+      input: {
+        delta: -300,
+        reason: "consume",
+        idempotencyKey: "cho:dish:dish-1:batch-1:ing:tomato",
+        note: "Cho: Dish 1",
+        externalProviderId: "prov-1",
+        externalId: "dish-1",
+      },
+    },
+  ]);
+  expect(results).toEqual([
+    {
+      ingredientId: "tomato",
+      ingredientName: "Tomato",
+      inventiaItemId: "inv-tomato",
+      consumedAmount: 300,
+      unit: "g",
+      currentQuantity: 700,
+      allocations: [],
+    },
+  ]);
+});
+
+test("consumeStock refuses an item whose unit changed after linking", async () => {
+  const dish = dishFor(1, ["tomato"]);
+  const tomato: Ingredient = {
+    ...ingredientFor("tomato"),
+    name: "Tomato",
+    inventiaItemId: "inv-tomato",
+  };
+  const service = createDishService({
+    repository: { getById: async () => dish } as unknown as DishRepository,
+    ingredientRepository: {
+      getById: async () => tomato,
+      getByIds: async () => [tomato],
+    },
+    inventiaClient: {
+      getItem: async () => ({
+        id: "inv-tomato",
+        name: "Tomato",
+        baseUnit: "kg",
+        baseDimension: "mass",
+        currentQuantity: 5,
+      }),
+      adjustStock: async () => {
+        throw new Error("should not adjust");
+      },
+    },
+    providerId: "prov-1",
+  });
+
+  await expect(service.consumeStock("dish-1")).rejects.toMatchObject({
+    name: "InventiaUnitMismatchError",
+    expectedUnit: "g",
+    actualUnit: "kg",
+  });
+});
+
+test("consumeStock refuses a fractional computed amount", async () => {
+  const dish: Dish = { ...dishFor(1, ["tomato"]), servings: 3 };
+  const tomato: Ingredient = {
+    ...ingredientFor("tomato"),
+    name: "Tomato",
+    inventiaItemId: "inv-tomato",
+  };
+  const service = createDishService({
+    repository: { getById: async () => dish } as unknown as DishRepository,
+    ingredientRepository: {
+      getById: async () => tomato,
+      getByIds: async () => [tomato],
+    },
+    inventiaClient: {
+      getItem: async () => ({
+        id: "inv-tomato",
+        name: "Tomato",
+        baseUnit: "g",
+        baseDimension: "mass",
+        currentQuantity: 500,
+      }),
+      adjustStock: async () => {
+        throw new Error("should not adjust");
+      },
+    },
+    providerId: "prov-1",
+  });
+
+  // 100 / 3 * 1 = 33.333...
+  await expect(service.consumeStock("dish-1", { servings: 1 })).rejects.toMatchObject({
+    name: "InventiaAmountError",
+    unit: "g",
+  });
 });

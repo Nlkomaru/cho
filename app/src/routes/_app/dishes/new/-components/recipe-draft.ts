@@ -36,6 +36,7 @@ export const makeId = (prefix: string) => `${prefix}-${crypto.randomUUID().slice
 
 export const blankRecipe = (): RecipeJson => ({
   schemaVersion: "1.0",
+  status: "spark",
   servings: 2,
   summary: null,
   equipment: [],

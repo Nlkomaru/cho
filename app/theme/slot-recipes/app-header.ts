@@ -59,7 +59,7 @@ export const appHeaderSlotRecipe = defineSlotRecipe({
     nav: {
       display: { base: "none", md: "flex" },
       alignItems: "stretch",
-      gap: "8",
+      gap: { base: "2", lg: "4" },
       flex: "1",
       minW: "0",
     },
@@ -67,6 +67,9 @@ export const appHeaderSlotRecipe = defineSlotRecipe({
       position: "relative",
       display: "flex",
       alignItems: "center",
+      justifyContent: "center",
+      minW: "84px",
+      px: "3",
       fontSize: "15px",
       fontWeight: "500",
       color: "fg.muted",

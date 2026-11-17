@@ -167,7 +167,6 @@ function createTestMealLog(
     totalNutrition: null,
     rating: 4,
     memo: `Adversarial test meal log with ${itemCount} items`,
-    inventiaConsumptionStatus: null,
     imageIds: options.imageIds ?? [],
     items,
   });
@@ -192,7 +191,6 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
       totalNutrition: null,
       rating: 4,
       memo: "Zero items",
-      inventiaConsumptionStatus: null,
       imageIds: [],
       items: [],
     };
@@ -220,7 +218,7 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
     expect(fetched?.items).toHaveLength(1);
   });
 
-  test("Edge Case 1 item: Minimum valid meal log creates and updates cleanly (1 chunk of 11 params)", async () => {
+  test("Edge Case 1 item: Minimum valid meal log creates and updates cleanly (1 chunk of 12 params)", async () => {
     const { db, sqlite, executedStatements, clearStatements } = createTestDatabase();
     const mealLogRepo = createMealLogRepository(db);
 
@@ -235,7 +233,7 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
       (s) => s.sql.includes("meal_log_items") && s.sql.toLowerCase().includes("insert"),
     );
     expect(itemInserts).toHaveLength(1);
-    expect(itemInserts[0].parameterCount).toBe(11);
+    expect(itemInserts[0].parameterCount).toBe(12);
 
     const count = sqlite
       .prepare("SELECT COUNT(*) as count FROM meal_log_items WHERE meal_log_id = ?")
@@ -246,7 +244,7 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
     expect(fetched?.items).toHaveLength(1);
   });
 
-  test("Edge Case 8 items: Hits exact 1-chunk boundary (88 params <= 100)", async () => {
+  test("Edge Case 8 items: Hits exact 1-chunk boundary (96 params <= 100)", async () => {
     const { db, sqlite, executedStatements, clearStatements } = createTestDatabase();
     const mealLogRepo = createMealLogRepository(db);
 
@@ -262,8 +260,8 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
       (s) => s.sql.includes("meal_log_items") && s.sql.toLowerCase().includes("insert"),
     );
     expect(itemInserts).toHaveLength(1);
-    // 8 items * 11 columns = 88 parameters
-    expect(itemInserts[0].parameterCount).toBe(88);
+    // 8 items * 12 columns = 96 parameters
+    expect(itemInserts[0].parameterCount).toBe(96);
     expect(itemInserts[0].parameterCount).toBeLessThanOrEqual(100);
 
     const count = sqlite
@@ -291,10 +289,10 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
       (s) => s.sql.includes("meal_log_items") && s.sql.toLowerCase().includes("insert"),
     );
     expect(itemInserts).toHaveLength(2);
-    // Chunk 1: 8 rows * 11 columns = 88 params
-    expect(itemInserts[0].parameterCount).toBe(88);
-    // Chunk 2: 1 row * 11 columns = 11 params
-    expect(itemInserts[1].parameterCount).toBe(11);
+    // Chunk 1: 8 rows * 12 columns = 96 params
+    expect(itemInserts[0].parameterCount).toBe(96);
+    // Chunk 2: 1 row * 12 columns = 12 params
+    expect(itemInserts[1].parameterCount).toBe(12);
 
     const count = sqlite
       .prepare("SELECT COUNT(*) as count FROM meal_log_items WHERE meal_log_id = ?")
@@ -309,7 +307,7 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
 
   // --- Section 2: Large Arrays (12+, 25, 50, 100 items) ---
 
-  test("Large Array 1: 12 items meal log (R1 error target: 132 params chunked to 88 + 44)", async () => {
+  test("Large Array 1: 12 items meal log (R1 error target: 144 params chunked to 96 + 48)", async () => {
     const { db, sqlite, executedStatements, clearStatements } = createTestDatabase();
     const mealLogRepo = createMealLogRepository(db);
 
@@ -324,8 +322,8 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
       (s) => s.sql.includes("meal_log_items") && s.sql.toLowerCase().includes("insert"),
     );
     expect(itemInserts).toHaveLength(2);
-    expect(itemInserts[0].parameterCount).toBe(88);
-    expect(itemInserts[1].parameterCount).toBe(44);
+    expect(itemInserts[0].parameterCount).toBe(96);
+    expect(itemInserts[1].parameterCount).toBe(48);
 
     const count = sqlite
       .prepare("SELECT COUNT(*) as count FROM meal_log_items WHERE meal_log_id = ?")
@@ -340,7 +338,7 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
     }
   });
 
-  test("Large Array 2: 25 items meal log (275 params chunked into 4 statements)", async () => {
+  test("Large Array 2: 25 items meal log (300 params chunked into 4 statements)", async () => {
     const { db, sqlite, executedStatements, clearStatements } = createTestDatabase();
     const mealLogRepo = createMealLogRepository(db);
 
@@ -355,10 +353,10 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
     );
     // Math.ceil(25 / 8) = 4 chunks: 8, 8, 8, 1
     expect(itemInserts).toHaveLength(4);
-    expect(itemInserts[0].parameterCount).toBe(88);
-    expect(itemInserts[1].parameterCount).toBe(88);
-    expect(itemInserts[2].parameterCount).toBe(88);
-    expect(itemInserts[3].parameterCount).toBe(11);
+    expect(itemInserts[0].parameterCount).toBe(96);
+    expect(itemInserts[1].parameterCount).toBe(96);
+    expect(itemInserts[2].parameterCount).toBe(96);
+    expect(itemInserts[3].parameterCount).toBe(12);
 
     const count = sqlite
       .prepare("SELECT COUNT(*) as count FROM meal_log_items WHERE meal_log_id = ?")
@@ -366,7 +364,7 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
     expect(count.count).toBe(25);
   });
 
-  test("Large Array 3: 100 items meal log (1100 params chunked into 13 statements within atomic batch)", async () => {
+  test("Large Array 3: 100 items meal log (1200 params chunked into 13 statements within atomic batch)", async () => {
     const { db, sqlite, executedStatements, clearStatements } = createTestDatabase();
     const mealLogRepo = createMealLogRepository(db);
 
@@ -382,9 +380,9 @@ describe("Empirical Challenger M1-2: Meal Log Repository & Rollback Adversarial 
     // Math.ceil(100 / 8) = 13 chunks (12 chunks of 8, 1 chunk of 4)
     expect(itemInserts).toHaveLength(13);
     for (let i = 0; i < 12; i++) {
-      expect(itemInserts[i].parameterCount).toBe(88);
+      expect(itemInserts[i].parameterCount).toBe(96);
     }
-    expect(itemInserts[12].parameterCount).toBe(44);
+    expect(itemInserts[12].parameterCount).toBe(48);
 
     const count = sqlite
       .prepare("SELECT COUNT(*) as count FROM meal_log_items WHERE meal_log_id = ?")

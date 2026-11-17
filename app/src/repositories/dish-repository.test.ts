@@ -134,6 +134,7 @@ function createTestDish(id: string, name: string, ingredientCount: number): Dish
     servings: 2,
     recipe: {
       schemaVersion: "1.0",
+      status: "spark",
       servings: 2,
       summary: `Test recipe with ${ingredientCount} ingredients`,
       equipment: ["pan"],
@@ -199,7 +200,6 @@ function createTestMealLog(id: string, itemCount: number): MealLog {
     totalNutrition: null,
     rating: 5,
     memo: "Delicious",
-    inventiaConsumptionStatus: null,
     imageIds: [],
     items,
   });

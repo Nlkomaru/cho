@@ -15,10 +15,14 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: reset-database
   cancel-in-progress: false
+
+env:
+  CF_SEND_TELEMETRY: "false"
 
 jobs:
   reset:
@@ -38,70 +42,65 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v6
-        name: Install pnpm
+      - name: Load Production Secrets
+        uses: nlkomaru/secret-manager@main
         with:
-          run_install: false
+          project: "cho"
+          env: "production"
 
-      - uses: actions/setup-node@v5
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
-          node-version: 26
-          cache: pnpm
-          cache-dependency-path: ./pnpm-lock.yaml
-
-      - name: Resolve D1 database id
-        env:
-          CLOUDFLARE_DATABASE_ID: ${{ secrets.CLOUDFLARE_DATABASE_ID }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$CLOUDFLARE_DATABASE_ID" =~ ^[[:alnum:]-]+$ ]]; then
-            echo "::error::CLOUDFLARE_DATABASE_ID is missing or invalid."
-            exit 1
-          fi
-          sed -i "s/<D1_DATABASE_ID>/${CLOUDFLARE_DATABASE_ID}/" app/wrangler.jsonc
-
-      - name: Install
-        run: pnpm install
+          node-version-file: .node-version
+          cache: true
+          run-install: |
+            args: ["--frozen-lockfile"]
 
       - name: Drop Cho tables
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_DATABASE_ID: ${{ env.CLOUDFLARE_DATABASE_ID || secrets.CLOUDFLARE_DATABASE_ID }}
         run: |
           set -euo pipefail
-          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
-            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set."
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" || -z "$CLOUDFLARE_DATABASE_ID" ]]; then
+            echo "::error::CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_DATABASE_ID must all be set."
             exit 1
           fi
 
           # Child tables first so foreign keys stay satisfied, then
-          # d1_migrations so Wrangler re-applies every local migration.
-          pnpm --dir app exec wrangler d1 execute DB --remote --config wrangler.jsonc --command "
+          # d1_migrations so cf re-applies every local migration.
+          pnpm --dir app exec cf d1 query "$CLOUDFLARE_DATABASE_ID" --sql "
             DROP TABLE IF EXISTS meal_log_items;
             DROP TABLE IF EXISTS meal_logs;
             DROP TABLE IF EXISTS dish_ingredients;
             DROP TABLE IF EXISTS dishes;
+            DROP TABLE IF EXISTS foods;
             DROP TABLE IF EXISTS media_images;
             DROP TABLE IF EXISTS app_settings;
             DROP TABLE IF EXISTS ingredients;
+            DROP TABLE IF EXISTS mcp_tool_usage_daily;
+            DROP TABLE IF EXISTS mcp_api_tokens;
             DROP TABLE IF EXISTS d1_migrations;
           "
 
       - name: Apply migrations
+        working-directory: app
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_DATABASE_ID: ${{ env.CLOUDFLARE_DATABASE_ID || secrets.CLOUDFLARE_DATABASE_ID }}
           # Never wait for a TTY confirmation in CI.
           CI: "true"
         run: |
           set -euo pipefail
-          pnpm --dir app exec wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+          vp exec cf d1 migrations apply "$CLOUDFLARE_DATABASE_ID" --dir migrations
 
       - name: Print final table list
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_DATABASE_ID: ${{ env.CLOUDFLARE_DATABASE_ID || secrets.CLOUDFLARE_DATABASE_ID }}
         run: |
           set -euo pipefail
-          pnpm --dir app exec wrangler d1 execute DB --remote --config wrangler.jsonc --json \
-            --command "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"
+          pnpm --dir app exec cf d1 query "$CLOUDFLARE_DATABASE_ID" -q \
+            --sql "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"

@@ -9,7 +9,7 @@ UPDATE dishes
 SET recipe_json = json_set(
   recipe_json,
   '$.ingredients',
-  (
+  json((
     SELECT json_group_array(json(migrated.value))
     FROM (
       SELECT
@@ -31,7 +31,7 @@ SET recipe_json = json_set(
       FROM json_each(dishes.recipe_json, '$.ingredients') AS entry
       ORDER BY entry.key
     ) AS migrated
-  )
+  ))
 )
 WHERE EXISTS (
   SELECT 1 FROM json_each(dishes.recipe_json, '$.ingredients') AS entry

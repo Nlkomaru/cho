@@ -4,17 +4,20 @@ import { z } from "zod";
 import type { ApiBindings } from "../api/index";
 import {
   dishSchema,
+  foodSchema,
   ingredientObjectSchema,
   ingredientSchema,
   inventiaItemIdSchema,
   mealLogItemBaseSchema,
   mealLogSchema,
   type Dish,
+  type Food,
   type Ingredient,
 } from "../domain/ingredient";
 import {
   aliasesAgree,
   calculatePurchaseListInputSchema,
+  consumeRecipeStockInputSchema,
   createImageUploadInputSchema,
   deleteIngredientInputSchema,
   deleteRecipeInputSchema,
@@ -37,13 +40,18 @@ import { namedRecipeIngredientEntrySchema, recipeSchema, withEntryNames } from "
 import { createDbClient } from "../db/client";
 import { MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_BYTES } from "../domain/image";
 import { createDishRepository } from "../repositories/dish-repository";
+import { createFoodRepository } from "../repositories/food-repository";
 import { createIngredientRepository } from "../repositories/ingredient-repository";
 import { createMealLogRepository } from "../repositories/meal-log-repository";
 import { createSettingsRepository } from "../repositories/settings-repository";
 import { createDishService } from "./dish";
 import { createSignedUploadUrl } from "./image-storage";
 import { createIngredientService, type IngredientInventiaClient } from "./ingredient";
-import { inventiaConfigurationMessage, resolveInventiaConnection } from "./integration-settings";
+import {
+  inventiaConfigurationMessage,
+  inventiaStockWritesDisabledMessage,
+  resolveInventiaConnection,
+} from "./integration-settings";
 import {
   describeInventiaFailure,
   InventiaAmountError,
@@ -143,12 +151,27 @@ const updateRecipeInput = z
   .refine((data) => Object.keys(data).some((key) => key !== "id"), {
     message: "At least one field to change must be provided",
   });
+const foodInput = foodSchema.omit({ id: true }).extend({ id: idempotencyId }).strict();
+const updateFoodInput = z
+  .object({
+    id: idSchema.describe("Food ID"),
+    name: foodSchema.shape.name.optional(),
+    category: foodSchema.shape.category.removeDefault().optional(),
+    servingLabel: foodSchema.shape.servingLabel.optional(),
+    priceYen: foodSchema.shape.priceYen.removeDefault().optional(),
+    nutrition: foodSchema.shape.nutrition.optional(),
+    memo: foodSchema.shape.memo.removeDefault().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).some((key) => key !== "id"), {
+    message: "At least one field to change must be provided",
+  });
 const mealItemInput = mealLogItemBaseSchema
   .omit({ id: true })
   .extend({ id: z.string().trim().min(1).max(128).optional() })
   .strict();
 const mealInput = mealLogSchema
-  .omit({ id: true, inventiaConsumptionStatus: true, items: true })
+  .omit({ id: true, items: true })
   .extend({ id: idempotencyId, items: z.array(mealItemInput).min(1).max(100) })
   .strict();
 const updateMealInput = z
@@ -197,6 +220,26 @@ const output = {
     .strict(),
   deleteResult: deleteResultSchema,
   purchaseList: purchaseListResultSchema,
+  consumeRecipeStock: z
+    .object({
+      results: z.array(
+        z
+          .object({
+            ingredientId: z.string(),
+            ingredientName: z.string(),
+            inventiaItemId: z.string(),
+            consumedAmount: z.number(),
+            unit: z.string(),
+            currentQuantity: z.number(),
+            allocations: z.array(z.unknown()),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+  foods: z.object({ foods: z.array(foodSchema) }).strict(),
+  food: z.object({ food: foodSchema }).strict(),
+  foodCreated: z.object({ food: foodSchema, created: z.boolean() }).strict(),
   inventiaItems: z
     .object({
       items: z.array(inventiaItemOutput),
@@ -368,6 +411,7 @@ export function createMcpServer(
   const db = createDbClient(env.DB);
   const ingredientRepository = createIngredientRepository(db);
   const dishRepository = createDishRepository(db);
+  const foodRepository = createFoodRepository(db);
   const mealRepository = createMealLogRepository(db);
 
   // The connection is resolved on first use so tools that never touch Inventia
@@ -397,7 +441,10 @@ export function createMcpServer(
   const dishService = createDishService({ repository: dishRepository, ingredientRepository });
   async function withNames(dishes: readonly Dish[]) {
     const ingredients = await dishService.ingredientsFor(dishes.map((dish) => dish.recipe));
-    return dishes.map((dish) => ({ ...dish, recipe: withEntryNames(dish.recipe, ingredients) }));
+    return dishes.map((dish) => ({
+      ...dish,
+      recipe: withEntryNames(dish.recipe, ingredients),
+    }));
   }
   const withName = async (dish: Dish) => (await withNames([dish]))[0];
   const mealService = createMealLogService({
@@ -857,6 +904,134 @@ export function createMcpServer(
 
         const result = calculatePurchaseList({ recipe, ingredients, inventory });
         return mcpSuccess({ ...result, inventiaStatus, warnings });
+      }),
+    );
+  if (allowed.has("consume_recipe_stock"))
+    server.registerTool(
+      "consume_recipe_stock",
+      {
+        title: "Consume recipe stock in Inventia",
+        description:
+          "Consume Inventia stock for a registered recipe's linked ingredients when Inventia stock writes are enabled. Uses the recipe's servings unless servings is specified. Pass idempotencyKey to make a retry safe.",
+        inputSchema: consumeRecipeStockInputSchema,
+        outputSchema: output.consumeRecipeStock,
+        annotations: { ...create, openWorldHint: true },
+      },
+      guard(async (input) => {
+        if (env.INVENTIA_STOCK_WRITES_ENABLED !== "true") {
+          throw new Error(inventiaStockWritesDisabledMessage);
+        }
+        const targetId = input.id ?? input.recipeId ?? "";
+        const { client, status } = await inventiaConnection();
+        if (!client || !status.capabilities.readItems) {
+          throw new InventiaUnavailableError(inventiaConfigurationMessage(status.issue));
+        }
+        if (!status.providerId) {
+          throw new Error(
+            "Inventia Provider ID is required for stock writes. Save it in the Cho integration settings.",
+          );
+        }
+        const stockDishService = createDishService({
+          repository: dishRepository,
+          ingredientRepository,
+          inventiaClient: client,
+          providerId: status.providerId,
+        });
+        const results = await stockDishService.consumeStock(targetId, {
+          servings: input.servings,
+          idempotencyKey: input.idempotencyKey,
+        });
+        return mcpSuccess({ results });
+      }),
+    );
+  if (allowed.has("list_foods"))
+    server.registerTool(
+      "list_foods",
+      {
+        title: "List staple foods",
+        description: "List staple foods registered in Cho.",
+        inputSchema: listInput,
+        outputSchema: output.foods,
+        annotations: readOnly,
+      },
+      guard(async () => mcpSuccess({ foods: await foodRepository.list() })),
+    );
+  if (allowed.has("get_food"))
+    server.registerTool(
+      "get_food",
+      {
+        title: "Get a staple food",
+        description: "Get one staple food registered in Cho by ID.",
+        inputSchema: idInputSchema,
+        outputSchema: output.food,
+        annotations: readOnly,
+      },
+      guard(async (input) => {
+        const food = await foodRepository.getById(input.id);
+        if (!food) throw new Error(`Food not found: ${input.id}`);
+        return mcpSuccess({ food });
+      }),
+    );
+  if (allowed.has("create_food"))
+    server.registerTool(
+      "create_food",
+      {
+        title: "Register a staple food",
+        description:
+          "Register a new staple food in Cho. Pass id to make a retry safe: an existing food with that ID is returned unchanged.",
+        inputSchema: foodInput,
+        outputSchema: output.foodCreated,
+        annotations: create,
+      },
+      guard(async (input) => {
+        const { id, ...rest } = input;
+        if (id) {
+          const existing = await foodRepository.getById(id);
+          if (existing) return mcpSuccess({ food: existing, created: false });
+        }
+        const food = foodSchema.parse({
+          ...rest,
+          id: id ?? crypto.randomUUID(),
+        });
+        return mcpSuccess({
+          food: await foodRepository.create(food),
+          created: true,
+        });
+      }),
+    );
+  if (allowed.has("update_food"))
+    server.registerTool(
+      "update_food",
+      {
+        title: "Update a staple food",
+        description: "Update fields of an existing staple food. Omitted fields are unchanged.",
+        inputSchema: updateFoodInput,
+        outputSchema: output.food,
+        annotations: update,
+      },
+      guard(async (input) => {
+        const { id, ...fields } = input;
+        const changes = Object.fromEntries(
+          Object.entries(fields).filter(([, value]) => value !== undefined),
+        ) as Partial<Omit<Food, "id">>;
+        const updated = await foodRepository.update(id, changes);
+        if (!updated) throw new Error(`Food not found: ${id}`);
+        return mcpSuccess({ food: updated });
+      }),
+    );
+  if (allowed.has("delete_food"))
+    server.registerTool(
+      "delete_food",
+      {
+        title: "Delete a staple food",
+        description: "Delete a staple food registered in Cho.",
+        inputSchema: idInputSchema,
+        outputSchema: output.deleteResult,
+        annotations: destroy,
+      },
+      guard(async (input) => {
+        const deleted = await foodRepository.delete(input.id);
+        return mcpSuccess({ success: Boolean(deleted), deletedId: input.id });
       }),
     );
   if (allowed.has("list_meals"))

@@ -37,6 +37,7 @@ export const fakeUpload = () => resolveLater({ id: crypto.randomUUID() }, 1200);
 
 export const blankEditorRecipe: RecipeJson = {
   ...curryRecipe,
+  status: "spark",
   summary: null,
   equipment: [],
   ingredientGroups: [],

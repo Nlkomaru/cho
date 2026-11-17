@@ -356,6 +356,7 @@ export function RecipeEditor({
                 name={draft.name}
                 category={draft.category}
                 servings={draft.servings}
+                status={recipe.status}
                 summary={recipe.summary}
                 equipment={recipe.equipment}
                 errors={errors}
@@ -397,6 +398,7 @@ export function RecipeEditor({
                         : current.recipe,
                   }))
                 }
+                onStatusChange={(status) => changeRecipe((current) => ({ ...current, status }))}
                 onSummaryChange={(summary) => changeRecipe((current) => ({ ...current, summary }))}
                 onEquipmentChange={(equipment) =>
                   changeRecipe((current) => ({ ...current, equipment }))

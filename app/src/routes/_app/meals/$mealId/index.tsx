@@ -23,8 +23,6 @@ function MealDetailPage() {
   const [meal, setMeal] = useState<Meal | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [stockWorking, setStockWorking] = useState(false);
-  const [stockError, setStockError] = useState("");
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -46,20 +44,6 @@ function MealDetailPage() {
     setLoading(true);
     void load();
   }, [load]);
-
-  async function consumeStock() {
-    setStockWorking(true);
-    setStockError("");
-    try {
-      await api<unknown>(`${url}/consume-stock`, { method: "POST" });
-      toaster.create({ type: "success", title: "在庫を消費しました" });
-    } catch (cause) {
-      setStockError(cause instanceof Error ? cause.message : "在庫消費に失敗しました。");
-    } finally {
-      await load();
-      setStockWorking(false);
-    }
-  }
 
   async function deleteMeal() {
     setDeleting(true);
@@ -118,9 +102,6 @@ function MealDetailPage() {
         meal={meal}
         onEdit={() => setEditing(true)}
         onDelete={() => setConfirmDelete(true)}
-        stockWorking={stockWorking}
-        stockError={stockError}
-        onConsumeStock={() => void consumeStock()}
       />
       <MealEntryDrawer
         open={editing}

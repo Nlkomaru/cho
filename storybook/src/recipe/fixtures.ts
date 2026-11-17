@@ -181,6 +181,7 @@ const intermediate = (fromStepId: string, outputId: string) => ({
 
 export const curryRecipe: RecipeJson = {
   schemaVersion: "1.0",
+  status: "spark",
   servings: 4,
   summary: "炊飯と並行して作る定番のポークカレー",
   equipment: ["炊飯器", "厚手の鍋", "包丁", "まな板"],

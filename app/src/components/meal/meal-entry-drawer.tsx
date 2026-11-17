@@ -1,4 +1,4 @@
-import { Box, Checkbox, Flex, Input, SimpleGrid, Stack, Textarea, chakra } from "@chakra-ui/react";
+import { Box, Flex, Input, SimpleGrid, Stack, Textarea, chakra } from "@chakra-ui/react";
 import { Plus, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -25,6 +25,7 @@ import {
   api,
   combineLocalDateTime,
   dishMealItem,
+  foodMealItem,
   imageUrl,
   localCalendarDate,
   localTimeValue,
@@ -34,20 +35,21 @@ import {
   titleFromItems,
   timingOptions,
   type Analysis,
-  type CreatedMeal,
   type Dish,
+  type Food,
   type Meal,
   type MealItem,
   type Source,
   type Timing,
 } from "./meal-shared";
 
-export type MealEntryMethod = "ai" | "recipe" | "ingredient" | "manual";
+export type MealEntryMethod = "ai" | "recipe" | "ingredient" | "food" | "manual";
 
 const methodItems = [
   { value: "manual", label: "手入力" },
   { value: "recipe", label: "レシピ" },
   { value: "ingredient", label: "材料" },
+  { value: "food", label: "定番食品" },
   { value: "ai", label: "AI解析" },
 ] as const;
 
@@ -61,7 +63,7 @@ const isBlank = (item: MealItem) =>
 export interface MealEntryDrawerProps {
   open: boolean;
   onOpenChange(open: boolean): void;
-  /** 保存が終わったとき (在庫消費の失敗を閉じたときも含む)。 */
+  /** 保存が終わったとき。 */
   onSaved(mealId: string): void | Promise<void>;
   /** 渡すと編集。品目・写真・共通項目を書き換える。 */
   meal?: Meal;
@@ -103,13 +105,15 @@ export function MealEntryDrawer({
   const [dishError, setDishError] = useState("");
   const [dishId, setDishId] = useState("");
   const [servings, setServings] = useState("1");
-  const [stock, setStock] = useState(false);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [ingredientId, setIngredientId] = useState("");
   const [ingredientQty, setIngredientQty] = useState("");
+  const [foods, setFoods] = useState<Food[] | null>(null);
+  const [foodError, setFoodError] = useState("");
+  const [foodId, setFoodId] = useState("");
+  const [foodServings, setFoodServings] = useState("1");
   const [working, setWorking] = useState<"" | "analyze" | "save">("");
   const [error, setError] = useState("");
-  const [savedMealId, setSavedMealId] = useState<string | null>(null);
   const objectUrls = useRef(new Set<string>());
 
   // 開くたびに入力を初期化する
@@ -131,7 +135,9 @@ export function MealEntryDrawer({
     );
     setItems(
       meal
-        ? meal.items.map(({ ingredientCostBreakdown: _breakdown, ...item }) => ({ ...item }))
+        ? meal.items.map(({ ingredientCostBreakdown: _breakdown, ...item }) => ({
+            ...item,
+          }))
         : initialDishId
           ? []
           : [blankMealItem()],
@@ -145,12 +151,14 @@ export function MealEntryDrawer({
     setIngredients([]);
     setDishId(initialDishId ?? "");
     setServings(String(initialServings));
-    setStock(false);
     setIngredientId("");
     setIngredientQty("");
+    setFoods(null);
+    setFoodError("");
+    setFoodId("");
+    setFoodServings("1");
     setWorking("");
     setError("");
-    setSavedMealId(null);
   }, [open, meal, initialDishId, initialServings, initialMethod]);
 
   useEffect(() => {
@@ -198,6 +206,22 @@ export function MealEntryDrawer({
     };
   }, [open, method, ingredients.length]);
 
+  useEffect(() => {
+    if (!open || method !== "food" || foods || foodError) return;
+    let cancelled = false;
+    api<Food[]>("/api/foods")
+      .then((list) => {
+        if (!cancelled) setFoods(list);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled)
+          setFoodError(cause instanceof Error ? cause.message : "定番食品を読み込めませんでした。");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, method, foods, foodError]);
+
   const dishOptions = useMemo(
     () => (dishes ?? []).map((dish) => ({ value: dish.id, label: dish.name })),
     [dishes],
@@ -206,10 +230,18 @@ export function MealEntryDrawer({
     () => ingredients.map((item) => ({ value: item.id, label: item.name })),
     [ingredients],
   );
+  const foodOptions = useMemo(
+    () =>
+      (foods ?? []).map((food) => ({
+        value: food.id,
+        label: food.servingLabel ? `${food.name} (${food.servingLabel})` : food.name,
+      })),
+    [foods],
+  );
   const selectedIngredient = ingredients.find((entry) => entry.id === ingredientId);
+  const selectedFood = foods?.find((entry) => entry.id === foodId);
   const itemsTotal = sumItemPrices(items);
   const suggestedTitle = titleFromItems(items);
-  const hasDishItem = items.some((item) => item.dishId);
 
   function changeItems(next: MealItem[]) {
     setItems(next);
@@ -261,6 +293,22 @@ export function MealEntryDrawer({
     ]);
     setIngredientId("");
     setIngredientQty("");
+  }
+
+  function addFood() {
+    if (!selectedFood) {
+      setError("定番食品を選択してください。");
+      return;
+    }
+    const factor = Number(foodServings);
+    if (!(factor > 0)) {
+      setError("数量は0より大きい値を入力してください。");
+      return;
+    }
+    setError("");
+    appendItems([foodMealItem(selectedFood, factor)]);
+    setFoodId("");
+    setFoodServings("1");
   }
 
   function addPhotos(files: File[]) {
@@ -334,18 +382,9 @@ export function MealEntryDrawer({
   }
 
   async function submit() {
-    if (savedMealId) {
-      await retryStock(savedMealId);
-      return;
-    }
     const validItems = items.filter((item) => item.name.trim().length > 0);
     if (validItems.length === 0) {
       setError("品目を1つ以上追加してください。");
-      return;
-    }
-    const consumeStock = !editing && stock && validItems.some((item) => item.dishId);
-    if (consumeStock && source !== "self_cooked") {
-      setError("在庫を消費するには、区分を「自炊」にしてください。");
       return;
     }
     setWorking("save");
@@ -366,13 +405,16 @@ export function MealEntryDrawer({
         await api<Meal>(`/api/meals/${encodeURIComponent(meal.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...common, ...(itemsDirty ? { items: payloadItems } : {}) }),
+          body: JSON.stringify({
+            ...common,
+            ...(itemsDirty ? { items: payloadItems } : {}),
+          }),
         });
         toaster.create({ type: "success", title: "食事記録を更新しました" });
         await onSaved(meal.id);
         return;
       }
-      const created = await api<CreatedMeal>("/api/meals", {
+      const created = await api<Meal>("/api/meals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -380,37 +422,13 @@ export function MealEntryDrawer({
           totalNutrition: null,
           rating: null,
           memo: null,
-          consumeStock: consumeStock ? true : undefined,
           items: payloadItems,
         }),
       });
-      if (created.stockConsumption?.status === "failed") {
-        setSavedMealId(created.id);
-        setError(
-          `食事記録は保存しました。${created.stockConsumption.error ?? "在庫消費に失敗しました。"}`,
-        );
-        return;
-      }
       toaster.create({ type: "success", title: "食事を記録しました" });
       await onSaved(created.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "食事記録を保存できませんでした。");
-    } finally {
-      setWorking("");
-    }
-  }
-
-  async function retryStock(id: string) {
-    setWorking("save");
-    setError("");
-    try {
-      await api(`/api/meals/${encodeURIComponent(id)}/consume-stock`, { method: "POST" });
-      toaster.create({ type: "success", title: "在庫を消費しました" });
-      await onSaved(id);
-    } catch (cause) {
-      setError(
-        `食事記録は保存しました。${cause instanceof Error ? cause.message : "在庫消費に失敗しました。"}`,
-      );
     } finally {
       setWorking("");
     }
@@ -441,29 +459,23 @@ export function MealEntryDrawer({
       onSubmit={() => void submit()}
       footer={
         <Flex gap="2" w="full" justify="flex-end" wrap="wrap">
-          {savedMealId ? (
-            <Button variant="ghost" onClick={() => void onSaved(savedMealId)} disabled={busy}>
-              記録を閉じる
-            </Button>
-          ) : (
-            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
-              キャンセル
-            </Button>
-          )}
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
+            キャンセル
+          </Button>
           <Button
             type="submit"
             variant="primary"
             loading={working === "save"}
-            disabled={busy || (!savedMealId && !title.trim() && !suggestedTitle)}
+            disabled={busy || (!title.trim() && !suggestedTitle)}
           >
-            {savedMealId ? "在庫消費を再試行" : "保存"}
+            保存
           </Button>
         </Flex>
       }
     >
       <Stack gap="6">
         {error ? (
-          <Feedback tone={savedMealId ? "warning" : "error"} role="alert">
+          <Feedback tone="error" role="alert">
             {error}
           </Feedback>
         ) : null}
@@ -592,6 +604,44 @@ export function MealEntryDrawer({
             </SimpleGrid>
           ) : null}
 
+          {method === "food" && foodError ? <Feedback tone="error">{foodError}</Feedback> : null}
+
+          {method === "food" && !foodError ? (
+            <SimpleGrid columns={{ base: 1, sm: 3 }} gap="4" alignItems="end">
+              <Box gridColumn={{ sm: "span 2" }}>
+                <Field label="定番食品">
+                  <NativeSelect
+                    value={foodId}
+                    placeholder={
+                      foods ? (foods.length ? "選択" : "定番食品がありません") : "読み込み中"
+                    }
+                    options={foodOptions}
+                    onChange={setFoodId}
+                  />
+                </Field>
+              </Box>
+              <NumberField
+                label="数量"
+                unit={selectedFood?.servingLabel || "食"}
+                value={foodServings}
+                min={0.1}
+                step={0.5}
+                onChange={setFoodServings}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                justifySelf="flex-start"
+                disabled={busy || !selectedFood}
+                onClick={addFood}
+              >
+                <Plus strokeWidth={1.75} />
+                定番食品を追加
+              </Button>
+            </SimpleGrid>
+          ) : null}
+
           {method === "ai" ? (
             <Stack gap="5">
               {photoTiles}
@@ -618,17 +668,6 @@ export function MealEntryDrawer({
             </Stack>
           ) : null}
         </Stack>
-
-        {!editing && hasDishItem ? (
-          <Checkbox.Root
-            checked={stock}
-            onCheckedChange={(details) => setStock(Boolean(details.checked))}
-          >
-            <Checkbox.HiddenInput />
-            <Checkbox.Control />
-            <Checkbox.Label>レシピの材料を Inventia の在庫から消費する</Checkbox.Label>
-          </Checkbox.Root>
-        ) : null}
 
         <Stack gap="5" pt="6" borderTopWidth="1px" borderColor="border">
           <Field label="タイトル" helperText="空欄なら品目名をつなげて付けます">

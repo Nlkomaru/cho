@@ -12,32 +12,20 @@ import { MealItemsTable } from "./meal-items-table";
 import { MealPhotoGallery } from "./meal-photo-gallery";
 import { mealMetaParts, summarizeMeals, type Meal } from "./meal-shared";
 import { MealStats } from "./meal-stats";
-import { MealStockPanel } from "./meal-stock-panel";
 
 export interface MealDetailViewProps {
   meal: Meal;
   onEdit?(): void;
   onDelete?(): void;
-  stockWorking?: boolean;
-  stockError?: string;
-  onConsumeStock?(): void;
   /** 画像 ID から表示 URL を作る (ストーリー用)。 */
   resolveImageSrc?(id: string): string;
 }
 
 /**
- * 食事詳細ページの本体 (データ取得なし)。見出し → 写真 → 合計 → 品目と原価・在庫。
+ * 食事詳細ページの本体 (データ取得なし)。見出し → 写真 → 合計 → 品目と原価。
  * 合計の料金は記録の料金 (空欄で保存すれば品目の料金の合計)。材料原価はレシピの品目の内訳。
  */
-export function MealDetailView({
-  meal,
-  onEdit,
-  onDelete,
-  stockWorking,
-  stockError,
-  onConsumeStock,
-  resolveImageSrc,
-}: MealDetailViewProps) {
+export function MealDetailView({ meal, onEdit, onDelete, resolveImageSrc }: MealDetailViewProps) {
   const metaParts = mealMetaParts(meal);
 
   return (
@@ -123,15 +111,6 @@ export function MealDetailView({
               <MealCostList items={meal.items} />
             </Section>
           ) : null}
-          <Section title="在庫消費">
-            <MealStockPanel
-              status={meal.inventiaConsumptionStatus}
-              selfCooked={meal.sourceType === "self_cooked"}
-              working={stockWorking}
-              error={stockError}
-              onConsume={onConsumeStock}
-            />
-          </Section>
         </Stack>
       </Grid>
     </>
