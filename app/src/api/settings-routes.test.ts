@@ -126,55 +126,21 @@ test("settings PUT refuses to drop a model or provider ID without a stored secre
   }
 });
 
-test.each(["/api/ingredients/fixture/stock", "/api/meals/fixture/consume-stock"])(
-  "read-only API rejects %s before database access",
-  async (path) => {
-    const response = await api.fetch(
-      new Request(`http://localhost${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: 100, idempotencyKey: "read-only-fixture" }),
-      }),
-      { INVENTIA_STOCK_WRITES_ENABLED: "false" } as ApiBindings,
-    );
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      error: "Inventia stock writes are disabled in this environment.",
-    });
+test.each([
+  {
+    path: "/api/ingredients/fixture/stock",
+    body: { amount: 100, idempotencyKey: "read-only-fixture" },
   },
-);
-
-test("read-only meal creation rejects requested stock mutation before saving the meal", async () => {
-  const input = {
-    eatenAt: "2026-11-08T18:30:00.000Z",
-    mealTiming: "dinner",
-    sourceType: "self_cooked",
-    placeName: null,
-    title: "Fixture meal",
-    totalPriceYen: 0,
-    totalNutrition: null,
-    rating: null,
-    memo: null,
-    imageIds: [],
-    consumeStock: true,
-    items: [
-      {
-        dishId: null,
-        ingredientId: null,
-        name: "Milk",
-        priceYen: 0,
-        nutrition: null,
-        estimationSource: "manual",
-        servingsFactor: 1,
-        sortOrder: 0,
-      },
-    ],
-  };
+  {
+    path: "/api/dishes/fixture/consume-stock",
+    body: { servings: 1, idempotencyKey: "read-only-fixture" },
+  },
+])("read-only API rejects $path before database access", async ({ path, body }) => {
   const response = await api.fetch(
-    new Request("http://localhost/api/meals", {
+    new Request(`http://localhost${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
     }),
     { INVENTIA_STOCK_WRITES_ENABLED: "false" } as ApiBindings,
   );

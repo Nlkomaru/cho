@@ -1,6 +1,5 @@
 import { expect, test } from "vite-plus/test";
 import { createMealLogService, type MealLogRepository } from "./meal-log";
-import { InventiaHttpError } from "./inventia-client";
 import { mealLogSchema, type Dish, type Ingredient, type MealLog } from "../domain/ingredient";
 import { recipeSchema } from "../domain/recipe";
 import { validateRecipeDag } from "../domain/recipe-scheduler";
@@ -82,18 +81,12 @@ const dish: Dish = {
 };
 function fixture(currentIngredient = ingredient(100), currentDish: Dish = dish) {
   let saved: MealLog | null = null;
-  const statuses: string[] = [];
   const repository: MealLogRepository = {
     list: async () => (saved ? [saved] : []),
     getById: async () => saved,
     create: async (input) => (saved = input),
     update: async (_id, changes) => (saved ? (saved = { ...saved, ...changes }) : null),
     delete: async () => saved,
-    setInventiaConsumptionStatus: async (_id, status) => {
-      statuses.push(status);
-      if (saved) saved = { ...saved, inventiaConsumptionStatus: status };
-      return !!saved;
-    },
   };
   const service = createMealLogService({
     repository,
@@ -101,21 +94,9 @@ function fixture(currentIngredient = ingredient(100), currentDish: Dish = dish) 
     ingredientRepository: {
       getById: async (id) => (id === currentIngredient.id ? currentIngredient : null),
     },
-    inventiaClient: {
-      getItem: async (id) => ({
-        id,
-        name: "Tomato",
-        baseUnit: "g",
-        baseDimension: "mass",
-        currentQuantity: 1000,
-      }),
-      adjustStock: async () => ({}) as never,
-    },
-    providerId: "provider-7",
   });
   return {
     service,
-    statuses,
     setIngredient: (next: Ingredient) => {
       currentIngredient = next;
     },
@@ -167,93 +148,6 @@ test("snapshots self-cooked item price, nutrition, and ingredient costs; memo pa
   expect(updated?.totalNutrition).toEqual(created.totalNutrition);
 });
 
-test("aggregates duplicate recipe ingredients into one exact Inventia adjustment and transitions status", async () => {
-  const state = fixture(ingredient(100, "inventia-tomato"));
-  await state.service.create(mealInput);
-  const calls: unknown[] = [];
-  const service = createMealLogService({
-    repository: {
-      list: async () => [],
-      getById: async () => state.service.get("meal-1"),
-      create: async (value) => value,
-      update: async () => null,
-      delete: async () => null,
-      setInventiaConsumptionStatus: async (_id, status) => {
-        state.statuses.push(status);
-        return true;
-      },
-    },
-    dishRepository: { getById: async () => dish },
-    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
-    providerId: "provider-7",
-    inventiaClient: {
-      getItem: async (id) => ({
-        id,
-        name: "Tomato",
-        baseUnit: "g",
-        baseDimension: "mass",
-        currentQuantity: 1000,
-      }),
-      adjustStock: async (id, body) => {
-        calls.push({ id, body });
-        return { id: "operation-1" } as never;
-      },
-    },
-  });
-  const results = await service.consumeStock("meal-1");
-  expect(calls).toEqual([
-    {
-      id: "inventia-tomato",
-      body: {
-        delta: -50,
-        reason: "consume",
-        idempotencyKey: "cho:meal:meal-1:item:item-1:ing:tomato",
-        note: "Cho: Tomato dish",
-        externalProviderId: "provider-7",
-        externalId: "meal-1",
-      },
-    },
-  ]);
-  expect(results).toHaveLength(1);
-  expect(state.statuses).toEqual(["pending", "succeeded"]);
-});
-
-test("marks consumption failed and rethrows an adjustment rejection", async () => {
-  const state = fixture(ingredient(100, "inventia-tomato"));
-  await state.service.create(mealInput);
-  const failure = new Error("stock unavailable");
-  const service = createMealLogService({
-    repository: {
-      list: async () => [],
-      getById: async () => state.service.get("meal-1"),
-      create: async (value) => value,
-      update: async () => null,
-      delete: async () => null,
-      setInventiaConsumptionStatus: async (_id, status) => {
-        state.statuses.push(status);
-        return true;
-      },
-    },
-    dishRepository: { getById: async () => dish },
-    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
-    providerId: "provider-7",
-    inventiaClient: {
-      getItem: async (id) => ({
-        id,
-        name: "Tomato",
-        baseUnit: "g",
-        baseDimension: "mass",
-        currentQuantity: 1000,
-      }),
-      adjustStock: async () => {
-        throw failure;
-      },
-    },
-  });
-  await expect(service.consumeStock("meal-1")).rejects.toBe(failure);
-  expect(state.statuses).toEqual(["pending", "failed"]);
-});
-
 const listMeal = (
   id: string,
   eatenAt: string,
@@ -291,7 +185,6 @@ function summaryService(meals: MealLog[]) {
     create: async (value) => value,
     update: async () => null,
     delete: async () => null,
-    setInventiaConsumptionStatus: async () => false,
   };
   return {
     filters,
@@ -333,148 +226,6 @@ test("summarises day, week, and month totals in JST and honours date/type/timing
   ]);
 });
 
-test("createWithStock consumes stock during creation and reports a failure without losing the meal", async () => {
-  const state = fixture(ingredient(100, "inventia-tomato"));
-  const created = await state.service.createWithStock(mealInput);
-  expect(created.stockConsumption.status).toBe("succeeded");
-  expect(created.stockConsumption.results).toHaveLength(1);
-  expect(created.stockConsumption.error).toBeNull();
-  expect(created.meal.id).toBe("meal-1");
-  expect(created.meal.inventiaConsumptionStatus).toBe("succeeded");
-  expect(state.statuses).toEqual(["pending", "succeeded"]);
-
-  const failing = createMealLogService({
-    repository: {
-      list: async () => [],
-      getById: async () => state.service.get("meal-1"),
-      create: async (value) => value,
-      update: async () => null,
-      delete: async () => null,
-      setInventiaConsumptionStatus: async (_id, status) => {
-        state.statuses.push(status);
-        return true;
-      },
-    },
-    dishRepository: { getById: async () => dish },
-    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
-    providerId: "provider-7",
-    inventiaClient: {
-      getItem: async (id) => ({
-        id,
-        name: "Tomato",
-        baseUnit: "g",
-        baseDimension: "mass",
-        currentQuantity: 1000,
-      }),
-      adjustStock: async () => {
-        throw new InventiaHttpError(401);
-      },
-    },
-  });
-  const failed = await failing.createWithStock(mealInput);
-  expect(failed.meal.id).toBe("meal-1");
-  expect(failed.stockConsumption.status).toBe("failed");
-  expect(failed.stockConsumption.error).toContain("API token");
-});
-
-test("meal consumption refuses an item whose unit changed after linking", async () => {
-  const state = fixture(ingredient(100, "inventia-tomato"));
-  await state.service.create(mealInput);
-  const service = createMealLogService({
-    repository: {
-      list: async () => [],
-      getById: async () => state.service.get("meal-1"),
-      create: async (value) => value,
-      update: async () => null,
-      delete: async () => null,
-      setInventiaConsumptionStatus: async (_id, status) => {
-        state.statuses.push(status);
-        return true;
-      },
-    },
-    dishRepository: { getById: async () => dish },
-    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
-    providerId: "provider-7",
-    inventiaClient: {
-      getItem: async (id) => ({
-        id,
-        name: "Tomato",
-        baseUnit: "kg",
-        baseDimension: "mass",
-        currentQuantity: 1,
-      }),
-      adjustStock: async () => {
-        throw new Error("Stock must not be mutated with a changed unit");
-      },
-    },
-  });
-  await expect(service.consumeStock("meal-1")).rejects.toMatchObject({
-    name: "InventiaUnitMismatchError",
-    expectedUnit: "g",
-    actualUnit: "kg",
-  });
-  expect(state.statuses).toEqual(["pending", "failed"]);
-});
-
-test("meal consumption refuses a fractional computed amount naming the unit", async () => {
-  const [firstEntry, secondEntry] = recipe().ingredients;
-  const [mealItem] = mealInput.items;
-  if (!firstEntry || !secondEntry || !mealItem)
-    throw new Error("Fractional stock fixture is incomplete");
-  const fractionalDish: Dish = {
-    ...dish,
-    id: "dish-fractional",
-    servings: 3,
-    recipe: {
-      ...recipe(),
-      servings: 3,
-      ingredients: [
-        { ...firstEntry, amount: 100 },
-        { ...secondEntry, amount: 1 },
-      ],
-    },
-  };
-  const state = fixture(ingredient(100, "inventia-tomato"), fractionalDish);
-  await state.service.create({
-    ...mealInput,
-    items: [{ ...mealItem, dishId: fractionalDish.id }],
-  });
-  const service = createMealLogService({
-    repository: {
-      list: async () => [],
-      getById: async () => state.service.get("meal-1"),
-      create: async (value) => value,
-      update: async () => null,
-      delete: async () => null,
-      setInventiaConsumptionStatus: async (_id, status) => {
-        state.statuses.push(status);
-        return true;
-      },
-    },
-    dishRepository: { getById: async () => fractionalDish },
-    ingredientRepository: { getById: async () => ingredient(100, "inventia-tomato") },
-    providerId: "provider-7",
-    inventiaClient: {
-      getItem: async (id) => ({
-        id,
-        name: "Tomato",
-        baseUnit: "g",
-        baseDimension: "mass",
-        currentQuantity: 1000,
-      }),
-      adjustStock: async () => {
-        throw new Error("Stock must not be mutated with a fractional amount");
-      },
-    },
-  });
-  await expect(service.consumeStock("meal-1")).rejects.toMatchObject({
-    name: "InventiaAmountError",
-    unit: "g",
-    amount: 101 / 3,
-  });
-  expect(state.statuses).toEqual(["pending", "failed"]);
-});
-
 test("meal price comes from current ingredient prices, not the cached dish cost", async () => {
   const priced = fixture(ingredient(100), { ...dish, totalCostYen: 999 });
   const meal = await priced.service.create({ ...mealInput, items: [{ ...mealInput.items[0] }] });
@@ -482,7 +233,11 @@ test("meal price comes from current ingredient prices, not the cached dish cost"
 });
 
 test("a dish without any priced ingredient gives the meal no price", async () => {
-  const unpriced = fixture(ingredient(null), { ...dish, totalCostYen: 165.3, costMissingCount: 0 });
+  const unpriced = fixture(ingredient(null), {
+    ...dish,
+    totalCostYen: 165.3,
+    costMissingCount: 0,
+  });
   const meal = await unpriced.service.create({
     ...mealInput,
     items: [{ ...mealInput.items[0] }],

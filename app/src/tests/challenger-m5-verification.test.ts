@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 
@@ -48,6 +47,7 @@ function buildAdversarialRecipe(
 ): RecipeJson {
   return {
     schemaVersion: "1.0",
+    status: "spark",
     servings: 2,
     summary: `${title} summary`,
     equipment: ["大鍋"],
@@ -113,7 +113,7 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
         const { secret } = await harness.issueToken([...mcpToolNames]);
 
         // Load root recipe_payload_4step.json
-        const payloadPath = resolve(process.cwd(), "recipe_payload_4step.json");
+        const payloadPath = new URL("../../../recipe_payload_4step.json", import.meta.url);
         const rawPayload = JSON.parse(readFileSync(payloadPath, "utf8"));
 
         expect(rawPayload.recipe.ingredients).toHaveLength(12);
@@ -463,7 +463,6 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
           totalNutrition: null,
           rating: 5,
           memo: "Chunk test",
-          inventiaConsumptionStatus: null,
           imageIds: [],
           items,
         };
@@ -553,7 +552,7 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
         `);
 
         // Execute migration 0002_cleanup_probes.sql
-        const migrationPath = resolve(process.cwd(), "app/migrations/0002_cleanup_probes.sql");
+        const migrationPath = new URL("../../migrations/0002_cleanup_probes.sql", import.meta.url);
         const sql = readFileSync(migrationPath, "utf8");
         sqlite.exec(sql);
 
@@ -684,7 +683,9 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
         const nonExistentId = "00000000-0000-0000-0000-000000000000";
 
         // MCP delete_recipe
-        const delRecipeRes = await harness.callMcp(secret, "delete_recipe", { id: nonExistentId });
+        const delRecipeRes = await harness.callMcp(secret, "delete_recipe", {
+          id: nonExistentId,
+        });
         expect(delRecipeRes.response.status).toBe(200);
         const recipeBody = delRecipeRes.body.result?.structuredContent as {
           success: boolean;
@@ -694,7 +695,9 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
         expect(recipeBody.deletedId).toBe(nonExistentId);
 
         // MCP delete_ingredient
-        const delIngRes = await harness.callMcp(secret, "delete_ingredient", { id: nonExistentId });
+        const delIngRes = await harness.callMcp(secret, "delete_ingredient", {
+          id: nonExistentId,
+        });
         expect(delIngRes.response.status).toBe(200);
         const ingBody = delIngRes.body.result?.structuredContent as {
           success: boolean;
@@ -705,7 +708,9 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
 
         // REST DELETE /api/ingredients/:id
         const restDelRes = await api.fetch(
-          new Request(`http://localhost/api/ingredients/${nonExistentId}`, { method: "DELETE" }),
+          new Request(`http://localhost/api/ingredients/${nonExistentId}`, {
+            method: "DELETE",
+          }),
           harness.env,
         );
         expect(restDelRes.status).toBe(404);
@@ -842,7 +847,13 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
           coverImageId: null,
           notes: "",
           recipe: buildAdversarialRecipe("Meal Dish", [
-            { id: "e1", ingredientId: ingId, name: "Meal Dish Ing", amount: 50, unit: "g" },
+            {
+              id: "e1",
+              ingredientId: ingId,
+              name: "Meal Dish Ing",
+              amount: 50,
+              unit: "g",
+            },
           ]),
         });
         const dishId = (dishRes.body.result?.structuredContent as { recipe: { id: string } }).recipe
@@ -863,7 +874,6 @@ describe("Empirical Challenger M5: Adversarial Stress Test Suite for R1 & R2", (
           totalNutrition: null,
           rating: 4,
           memo: "",
-          inventiaConsumptionStatus: null,
           imageIds: [],
           items: [
             {

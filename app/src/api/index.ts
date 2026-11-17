@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { aiRoutes } from "./ai-routes";
 import { dishRoutes } from "./dish-routes";
+import { foodRoutes } from "./food-routes";
 import { imageRoutes } from "./image-routes";
 import { ingredientRoutes } from "./ingredient-routes";
 import { mealRoutes } from "./meal-routes";
@@ -40,6 +41,7 @@ api.route("/", aiRoutes);
 api.route("/", settingsRoutes);
 api.route("/", ingredientRoutes);
 api.route("/", dishRoutes);
+api.route("/", foodRoutes);
 api.route("/", imageRoutes);
 api.route("/", mealRoutes);
 api.route("/", mcpRoutes);

@@ -22,6 +22,12 @@ export const mcpToolNames = [
   "create_image_upload",
   "set_recipe_images",
   "calculate_purchase_list",
+  "consume_recipe_stock",
+  "list_foods",
+  "get_food",
+  "create_food",
+  "update_food",
+  "delete_food",
   "list_meals",
   "get_meal",
   "record_meal",
@@ -301,3 +307,31 @@ export const calculatePurchaseListInputSchema = z
   });
 
 export type CalculatePurchaseListInput = z.infer<typeof calculatePurchaseListInputSchema>;
+
+export const consumeRecipeStockInputSchema = z
+  .object({
+    id: idSchema.optional().describe("Recipe ID. Preferred over the recipeId alias"),
+    recipeId: idSchema.optional().describe("Alias of id"),
+    servings: z
+      .number()
+      .positive()
+      .max(100)
+      .optional()
+      .describe("Number of servings to consume; defaults to the recipe's servings"),
+    idempotencyKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Optional idempotency key for safe retries"),
+  })
+  .strict()
+  .refine((data) => Boolean(data.id || data.recipeId), {
+    message: "Either id or recipeId must be provided",
+  })
+  .refine((data) => aliasesAgree(data.id, data.recipeId), {
+    message: "id and recipeId must match when both are given",
+  });
+
+export type ConsumeRecipeStockInput = z.infer<typeof consumeRecipeStockInputSchema>;
