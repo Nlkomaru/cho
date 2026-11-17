@@ -192,9 +192,18 @@ export const recipeStepSchema = z
       .describe("Photos shown with this step, in order. An image can be used only once per recipe"),
   })
   .strict();
+export const recipeStatusSchema = z
+  .enum(["spark", "grid", "orbit"])
+  .default("spark")
+  .describe(
+    "Recipe maturity status: spark (AI-generated or draft), grid (checked by a human), or orbit (thoroughly checked and stable)",
+  );
+export type RecipeStatus = z.infer<typeof recipeStatusSchema>;
+
 export const recipeSchema = z
   .object({
     schemaVersion: z.literal("1.0").default("1.0"),
+    status: recipeStatusSchema,
     servings: z
       .int()
       .min(1)

@@ -1,4 +1,4 @@
-import { Box, Text, chakra } from "@chakra-ui/react";
+import { Badge, Box, HStack, Text, chakra } from "@chakra-ui/react";
 import { Link } from "@tanstack/react-router";
 import {
   createColumnHelper,
@@ -12,6 +12,7 @@ import {
 import { CookingPot } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { recipeStatusMeta } from "@/components/recipe/recipe-labels";
 import {
   DataTable,
   type DataTableColumnMeta,
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/data-table";
 import type { Dish } from "@/domain/ingredient";
 import type { NutritionFacts } from "@/domain/nutrition";
+import type { RecipeStatus } from "@/domain/recipe";
 import { computeRecipeGanttSchedule } from "@/domain/recipe-scheduler";
 import {
   formatMinutes,
@@ -34,6 +36,7 @@ import { useImageSrc } from "@/lib/images";
 export interface DishRow {
   id: string;
   name: string;
+  status: RecipeStatus;
   category: string | null;
   servings: number;
   /** 表紙画像の ID。 */
@@ -61,6 +64,7 @@ const durationOf = (recipe: Dish["recipe"]): number | null => {
 export const toDishRow = (dish: Dish): DishRow => ({
   id: dish.id,
   name: dish.name,
+  status: dish.recipe.status,
   category: dish.category,
   servings: dish.servings,
   coverImageId: dish.coverImageId,
@@ -133,16 +137,25 @@ const columns = columnHelper.columns([
       <Box display="flex" alignItems="center" gap="3" minW="0">
         <DishThumb imageId={row.original.coverImageId} />
         <Box minW="0">
-          <chakra.span
-            asChild
-            color="fg.strong"
-            fontWeight="500"
-            _hover={{ textDecoration: "underline", textUnderlineOffset: "3px" }}
-          >
-            <Link to="/dishes/$dishId" params={{ dishId: row.original.id }}>
-              {row.original.name}
-            </Link>
-          </chakra.span>
+          <HStack gap="2" align="center" flexWrap="wrap">
+            <chakra.span
+              asChild
+              color="fg.strong"
+              fontWeight="500"
+              _hover={{ textDecoration: "underline", textUnderlineOffset: "3px" }}
+            >
+              <Link to="/dishes/$dishId" params={{ dishId: row.original.id }}>
+                {row.original.name}
+              </Link>
+            </chakra.span>
+            <Badge
+              size="sm"
+              colorPalette={recipeStatusMeta(row.original.status).colorPalette}
+              title={recipeStatusMeta(row.original.status).description}
+            >
+              {recipeStatusMeta(row.original.status).label}
+            </Badge>
+          </HStack>
           <Text textStyle="caption" color="fg.subtle">
             {[row.original.category, `${row.original.servings}人前`].filter(Boolean).join(" · ")}
           </Text>
