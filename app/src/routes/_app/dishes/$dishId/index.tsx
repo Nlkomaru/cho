@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Page } from "@/components/layout/page";
 import { PageHeader } from "@/components/layout/page-header";
+import type { RecipeStockConsumptionResult } from "@/components/recipe/recipe-stock-panel";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -60,6 +61,13 @@ function DishDetailPage() {
   const [metaError, setMetaError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [convertBusy, setConvertBusy] = useState(false);
+  const [stockWorking, setStockWorking] = useState(false);
+  const [stockResults, setStockResults] = useState<readonly RecipeStockConsumptionResult[] | null>(
+    null,
+  );
+  const [stockError, setStockError] = useState("");
 
   const load = useCallback(
     async (options: { quiet?: boolean } = {}) => {
@@ -86,6 +94,8 @@ function DishDetailPage() {
 
   useEffect(() => {
     setDetail(null);
+    setStockResults(null);
+    setStockError("");
     void load();
   }, [load]);
 
@@ -143,6 +153,61 @@ function DishDetailPage() {
     }
   }
 
+  async function consumeStock(servings: number) {
+    if (!detail) return;
+    setStockWorking(true);
+    setStockError("");
+    try {
+      const data = await api<{ results: RecipeStockConsumptionResult[] }>(
+        `/api/dishes/${encodeURIComponent(detail.dish.id)}/consume-stock`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ servings }),
+        },
+      );
+      setStockResults(data.results);
+      toaster.create({
+        type: "success",
+        title:
+          data.results.length > 0
+            ? "在庫を消費しました"
+            : "Inventia に紐付いた材料がありませんでした",
+      });
+    } catch (cause) {
+      setStockError(messageOf(cause, "在庫消費に失敗しました。"));
+    } finally {
+      setStockWorking(false);
+    }
+  }
+
+  async function convertToFood() {
+    if (!detail) return;
+    setConvertBusy(true);
+    try {
+      await api(`/api/dishes/${encodeURIComponent(detail.dish.id)}/convert-to-food`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      setConvertOpen(false);
+      toaster.create({
+        type: "success",
+        title: `「${detail.dish.name}」を定番食品へ移動しました`,
+      });
+      await navigate({ to: "/foods" });
+    } catch (cause) {
+      setConvertOpen(false);
+      toaster.create({
+        type: "error",
+        title: "定番食品へ移動できませんでした",
+        description: messageOf(cause, "時間をおいてもう一度お試しください。"),
+      });
+    } finally {
+      setConvertBusy(false);
+    }
+  }
+
   if (loading && !detail) return <DishDetailSkeleton />;
 
   if (!detail) {
@@ -190,10 +255,15 @@ function DishDetailPage() {
         dish={dish}
         schedule={schedule}
         ingredientById={ingredientById}
+        stockWorking={stockWorking}
+        stockResults={stockResults}
+        stockError={stockError}
+        onConsumeStock={(servings) => void consumeStock(servings)}
         onEditMeta={() => {
           setMetaError("");
           setMetaOpen(true);
         }}
+        onConvertToFood={() => setConvertOpen(true)}
         onDelete={() => setDeleteOpen(true)}
       />
       <RecipeMetaDialog
@@ -203,6 +273,16 @@ function DishDetailPage() {
         busy={metaBusy}
         error={metaError}
         onSubmit={(values) => void saveMeta(values)}
+      />
+      <ConfirmDialog
+        open={convertOpen}
+        onOpenChange={setConvertOpen}
+        title="定番食品へ移動しますか？"
+        description={`「${dish.name}」を定番食品に登録し、このレシピを削除します。`}
+        confirmLabel="移動する"
+        tone="primary"
+        busy={convertBusy}
+        onConfirm={() => void convertToFood()}
       />
       <ConfirmDialog
         open={deleteOpen}

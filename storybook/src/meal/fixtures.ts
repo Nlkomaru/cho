@@ -38,7 +38,6 @@ export const buildMeal = (overrides: Partial<Meal> = {}): Meal => {
     imageIds: [],
     items: [buildMealItem()],
     memo: null,
-    inventiaConsumptionStatus: null,
     ...overrides,
   };
 };

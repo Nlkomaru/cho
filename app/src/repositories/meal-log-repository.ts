@@ -13,7 +13,6 @@ type MealLogFilter = {
   mealTiming?: NonNullable<MealLog["mealTiming"]>;
   q?: string;
 };
-type InventiaConsumptionStatus = MealLog["inventiaConsumptionStatus"];
 
 const MEAL_LOG_ITEM_CHUNK_SIZE = 8;
 
@@ -61,12 +60,12 @@ export function createMealLogRepository(db: Database) {
       totalNutrition: parseJson(row.totalNutritionJson),
       rating: row.rating,
       memo: row.memo,
-      inventiaConsumptionStatus: row.inventiaConsumptionStatus,
       imageIds: images.map((image) => image.id),
       items: items.map((item) => ({
         id: item.id,
         dishId: item.dishId,
         ingredientId: item.ingredientId,
+        foodId: item.foodId,
         name: item.name,
         servingsFactor: item.servingsFactor,
         priceYen: item.priceYen,
@@ -84,6 +83,7 @@ export function createMealLogRepository(db: Database) {
       mealLogId: log.id,
       dishId: item.dishId,
       ingredientId: item.ingredientId,
+      foodId: item.foodId,
       name: item.name,
       servingsFactor: item.servingsFactor,
       priceYen: item.priceYen,
@@ -152,7 +152,6 @@ export function createMealLogRepository(db: Database) {
       totalNutritionJson: serialize(log.totalNutrition),
       rating: log.rating,
       memo: log.memo,
-      inventiaConsumptionStatus: log.inventiaConsumptionStatus,
     };
   }
 
@@ -232,12 +231,12 @@ export function createMealLogRepository(db: Database) {
           totalNutrition: parseJson(row.totalNutritionJson),
           rating: row.rating,
           memo: row.memo,
-          inventiaConsumptionStatus: row.inventiaConsumptionStatus,
           imageIds: (imagesByLog.get(row.id) ?? []).map((image) => image.id),
           items: (itemsByLog.get(row.id) ?? []).map((item) => ({
             id: item.id,
             dishId: item.dishId,
             ingredientId: item.ingredientId,
+            foodId: item.foodId,
             name: item.name,
             servingsFactor: item.servingsFactor,
             priceYen: item.priceYen,
@@ -317,7 +316,6 @@ export function createMealLogRepository(db: Database) {
               totalNutritionJson: values.totalNutritionJson,
               rating: values.rating,
               memo: values.memo,
-              inventiaConsumptionStatus: values.inventiaConsumptionStatus,
               updatedAt: new Date().toISOString(),
             })
             .where(eq(mealLogs.id, id)),
@@ -352,17 +350,6 @@ export function createMealLogRepository(db: Database) {
         db.delete(mealLogs).where(eq(mealLogs.id, id)),
       ]);
       return current;
-    },
-    async setInventiaConsumptionStatus(
-      id: string,
-      status: InventiaConsumptionStatus,
-    ): Promise<boolean> {
-      const rows = await db
-        .update(mealLogs)
-        .set({ inventiaConsumptionStatus: status, updatedAt: new Date().toISOString() })
-        .where(eq(mealLogs.id, id))
-        .returning({ id: mealLogs.id });
-      return rows.length > 0;
     },
   };
 }

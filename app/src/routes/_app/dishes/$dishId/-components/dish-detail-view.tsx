@@ -1,6 +1,6 @@
 import { Badge, Box, Grid, HStack, Menu, Portal, Skeleton, Stack, Switch } from "@chakra-ui/react";
 import { Link } from "@tanstack/react-router";
-import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowRightLeft, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { NutritionSummary } from "@/components/food/nutrition-summary";
@@ -15,7 +15,12 @@ import {
 import { GanttChart, type GanttChartHandle } from "@/components/recipe/gantt-chart";
 import { IngredientList } from "@/components/recipe/ingredient-list";
 import { RecipeCover } from "@/components/recipe/recipe-image";
+import { recipeStatusMeta } from "@/components/recipe/recipe-labels";
 import { RecipeNotes } from "@/components/recipe/recipe-notes";
+import {
+  RecipeStockPanel,
+  type RecipeStockConsumptionResult,
+} from "@/components/recipe/recipe-stock-panel";
 import { StepList } from "@/components/recipe/step-list";
 import { Button, IconButton } from "@/components/ui/button";
 import { ServingsStepper } from "@/components/ui/servings-stepper";
@@ -32,7 +37,12 @@ export interface DishDetailViewProps {
   initialServings?: number;
   /** 最初から完了扱いにする手順 (Storybook 用)。 */
   initialCompletedStepIds?: readonly string[];
+  stockWorking?: boolean;
+  stockResults?: readonly RecipeStockConsumptionResult[] | null;
+  stockError?: string;
+  onConsumeStock?(servings: number): void;
   onEditMeta?(): void;
+  onConvertToFood?(): void;
   onDelete?(): void;
 }
 
@@ -54,7 +64,12 @@ export function DishDetailView({
   ingredientById,
   initialServings,
   initialCompletedStepIds = [],
+  stockWorking,
+  stockResults,
+  stockError,
+  onConsumeStock,
   onEditMeta,
+  onConvertToFood,
   onDelete,
 }: DishDetailViewProps) {
   const [servings, setServings] = useState(initialServings ?? dish.servings);
@@ -65,6 +80,7 @@ export function DishDetailView({
   const ganttRef = useRef<GanttChartHandle>(null);
 
   const recipe = dish.recipe;
+  const statusMeta = recipeStatusMeta(recipe.status);
   const scale = servings / dish.servings;
   const items = useMemo(
     () => buildIngredientItems(recipe, { scale, ingredientById }),
@@ -102,6 +118,9 @@ export function DishDetailView({
         title={dish.name}
         meta={
           <HStack gap="2" wrap="wrap">
+            <Badge colorPalette={statusMeta.colorPalette} title={statusMeta.description}>
+              {statusMeta.label}
+            </Badge>
             {dish.category ? <Badge>{dish.category}</Badge> : null}
             <span>基準 {dish.servings}人前</span>
             {schedule.totalDurationSec > 0 ? (
@@ -138,6 +157,10 @@ export function DishDetailView({
                     <Menu.Item value="edit-meta" onSelect={() => onEditMeta?.()}>
                       <Pencil strokeWidth={1.75} />
                       名前・カテゴリ・メモを編集
+                    </Menu.Item>
+                    <Menu.Item value="convert-to-food" onSelect={() => onConvertToFood?.()}>
+                      <ArrowRightLeft strokeWidth={1.75} />
+                      定番食品へ移動
                     </Menu.Item>
                     <Menu.Separator />
                     <Menu.Item value="delete" onSelect={() => onDelete?.()}>
@@ -240,6 +263,15 @@ export function DishDetailView({
               costMissingCount={totals.costMissingCount}
               servings={servings}
               layout="stack"
+            />
+          </Section>
+          <Section title="在庫消費" headingLevel={3}>
+            <RecipeStockPanel
+              servings={servings}
+              working={stockWorking}
+              results={stockResults}
+              error={stockError}
+              onConsume={onConsumeStock ? () => onConsumeStock(servings) : undefined}
             />
           </Section>
           <RecipeNotes

@@ -197,6 +197,31 @@ export function calculateDishCost(
   };
 }
 
+export const foodSchema = z
+  .object({
+    id: z.string().trim().min(1).max(128),
+    name: z.string().trim().min(1).max(120),
+    category: z.string().trim().min(1).max(64).nullable().default(null),
+    servingLabel: z.string().trim().min(1).max(64),
+    priceYen: z.number().min(0).nullable().default(null),
+    nutrition: nutritionFactsSchema,
+    memo: z.string().max(2000).nullable().default(null),
+  })
+  .strict();
+export type Food = z.infer<typeof foodSchema>;
+
+export function calculateFoodNutrition(food: Food, servingsFactor: number): NutritionFacts {
+  if (!Number.isFinite(servingsFactor) || servingsFactor <= 0)
+    throw new RangeError("Servings factor must be positive");
+  return scaleNutritionFacts(food.nutrition, servingsFactor);
+}
+
+export function calculateFoodCost(food: Food, servingsFactor: number): number | null {
+  if (!Number.isFinite(servingsFactor) || servingsFactor <= 0)
+    throw new RangeError("Servings factor must be positive");
+  return food.priceYen === null ? null : food.priceYen * servingsFactor;
+}
+
 export const mealLogSourceSchema = z.enum([
   "self_cooked",
   "cafeteria",
@@ -221,18 +246,21 @@ export const mealLogItemBaseSchema = z
     id: z.string().trim().min(1).max(128),
     dishId: z.string().trim().min(1).max(128).nullable().default(null),
     ingredientId: z.string().trim().min(1).max(128).nullable().default(null),
+    foodId: z.string().trim().min(1).max(128).nullable().default(null),
     name: z.string().trim().min(1).max(160),
     servingsFactor: z.number().positive().default(1),
     priceYen: z.number().min(0).nullable().default(null),
     nutrition: nutritionFactsSchema.nullable().default(null),
     ingredientCostBreakdown: z.array(ingredientCostBreakdownEntrySchema).max(100).default([]),
-    estimationSource: z.enum(["manual", "recipe", "ingredient", "ai", "unknown"]).default("manual"),
+    estimationSource: z
+      .enum(["manual", "recipe", "ingredient", "food", "ai", "unknown"])
+      .default("manual"),
     sortOrder: z.int().min(0).default(0),
   })
   .strict();
 export const mealLogItemSchema = mealLogItemBaseSchema.refine(
-  (item) => !(item.dishId !== null && item.ingredientId !== null),
-  "An item cannot reference both a dish and an ingredient",
+  (item) => [item.dishId, item.ingredientId, item.foodId].filter((v) => v !== null).length <= 1,
+  "An item can reference at most one of dish, ingredient, or food",
 );
 export type MealLogItem = z.infer<typeof mealLogItemSchema>;
 export const mealLogSchema = z
@@ -250,7 +278,6 @@ export const mealLogSchema = z
     totalNutrition: nutritionFactsSchema.nullable().default(null),
     rating: z.int().min(1).max(5).nullable().default(null),
     memo: z.string().max(4000).nullable().default(null),
-    inventiaConsumptionStatus: z.enum(["pending", "succeeded", "failed"]).nullable().default(null),
     imageIds: z.array(z.string().trim().min(1).max(128)).default([]),
     items: z.array(mealLogItemSchema).min(1).max(100),
   })

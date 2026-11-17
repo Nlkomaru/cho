@@ -2,6 +2,7 @@ import {
   mealListSchema,
   mealLogSchema,
   type Dish,
+  type Food,
   type Ingredient,
   type MealList,
   type MealLog,
@@ -11,20 +12,13 @@ import {
 } from "../domain/ingredient";
 import {
   calculateDishNutrition,
+  calculateFoodCost,
+  calculateFoodNutrition,
   calculateIngredientCost,
   calculateIngredientNutrition,
 } from "../domain/ingredient";
 import { scaleNutritionFacts, sumNutritionFacts } from "../domain/nutrition";
 import type { NutritionFacts } from "../domain/nutrition";
-import {
-  assertIntegerStockAmount,
-  assertInventiaUnitMatch,
-  InventiaItemNotFoundError,
-  inventiaRequestErrorMessage,
-  type InventiaItemDto,
-  type InventiaStockAdjustRequest,
-  type InventiaStockOperationResult,
-} from "./inventia-client";
 
 export interface MealLogRepository {
   list(filter?: {
@@ -38,10 +32,6 @@ export interface MealLogRepository {
   create(input: MealLog): Promise<MealLog>;
   update(id: string, changes: Partial<Omit<MealLog, "id">>): Promise<MealLog | null>;
   delete(id: string): Promise<MealLog | null>;
-  setInventiaConsumptionStatus(
-    id: string,
-    status: NonNullable<MealLog["inventiaConsumptionStatus"]>,
-  ): Promise<boolean>;
 }
 export interface MealDishRepository {
   getById(id: string): Promise<Dish | null>;
@@ -49,22 +39,20 @@ export interface MealDishRepository {
 export interface MealIngredientRepository {
   getById(id: string): Promise<Ingredient | null>;
 }
-export interface MealInventiaClient {
-  getItem(id: string): Promise<InventiaItemDto | null>;
-  adjustStock(id: string, input: InventiaStockAdjustRequest): Promise<InventiaStockOperationResult>;
+export interface MealFoodRepository {
+  getById(id: string): Promise<Food | null>;
 }
 export interface MealLogServiceOptions {
   repository: MealLogRepository;
   dishRepository: MealDishRepository;
   ingredientRepository: MealIngredientRepository;
-  inventiaClient?: MealInventiaClient;
-  providerId?: string;
+  foodRepository?: MealFoodRepository;
 }
-type MealInput = Omit<MealLog, "id" | "items" | "inventiaConsumptionStatus"> & {
+type MealInput = Omit<MealLog, "id" | "items"> & {
   id?: string;
   items: (Omit<MealLogItem, "id"> & { id?: string })[];
 };
-type MealChanges = Partial<Omit<MealLog, "id" | "items" | "inventiaConsumptionStatus">> & {
+type MealChanges = Partial<Omit<MealLog, "id" | "items">> & {
   items?: MealInput["items"];
 };
 const newId = () => crypto.randomUUID();
@@ -159,21 +147,11 @@ function mergeRange(
   };
 }
 
-export type MealCreationResult = {
-  meal: MealLog;
-  stockConsumption: {
-    status: "succeeded" | "failed" | "skipped";
-    results: InventiaStockOperationResult[];
-    error: string | null;
-  };
-};
-
 export function createMealLogService({
   repository,
   dishRepository,
   ingredientRepository,
-  inventiaClient,
-  providerId,
+  foodRepository,
 }: MealLogServiceOptions) {
   async function snapshotItems(items: MealInput["items"]): Promise<MealLogItem[]> {
     return Promise.all(
@@ -263,6 +241,25 @@ export function createMealLogService({
                   ),
           };
         }
+        if (item.foodId) {
+          if (!foodRepository) throw new Error(`Unknown food: ${item.foodId}`);
+          const food = await foodRepository.getById(item.foodId);
+          if (!food) throw new Error(`Unknown food: ${item.foodId}`);
+          const manual = item.estimationSource === "manual";
+          return {
+            ...item,
+            name: item.name.trim() || food.name,
+            nutrition:
+              manual && item.nutrition
+                ? item.nutrition
+                : calculateFoodNutrition(food, item.servingsFactor),
+            priceYen:
+              manual && item.priceYen !== null
+                ? item.priceYen
+                : calculateFoodCost(food, item.servingsFactor),
+            estimationSource: manual ? "manual" : "food",
+          };
+        }
         return item;
       }),
     );
@@ -276,91 +273,11 @@ export function createMealLogService({
       ...input,
       id: input.id ?? newId(),
       items,
-      inventiaConsumptionStatus: null,
       totalPriceYen: input.totalPriceYen ?? sumItemPrices(items),
       totalNutrition:
         input.totalNutrition ??
         (items.every((item) => item.nutrition !== null) ? sumNutritionFacts(nutritionItems) : null),
     });
-  }
-  async function consumeStock(logId: string): Promise<InventiaStockOperationResult[]> {
-    if (!inventiaClient) throw new Error("Inventia client is not configured");
-    if (!providerId) throw new Error("Inventia providerId is not configured");
-    const log = await repository.getById(logId);
-    if (!log) throw new Error(`Meal log not found: ${logId}`);
-    if (log.sourceType !== "self_cooked") return [];
-    if (!(await repository.setInventiaConsumptionStatus(logId, "pending")))
-      throw new Error(`Meal log not found: ${logId}`);
-    const results: InventiaStockOperationResult[] = [];
-    try {
-      for (const item of log.items) {
-        if (!item.dishId) continue;
-        const dish = await dishRepository.getById(item.dishId);
-        if (!dish) throw new Error(`Unknown dish: ${item.dishId}`);
-        const amountsByIngredient = new Map<string, number>();
-        for (const entry of dish.recipe.ingredients)
-          amountsByIngredient.set(
-            entry.ingredientId,
-            (amountsByIngredient.get(entry.ingredientId) ?? 0) + entry.amount,
-          );
-        for (const [ingredientId, totalAmount] of amountsByIngredient) {
-          const ingredient = await ingredientRepository.getById(ingredientId);
-          if (!ingredient) throw new Error(`Unknown ingredient: ${ingredientId}`);
-          if (!ingredient.inventiaItemId) continue;
-          const inventiaItem = await inventiaClient.getItem(ingredient.inventiaItemId);
-          if (!inventiaItem) throw new InventiaItemNotFoundError();
-          assertInventiaUnitMatch(ingredient, inventiaItem);
-          const amount = (totalAmount / dish.servings) * item.servingsFactor;
-          assertIntegerStockAmount(amount, inventiaItem.baseUnit);
-          const body: InventiaStockAdjustRequest = {
-            delta: -amount,
-            reason: "consume",
-            idempotencyKey: `cho:meal:${log.id}:item:${item.id}:ing:${ingredient.id}`,
-            note: `Cho: ${dish.name}`,
-            externalProviderId: providerId,
-            externalId: log.id,
-          };
-          results.push(await inventiaClient.adjustStock(ingredient.inventiaItemId, body));
-        }
-      }
-      await repository.setInventiaConsumptionStatus(logId, "succeeded");
-      return results;
-    } catch (error) {
-      await repository.setInventiaConsumptionStatus(logId, "failed");
-      throw error;
-    }
-  }
-  async function createWithStock(input: MealInput): Promise<MealCreationResult> {
-    const meal = await repository.create(await build(input));
-    if (meal.sourceType !== "self_cooked")
-      return { meal, stockConsumption: { status: "skipped", results: [], error: null } };
-    if (!inventiaClient || !providerId)
-      return {
-        meal,
-        stockConsumption: {
-          status: "failed",
-          results: [],
-          error: "Inventia is not configured.",
-        },
-      };
-    try {
-      const results = await consumeStock(meal.id);
-      const refreshed = (await repository.getById(meal.id)) ?? meal;
-      return {
-        meal: refreshed,
-        stockConsumption: { status: "succeeded", results, error: null },
-      };
-    } catch (error) {
-      const refreshed = (await repository.getById(meal.id)) ?? meal;
-      return {
-        meal: refreshed,
-        stockConsumption: {
-          status: "failed",
-          results: [],
-          error: inventiaRequestErrorMessage(error, "在庫消費に失敗しました。"),
-        },
-      };
-    }
   }
   return {
     async list(filter: MealListFilter = {}, now = new Date()): Promise<MealList> {
@@ -381,7 +298,6 @@ export function createMealLogService({
     async create(input: MealInput) {
       return repository.create(await build(input));
     },
-    createWithStock,
     async update(id: string, changes: MealChanges): Promise<MealLog | null> {
       const current = await repository.getById(id);
       if (!current) return null;
@@ -406,6 +322,5 @@ export function createMealLogService({
       });
     },
     delete: (id: string) => repository.delete(id),
-    consumeStock,
   };
 }

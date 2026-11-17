@@ -1,6 +1,9 @@
+import type { Food } from "@/domain/ingredient";
 import { scaleNutritionFacts, type NutritionFacts } from "@/domain/nutrition";
 import { errorMessageFrom } from "@/lib/api-error";
 import { formatDateJa } from "@/lib/format";
+
+export type { Food };
 
 export type Source =
   | "self_cooked"
@@ -13,7 +16,6 @@ export type Source =
 export type Timing = "breakfast" | "lunch" | "dinner" | "snack" | "late_snack";
 export type MealPeriod = "day" | "week" | "month";
 export type MealView = "cards" | "table";
-export type StockStatus = "pending" | "succeeded" | "failed";
 
 export type IngredientCost = {
   ingredientId: string;
@@ -27,12 +29,13 @@ export type MealItem = {
   id?: string;
   dishId?: string | null;
   ingredientId?: string | null;
+  foodId?: string | null;
   name: string;
   servingsFactor?: number;
   priceYen: number | null;
   nutrition: NutritionFacts | null;
   ingredientCostBreakdown?: IngredientCost[];
-  estimationSource?: "manual" | "recipe" | "ingredient" | "ai" | "unknown";
+  estimationSource?: "manual" | "recipe" | "ingredient" | "food" | "ai" | "unknown";
   sortOrder?: number;
 };
 
@@ -48,7 +51,6 @@ export type Meal = {
   imageIds: string[];
   items: MealItem[];
   memo?: string | null;
-  inventiaConsumptionStatus?: StockStatus | null;
 };
 
 export type PeriodTotals = {
@@ -93,14 +95,6 @@ export type Analysis = {
   totalNutrition: NutritionFacts;
 };
 
-export type StockConsumption = {
-  status: "succeeded" | "failed" | "skipped";
-  results: unknown[];
-  error: string | null;
-};
-
-export type CreatedMeal = Meal & { stockConsumption?: StockConsumption };
-
 export const sourceOptions: { value: Source; label: string }[] = [
   { value: "self_cooked", label: "自炊" },
   { value: "cafeteria", label: "学食" },
@@ -126,12 +120,6 @@ export const sourceName = Object.fromEntries(
 export const timingName = Object.fromEntries(
   timingOptions.map(({ value, label }) => [value, label]),
 ) as Record<Timing, string>;
-
-export const stockStatusName: Record<StockStatus, string> = {
-  pending: "処理中",
-  succeeded: "消費済み",
-  failed: "失敗",
-};
 
 /** "夕食 · 自炊 · 学食" のような区分の並び。 */
 export function mealMetaParts(meal: Pick<Meal, "mealTiming" | "sourceType" | "placeName">) {
@@ -185,6 +173,23 @@ export function dishMealItem(dish: Dish, factor: number): MealItem {
       ? scaleNutritionFacts(dish.totalNutrition, servingsFactor)
       : null,
     estimationSource: "recipe",
+  };
+}
+
+/**
+ * 定番食品を品目にする。料金・栄養価は 1食分あたりに倍率を掛けて算出する。
+ */
+export function foodMealItem(food: Food, factor: number): MealItem {
+  const servingsFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  return {
+    name: food.name,
+    dishId: null,
+    ingredientId: null,
+    foodId: food.id,
+    servingsFactor,
+    priceYen: food.priceYen === null ? null : food.priceYen * servingsFactor,
+    nutrition: scaleNutritionFacts(food.nutrition, servingsFactor),
+    estimationSource: "food",
   };
 }
 

@@ -7,6 +7,14 @@ import {
 import { validateRecipeDag } from "../domain/recipe-scheduler";
 import { dropRedundantLabels, type RecipeJson } from "../domain/recipe";
 import { DishImageError } from "../repositories/dish-repository";
+import {
+  assertIntegerStockAmount,
+  assertInventiaUnitMatch,
+  InventiaItemNotFoundError,
+  type InventiaItemDto,
+  type InventiaStockAdjustRequest,
+  type InventiaStockOperationResult,
+} from "./inventia-client";
 
 export interface DishRepository {
   list(): Promise<Dish[]>;
@@ -20,9 +28,24 @@ export interface DishIngredientRepository {
   /** Fetches many ingredients with a bounded number of queries. */
   getByIds?(ids: readonly string[]): Promise<Ingredient[]>;
 }
+export interface DishInventiaClient {
+  getItem(id: string): Promise<InventiaItemDto | null>;
+  adjustStock(id: string, input: InventiaStockAdjustRequest): Promise<InventiaStockOperationResult>;
+}
+export interface DishStockConsumptionItem {
+  ingredientId: string;
+  ingredientName: string;
+  inventiaItemId: string;
+  consumedAmount: number;
+  unit: string;
+  currentQuantity: number;
+  allocations: unknown[];
+}
 export interface DishServiceOptions {
   repository: DishRepository;
   ingredientRepository: DishIngredientRepository;
+  inventiaClient?: DishInventiaClient;
+  providerId?: string;
 }
 export interface DishImageChanges {
   /** New cover, null to remove it, or undefined to keep it. */
@@ -33,7 +56,12 @@ export interface DishImageChanges {
 type DishInput = Omit<Dish, "totalNutrition" | "totalCostYen" | "costMissingCount"> &
   Partial<Pick<Dish, "totalNutrition" | "totalCostYen" | "costMissingCount">>;
 
-export function createDishService({ repository, ingredientRepository }: DishServiceOptions) {
+export function createDishService({
+  repository,
+  ingredientRepository,
+  inventiaClient,
+  providerId,
+}: DishServiceOptions) {
   async function loadIngredients(ids: readonly string[]): Promise<Map<string, Ingredient>> {
     const unique = [...new Set(ids)];
     if (ingredientRepository.getByIds) {
@@ -125,5 +153,57 @@ export function createDishService({ repository, ingredientRepository }: DishServ
       });
     },
     delete: (id: string) => repository.delete(id),
+    async consumeStock(
+      id: string,
+      options: { servings?: number; idempotencyKey?: string } = {},
+    ): Promise<DishStockConsumptionItem[]> {
+      if (!inventiaClient) throw new Error("Inventia client is not configured");
+      if (!providerId) throw new Error("Inventia providerId is not configured");
+      const dish = await repository.getById(id);
+      if (!dish) throw new Error(`Dish not found: ${id}`);
+      const servings = options.servings ?? dish.servings;
+      if (!Number.isFinite(servings) || servings <= 0) {
+        throw new TypeError("Servings must be positive");
+      }
+      const amountsByIngredient = new Map<string, number>();
+      for (const entry of dish.recipe.ingredients) {
+        amountsByIngredient.set(
+          entry.ingredientId,
+          (amountsByIngredient.get(entry.ingredientId) ?? 0) + entry.amount,
+        );
+      }
+      const lookup = await loadIngredients([...amountsByIngredient.keys()]);
+      const batchKey = options.idempotencyKey?.trim() || crypto.randomUUID();
+      const results: DishStockConsumptionItem[] = [];
+      for (const [ingredientId, totalAmount] of amountsByIngredient) {
+        const ingredient = lookup.get(ingredientId);
+        if (!ingredient) throw new Error(`Unknown ingredient: ${ingredientId}`);
+        if (!ingredient.inventiaItemId) continue;
+        const inventiaItem = await inventiaClient.getItem(ingredient.inventiaItemId);
+        if (!inventiaItem) throw new InventiaItemNotFoundError();
+        assertInventiaUnitMatch(ingredient, inventiaItem);
+        const amount = (totalAmount / dish.servings) * servings;
+        assertIntegerStockAmount(amount, inventiaItem.baseUnit);
+        const body: InventiaStockAdjustRequest = {
+          delta: -amount,
+          reason: "consume",
+          idempotencyKey: `cho:dish:${dish.id}:${batchKey}:ing:${ingredient.id}`,
+          note: `Cho: ${dish.name}`,
+          externalProviderId: providerId,
+          externalId: dish.id,
+        };
+        const adjusted = await inventiaClient.adjustStock(ingredient.inventiaItemId, body);
+        results.push({
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          inventiaItemId: ingredient.inventiaItemId,
+          consumedAmount: amount,
+          unit: inventiaItem.baseUnit,
+          currentQuantity: adjusted.currentQuantity,
+          allocations: adjusted.allocations,
+        });
+      }
+      return results;
+    },
   };
 }
