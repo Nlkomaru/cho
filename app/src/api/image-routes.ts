@@ -117,6 +117,7 @@ imageRoutes.openapi(uploadImageRoute, async (context) => {
       bucket: context.env.IMAGES_BUCKET,
       bytes: new Uint8Array(await file.arrayBuffer()),
       declaredType: file.type || null,
+      optimizeQueue: context.env.IMAGE_OPTIMIZE_QUEUE,
     });
     schedulePurge(db, context.env.IMAGES_BUCKET, waitUntilOf(context));
     const expiresAt = Math.floor(Date.now() / 1000) + SIGNED_URL_LIFETIME_SECONDS;

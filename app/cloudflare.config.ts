@@ -1,4 +1,4 @@
-import { bindings, defineConfig } from "cf/config";
+import { bindings, defineConfig, triggers } from "cf/config";
 
 export default defineConfig(({ isPreview, mode }) => {
   const preview = isPreview || mode === "preview" || process.env.CHO_PREVIEW === "true";
@@ -13,13 +13,25 @@ export default defineConfig(({ isPreview, mode }) => {
       name: "cho",
       compatibilityDate: "2026-08-26",
       compatibilityFlags: ["nodejs_compat"],
-      entrypoint: "@tanstack/react-start/server-entry",
+      entrypoint: "./src/server.ts",
       workersDev: true,
       previewUrls: true,
       observability: {
         enabled: true,
       },
       domains: ["cho.nikomaru.dev"],
+      ...(!preview && !smoke
+        ? {
+            triggers: [
+              triggers.queue({
+                name: "cho-image-optimize",
+                maxBatchSize: 5,
+                maxBatchTimeout: 5,
+                maxRetries: 3,
+              }),
+            ],
+          }
+        : {}),
       env: {
         INVENTIA_BASE_URL: bindings.text("https://inventia.nikomaru.dev"),
         ...(production
@@ -53,6 +65,14 @@ export default defineConfig(({ isPreview, mode }) => {
                   remote: !smoke,
                 },
               }),
+              ...(!smoke
+                ? {
+                    IMAGES: bindings.images(),
+                    IMAGE_OPTIMIZE_QUEUE: bindings.queue({
+                      name: "cho-image-optimize",
+                    }),
+                  }
+                : {}),
             }
           : {}),
         ASSETS: bindings.assets(),
