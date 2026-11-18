@@ -7,8 +7,9 @@
 API トークンごとに許可するツールを選択できます。サーバーは許可されていないツールを一覧から隠し、呼び出しを拒否します。
 
 - **材料 (`ingredients`)**: `list_ingredients`, `get_ingredient`, `create_ingredient`, `update_ingredient`, `delete_ingredient`
-- **Inventia 連携**: `search_inventia_items`, `link_inventia_item`, `get_ingredient_stock`
+- **Inventia 連携**: `search_inventia_items`, `link_inventia_item`, `get_ingredient_stock`, `consume_recipe_stock`
 - **レシピ (`recipes`)**: `list_recipes`, `get_recipe`, `create_recipe`, `update_recipe`, `delete_recipe`, `calculate_purchase_list`
+- **定番食品 (`foods`)**: `list_foods`, `get_food`, `create_food`, `update_food`, `delete_food`
 - **画像 (`images`)**: `upload_image`, `create_image_upload`, `set_recipe_images`
 - **食事記録 (`meals`)**: `list_meals`, `get_meal`, `record_meal`, `update_meal`, `delete_meal`（食事の記録は Cho に保存し、Inventia の在庫は変更しません）
 
